@@ -1,0 +1,31 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    services:
+      db:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: trailgeek
+          POSTGRES_USER: trailgeek
+          POSTGRES_PASSWORD: ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U trailgeek" --health-interval 5s
+          --health-timeout 5s --health-retries 20
+    env:
+      DJANGO_SECRET_KEY: ci
+      DJANGO_DEBUG: "1"
+      POSTGRES_HOST: localhost
+      POSTGRES_PASSWORD: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: sudo apt-get update && sudo apt-get install -y gdal-bin
+      - run: pip install -r requirements.txt
+      - run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py test
+      - name: JS syntax check
+        run: for f in $(git ls-files 'core/static/core/js/*.js'); do node --check "$f"; done

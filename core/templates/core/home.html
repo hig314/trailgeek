@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}trailgeek — trail maps and design tools{% endblock %}
+{% block bodyclass %}tg-full{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+<link rel="stylesheet" href="{% static 'core/vendor/maplibre-gl-demshade.css' %}">
+{% endblock %}
+{% block content %}<div id="map"></div>{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="{% static 'core/vendor/maplibre-gl-demshade.iife.js' %}"></script>
+<script src="{% static 'core/js/home.js' %}"></script>
+{% endblock %}

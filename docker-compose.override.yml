@@ -1,0 +1,14 @@
+# Local dev (applied automatically by `docker compose up`).
+# Port 8002: 8000 is the Tethys stack and 8001 is landslidescience.
+services:
+  web:
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+    ports:
+      - "127.0.0.1:8002:8000"
+    volumes:
+      - .:/app
+    restart: "no"
+  worker:
+    volumes:
+      - .:/app
+    restart: "no"

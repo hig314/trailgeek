@@ -1,0 +1,20 @@
+:root {
+  --tg-ink: #1f2a1f;
+  --tg-bg: #f7f6f1;
+  --tg-accent: #3d6b35;
+  --tg-header-h: 44px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink); background: var(--tg-bg); }
+.tg-header {
+  height: var(--tg-header-h); display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px; background: var(--tg-ink); color: #fff;
+}
+.tg-header a { color: #fff; text-decoration: none; margin-left: 16px; }
+.tg-brand { font-weight: 700; letter-spacing: .02em; margin-left: 0 !important; }
+.tg-inline { display: inline; margin-left: 16px; }
+.tg-inline button { background: none; border: 0; color: #fff; font: inherit; cursor: pointer; padding: 0; }
+.tg-page { max-width: 760px; margin: 32px auto; padding: 0 16px; }
+.tg-full main { position: absolute; top: var(--tg-header-h); bottom: 0; left: 0; right: 0; }
+#map { position: absolute; inset: 0; }

@@ -1,0 +1,25 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}trailgeek{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'core/css/site.css' %}">
+  {% block head %}{% endblock %}
+</head>
+<body class="{% block bodyclass %}{% endblock %}">
+  <header class="tg-header">
+    <a class="tg-brand" href="/">trailgeek</a>
+    <nav>
+      <a href="/about/">About</a>
+      {% if user.is_authenticated %}
+        <form method="post" action="{% url 'logout' %}" class="tg-inline">{% csrf_token %}<button>Sign out</button></form>
+      {% else %}
+        <a href="{% url 'login' %}">Sign in</a>
+      {% endif %}
+    </nav>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

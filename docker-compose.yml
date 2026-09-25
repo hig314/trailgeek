@@ -1,0 +1,51 @@
+# Base stack, shared by dev and prod. Dev adds docker-compose.override.yml
+# automatically; prod adds docker-compose.prod.yml explicitly:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+name: trailgeek
+services:
+  web:
+    build: .
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+    restart: unless-stopped
+
+  # Huey worker: long-running analysis jobs (trail evaluator, router) run
+  # here, never inside a web request.
+  worker:
+    build: .
+    env_file: .env
+    environment:
+      SKIP_MIGRATE: "1"
+    command: ["python", "manage.py", "run_huey", "--workers", "2"]
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+    restart: unless-stopped
+
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -1,0 +1,8 @@
+Django>=5.2,<5.3
+psycopg[binary]>=3.2,<4
+gunicorn>=23
+whitenoise>=6.7
+huey>=2.5,<3
+redis>=5
+Markdown>=3.7
+nh3>=0.2.18
