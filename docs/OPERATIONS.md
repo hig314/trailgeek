@@ -63,15 +63,38 @@ $C restart caddy          # retries certificate issuance
 else. Changing `DJANGO_SECRET_KEY` logs everyone out.
 
 ### Known state and open items
-- **R2 CORS for trailgeek.org (needed by Phase 1).** The lidar archives on
-  the `landslidescience-lidar` R2 bucket (`lidar.landslidescience.org`) and
-  the per-tile Worker are read by demshade in a Web Worker with `fetch`,
-  which needs CORS. The bucket's allowlist names landslidescience.org and
-  its dev origin only. Add `https://trailgeek.org` (and
-  `http://localhost:8002` for dev) to the bucket's CORS policy in the
-  Cloudflare dashboard and to the Worker's allowed origins. Until then the
-  map logs `lidar <id> is not readable from this origin` and falls back to
-  Terrarium. The public catalogue endpoint itself already sends `*`.
+- **R2 CORS for trailgeek.org (needed by Phase 1; confirmed 2026-09-26
+  from localhost:8002: "No 'Access-Control-Allow-Origin' header").** The
+  lidar archives are read by demshade in a Web Worker with `fetch`, which
+  needs CORS from two places, both configured in landslidescience's
+  Cloudflare account, so this is a local-session (Mac) job:
+  1. **The R2 bucket** `landslidescience-lidar` (custom domain
+     `lidar.landslidescience.org`): Cloudflare dashboard → R2 → the bucket
+     → Settings → CORS policy. Add the trailgeek origins to
+     `AllowedOrigins`, keeping the existing ones:
+     ```json
+     [{"AllowedOrigins": ["https://landslidescience.org", "https://www.landslidescience.org",
+                          "http://localhost:8001",
+                          "https://trailgeek.org", "https://www.trailgeek.org", "http://localhost:8002"],
+       "AllowedMethods": ["GET", "HEAD"],
+       "AllowedHeaders": ["Range", "If-None-Match", "If-Range"],
+       "ExposeHeaders": ["ETag", "Content-Range", "Content-Length", "Accept-Ranges", "Last-Modified"],
+       "MaxAgeSeconds": 86400}]
+     ```
+     The existing policy may already list more headers; add origins, do
+     not remove anything. `Range` in AllowedHeaders and `Content-Range` in
+     ExposeHeaders are what make ranged PMTiles reads work at all.
+  2. **The tile Worker** `lidar-tiles` (`tiles.landslidescience.org`), used
+     when a catalogue row has `tiles_url`: in the landslidescience repo,
+     `workers/lidar-tiles/wrangler.toml`, append the same three origins to
+     `ALLOWED_ORIGINS` (the comment there says it mirrors the bucket
+     policy) and redeploy with `npx wrangler deploy` from that directory.
+     That is a landslidescience change, so it goes through that repo's
+     own branch-and-test rule.
+  Until both are done the map logs one warning per survey
+  (`lidar <id> is not readable from http://localhost:8002`), leaves the
+  survey out of the Lidar picker and shades from Terrarium. Reload after
+  the change; Cloudflare applies CORS policy edits within a minute.
 - **No backups yet.** The database lives in the `pgdata` Docker volume on
   the droplet, and DigitalOcean droplet backups are off. Phase 1 adds
   uploaded GPX originals under `/opt/trailgeek/data/media/` (bind-mounted

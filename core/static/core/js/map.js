@@ -66,14 +66,19 @@
         }
       } else {
         lidarIds.push(p.id);
-        // One registration per survey, composited over the regional DEM so
-        // both shading and 3D terrain run to the horizon (dem_fill.js's
-        // idea, done inside the demshade worker). 'missing' keeps holes
-        // inside the survey honest instead of patching sea surface in.
-        DemShade.addDataset(p.id, p.pmtiles_url, DemShade.catalogOpts(p, {
-          fill: CTX, fillMode: p.fill_mode || 'missing'
-        }));
-        probe(p);
+        probe(p).then(function () {
+          // One registration per survey, composited over the regional DEM
+          // so both shading and 3D terrain run to the horizon (dem_fill.js's
+          // idea, done inside the demshade worker). 'missing' keeps holes
+          // inside the survey honest instead of patching sea surface in.
+          DemShade.addDataset(p.id, p.pmtiles_url, DemShade.catalogOpts(p, {
+            fill: CTX, fillMode: p.fill_mode || 'missing'
+          }));
+          p.ready = true;
+        }, function (e) {
+          p.unavailable = true;
+          if (explicitDem === p.id) explicitDem = null;
+        }).then(function () { fillDemPicker(); syncDem(false); });
       }
     });
     if (!dems[CTX]) {
@@ -86,9 +91,13 @@
   }
 
   // The archives live on landslidescience's R2 bucket, whose CORS allowlist
-  // must name this origin (docs/OPERATIONS.md). A survey that cannot be read
-  // from here is marked unavailable and left out of the picker and the auto
-  // choice, so the map falls back to the regional DEM instead of going blank.
+  // must name this origin (docs/OPERATIONS.md). Each survey is probed with
+  // one small request before it is registered with demshade at all: a
+  // survey that cannot be read from here is left out of the picker and the
+  // auto choice, and never asked for tiles, so the map falls back to the
+  // regional DEM with a single warning per survey instead of an error per
+  // tile. Resolves when readable, rejects otherwise.
+  var corsWarned = false;
   function probe(p) {
     var url, init = { mode: 'cors', credentials: 'omit' };
     if (p.tiles_url) {
@@ -98,8 +107,8 @@
                        .replace('{y}', Math.floor((1 - Math.log(Math.tan(lr) + 1 / Math.cos(lr)) / Math.PI) / 2 * n));
     } else if (p.pmtiles_url) {
       url = p.pmtiles_url; init.headers = { Range: 'bytes=0-15' };
-    } else { return; }
-    fetch(url, init).then(function (r) {
+    } else { return Promise.reject(new Error('no archive URL')); }
+    return fetch(url, init).then(function (r) {
       if (!r.ok && r.status !== 204) throw new Error('HTTP ' + r.status);
       if (!init.headers) return;
       // Read only the first chunk (a server ignoring Range would send the
@@ -111,14 +120,17 @@
         if (head !== 'PMTiles') throw new Error('not a PMTiles archive');
       });
     }).catch(function (e) {
-        console.warn('lidar ' + p.id + ' is not readable from this origin: ' + e.message);
-        p.unavailable = true;
-        if (explicitDem === p.id) explicitDem = null;
-        fillDemPicker();
-        syncDem(false);
-      });
+      console.warn('lidar ' + p.id + ' is not readable from ' + location.origin + ': ' + e.message);
+      if (!corsWarned && e instanceof TypeError) {
+        corsWarned = true;
+        console.warn('A "Failed to fetch" here usually means this origin is missing from the ' +
+                     'landslidescience-lidar R2 bucket CORS allowlist and the lidar-tiles Worker ' +
+                     '(docs/OPERATIONS.md, open items). Shading falls back to the regional DEM.');
+      }
+      throw e;
+    });
   }
-  function usable(id) { return dems[id] && !dems[id].unavailable; }
+  function usable(id) { return !!(dems[id] && dems[id].ready); }
 
   function overlaps(p, b) {
     var q = p.bounds;
