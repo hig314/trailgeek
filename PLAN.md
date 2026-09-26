@@ -1,7 +1,29 @@
 # trailgeek.org — build plan
 
-*Drafted 2026-09-24. A trails-focused web map portal that shares tools, data
+*Drafted 2026-09-24; status updated 2026-09-25. A trails-focused web map portal that shares tools, data
 and hosting patterns with landslidescience.org and groundtruthalaska.org.*
+
+## 0. Status (2026-09-25)
+
+| Phase | State |
+|---|---|
+| 0 — Scaffold | **Done, live.** Repo public at hig314/trailgeek; droplet `trailgeek-web` provisioned; Cloudflare DNS; Caddy TLS; CI green; home map with demshade + 3D confirmed working. Not done: `hig-maplibre-kit` extraction (deferred, see below); R2 bucket `trailgeek-data` (create when uploads arrive in Phase 1); analytics; backups. |
+| 1 — Portal MVP | **Next.** |
+| 2–6 | Not started. |
+
+Changes from the original plan, decided during Phase 0:
+- **`hig-maplibre-kit` is deferred.** Moving the shared JS out of
+  landslidescience edits that repo, which has parallel work streams and its
+  own test-before-ship rule. It will be a separate, reviewed change. Until
+  then, copy modules with a header naming the source.
+- **Ubuntu 24.04 with Docker from Docker's apt repo**, set up by
+  `ops/provision.sh`, instead of DigitalOcean's Docker image, so the droplet
+  can be rebuilt from the repo.
+- **Work happens on branches and PRs**, because development moves to
+  Claude Code on the web. Deploys still run from the owner's Mac
+  (docs/OPERATIONS.md).
+- Details that used to live only on the owner's Mac are now in
+  `docs/`, especially the algorithm spec in docs/TRAIL_ANALYSIS.md.
 
 ## 1. What it is
 

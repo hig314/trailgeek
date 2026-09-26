@@ -1,40 +1,89 @@
 # CLAUDE.md — trailgeek.org
 
-Trails-focused map portal. Roadmap in [PLAN.md](PLAN.md). Sister sites:
-landslidescience.org (`../landslidescience`, the pattern this repo copies)
-and groundtruthalaska.org (`../GTA`). Shared browser code comes from
-`../maplibre-gl-demshade` (vendored IIFE, see `core/static/core/vendor/VENDOR.md`).
+A trails-focused web map portal: trails, GPS tracklines and trail design
+analysis on lidar terrain, with 3D views, D3 profiles, and a pluggable tool
+framework that colleagues (snow, soil water) can contribute to. The owner is
+a GIS-literate geoscientist, not a professional web developer, so explain
+server and Django reasoning rather than assume it.
 
-## Workflow — dev → test → (revise → test) → GitHub + production
+| Read | For |
+|---|---|
+| [PLAN.md](PLAN.md) | Architecture, data model, tool framework, phases. **§0 has the current status.** |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Production droplet, DNS, deploy, local dev, testing without Docker, open ops items |
+| [docs/SISTER_PROJECTS.md](docs/SISTER_PROJECTS.md) | What to reuse from landslidescience, GTA, demshade, and the public lidar catalogue |
+| [docs/TRAIL_ANALYSIS.md](docs/TRAIL_ANALYSIS.md) | Spec of the evaluator, profile and router algorithms to port, with their known bugs |
 
-Never push to GitHub or deploy until the owner has tested in local dev and
-explicitly approved. Local commits are fine; the push is the sync point with
-production. Deploy is `ops/deploy.sh`.
+## State of play (2026-09-25): the one dated section; update it, don't work around it
 
-## Environments
+- **Phase 0 is done and live** at https://trailgeek.org (first deploy
+  2026-09-25). It has a Django 5.2 + GeoDjango + PostGIS + Huey + Caddy stack,
+  a home map (USGS Topo, demshade hillshade/slope from AWS Terrarium, 3D
+  toggle, confirmed working by the owner), Markdown pages in `/admin/`, role
+  groups, `/healthz`, and CI.
+- **No trail models yet.** `core` has views, roles and a ping task; `pages`
+  has `Page`. Phase 1 starts with the models in PLAN.md §4.
+- **Next up (Phase 1):** `DemSource` seeded from the landslidescience lidar
+  catalogue; `Trail`, `Track`, `Project`, `Alignment`; GPX upload; trails as
+  vector tiles from PostGIS; a client-side D3 elevation profile; detail panel;
+  URL hash state.
+- **Deliberately deferred:** extracting landslidescience's shared JS into
+  `hig-maplibre-kit` (it touches landslidescience; do it as a separate
+  reviewed change). Backups, uptime check and analytics are open items in
+  OPERATIONS.md.
 
-| | Dev | Prod |
-|---|---|---|
-| Where | this machine, `docker compose up -d` | droplet `trailgeek-web`, `/opt/trailgeek` |
-| URL | http://localhost:8002 (8000 = Tethys, 8001 = landslidescience) | https://trailgeek.org |
-| Compose | `docker-compose.yml` + `override` (auto) | `docker-compose.yml` + `docker-compose.prod.yml` |
-| TLS | none | Caddy, Let's Encrypt |
+## Workflow: build → owner tests → owner approves → merge + deploy
 
-Production host: droplet `trailgeek-web` (id 603685081, sfo3, s-2vcpu-4gb,
-Ubuntu 24.04), reserved IP **137.184.246.228**, cloud firewall
-`trailgeek-web-fw` (22/80/443 only), root SSH with the `macbook` key.
-DNS is Cloudflare; the zone is `trailgeek.org`.
+This is load-bearing, carried over from landslidescience, where it was
+earned by incidents. Production is public.
 
-## Stack
+- **Work on a branch and open a PR.** Never push directly to `main`: `main`
+  is what production runs, and `ops/deploy.sh` deploys `origin/main`.
+- CI runs on every push. Read its result (`gh run list`, `gh run view
+  --log-failed`) before asking for review.
+- The owner tests the branch, either locally (`git checkout <branch> &&
+  docker compose up -d`) or by reading the PR, and says whether it is
+  approved. **Only after explicit approval** is the PR merged and deployed.
+- **Deploying needs the owner's Mac**, which is the only machine with the
+  droplet's SSH key: `ops/deploy.sh`. A cloud session can't deploy. It should
+  finish the PR and tell the owner what to run, including any
+  post-deploy steps such as a management command.
+- Migrations: commit them with the change. `makemigrations --check` in CI
+  fails if one is missing.
 
-Python 3.12, Django 5.2, GeoDjango on PostGIS 16 (own container, named
-volume `pgdata`), Huey on Redis for long jobs (`worker` service, same image),
-gunicorn + WhiteNoise, Caddy in prod. Frontend: MapLibre 5 from unpkg,
-vanilla JS, no build step. `data/` is gitignored and volume-mounted.
+## Stack and conventions
 
-## Conventions
+- Python 3.12, Django 5.2, GeoDjango on **PostGIS 16** in its own container.
+  Trail data is this site's own, so it uses **real ORM models** (unlike
+  landslidescience, which reads another stack's DB by raw SQL).
+- **Huey + Redis** for anything slow (raster sampling, the evaluator, the
+  router): the `worker` service, same image. Never do raster work in a
+  request.
+- Frontend: **MapLibre GL JS 5.24** from unpkg, vanilla JS in IIFEs, **no
+  build step** for the site. D3 v7 for charts. Tool bundles (Phase 3) may use
+  Vite + TypeScript.
+- **demshade is vendored** in `core/static/core/vendor/`. Its source repo is
+  on the owner's Mac only, so a cloud session can't rebuild it (see
+  `VENDOR.md`). The source map must stay next to the `.js`, or
+  `collectstatic` fails under WhiteNoise's manifest storage.
+- **One copy of every shared thing.** Before writing a map helper, check
+  landslidescience (public repo) per docs/SISTER_PROJECTS.md. When copying,
+  add a header comment naming the source file.
+- Role groups live in `core/roles.py`; `init_groups` runs on every web
+  container start. Only the web container migrates (`SKIP_MIGRATE=1` on the
+  worker).
+- Settings come from env vars only (`.env.example`). There is one settings
+  file.
+- `window.tgMap` is the home map, for console debugging.
+- Local dev is on port **8002** (8000 = Tethys, 8001 = landslidescience).
 
-- One copy of every shared thing. Before writing a map helper, check
-  landslidescience's `inventory/static/inventory/js/` and demshade.
-- Role groups live in `core/roles.py`; `init_groups` runs on every web start.
-- Only the web container migrates (`SKIP_MIGRATE=1` on the worker).
+## Layout
+
+| Path | What |
+|---|---|
+| `trailgeek/` | settings, urls, wsgi |
+| `core/` | home map, `/healthz`, role groups + `init_groups`, Huey tasks; trail models go here |
+| `pages/` | `Page` model (Markdown), served at `/<slug>/` (catch-all, so it is routed last) |
+| `templates/` | `base.html`, login |
+| `ops/` | `provision.sh` (droplet setup, idempotent), `deploy.sh` |
+| `docs/` | operations, sister projects, algorithm spec |
+| `Caddyfile`, `docker-compose*.yml`, `Dockerfile`, `entrypoint.sh` | the stack |
