@@ -72,6 +72,13 @@ class SmokeTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.json()["postgis"])
 
+    def test_sign_in_and_out_land_on_the_map(self):
+        User.objects.create_user("u", password="pw")
+        r = self.client.post("/accounts/login/", {"username": "u", "password": "pw"})
+        self.assertEqual((r.status_code, r["Location"]), (302, "/"))
+        r = self.client.post("/accounts/logout/")
+        self.assertEqual((r.status_code, r["Location"]), (302, "/"))
+
     def test_init_groups_is_idempotent(self):
         call_command("init_groups")
         call_command("init_groups")
