@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Upload a GPS track · trailgeek{% endblock %}
+{% block content %}
+<article class="tg-page">
+  <h1>Upload a GPS track</h1>
+  <p>A GPX file from a watch, handheld or phone app. The original is kept
+  untouched; the track appears on the map straight away with a profile from
+  its own elevations, and can be attached to a trail.</p>
+  <form method="post" enctype="multipart/form-data" class="tg-form">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    {% for field in form %}
+      <div class="tg-field">
+        {{ field.label_tag }}
+        {{ field }}
+        {% if field.help_text %}<div class="tg-help">{{ field.help_text }}</div>{% endif %}
+        {{ field.errors }}
+      </div>
+    {% endfor %}
+    <button type="submit">Upload</button> <a href="/">Back to the map</a>
+  </form>
+</article>
+{% endblock %}

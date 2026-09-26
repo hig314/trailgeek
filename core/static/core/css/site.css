@@ -18,3 +18,61 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .tg-page { max-width: 760px; margin: 32px auto; padding: 0 16px; }
 .tg-full main { position: absolute; top: var(--tg-header-h); bottom: 0; left: 0; right: 0; }
 #map { position: absolute; inset: 0; }
+
+/* ---- home map: layers box, detail panel, profile ---- */
+.tg-layers { position: absolute; top: 10px; right: 10px; z-index: 3; width: 250px; }
+.tg-layers-toggle { width: 100%; padding: 6px 10px; border: 1px solid #bbb; border-radius: 6px; background: #fff; font: inherit; cursor: pointer; }
+.tg-layers-body { display: none; margin-top: 6px; background: rgba(255,255,255,.96); border: 1px solid #bbb; border-radius: 6px; padding: 10px 12px; box-shadow: 0 2px 10px rgba(0,0,0,.2); font-size: 13px; }
+.tg-layers.open .tg-layers-body { display: block; }
+.tg-layers-body label { display: block; margin: 6px 0 2px; }
+.tg-layers-body select, .tg-layers-body input[type=range] { width: 100%; font: inherit; }
+.tg-layers-body .tg-check { display: flex; align-items: center; gap: 6px; }
+.tg-layers-body .tg-check input { width: auto; }
+.tg-small { font-size: 12px; margin-top: 8px; }
+.tg-muted { color: #666; }
+.tg-error { color: #a33; }
+.tg-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-size: 12px; }
+.tg-sw { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin-right: 4px; border-radius: 2px; }
+.tg-sw.tg-dash { background-image: repeating-linear-gradient(90deg, transparent 0 3px, #fff 3px 6px); }
+
+.tg-panel { position: absolute; top: 10px; left: 50px; bottom: 10px; width: 360px; max-width: calc(100% - 60px); z-index: 3;
+  background: rgba(255,255,255,.97); border: 1px solid #bbb; border-radius: 6px; padding: 12px 14px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.2); overflow-y: auto; display: none; font-size: 14px; }
+.tg-panel.open { display: block; }
+.tg-panel h2 { font-size: 18px; margin: 2px 0 6px; }
+.tg-panel-close { position: absolute; top: 6px; right: 8px; border: 0; background: none; font-size: 20px; cursor: pointer; color: #666; }
+.tg-kind { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #555; }
+.tg-sub { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #555; margin: 12px 0 4px; }
+.tg-stats { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 8px 0; }
+.tg-stats dt { color: #666; }
+.tg-stats dd { margin: 0; font-variant-numeric: tabular-nums; }
+.tg-list { margin: 0; padding-left: 18px; }
+.tg-links { margin: 8px 0; font-size: 13px; }
+.tg-desc { white-space: pre-wrap; }
+.tg-toggle label { margin-right: 10px; font-size: 13px; }
+.tg-profile-box { position: relative; margin-top: 4px; min-height: 40px; }
+.tg-profile { display: block; width: 100%; }
+.tg-profile .tg-area { fill: #e8ede6; }
+.tg-profile .tg-line { fill: none; stroke-width: 2.5px; stroke-linejoin: round; stroke-linecap: round; }
+.tg-profile .tg-grid line { stroke: #ddd; }
+.tg-profile .tg-grid path { display: none; }
+.tg-profile .tg-axis { font-size: 10px; color: #555; }
+.tg-profile .tg-axis path, .tg-profile .tg-axis line { stroke: #bbb; }
+.tg-profile .tg-cursor line { stroke: #333; stroke-dasharray: 2 2; }
+.tg-profile .tg-cursor circle { stroke: #1f2a1f; stroke-width: 1.5px; }
+.tg-profile .tg-hit { fill: transparent; cursor: crosshair; }
+.tg-tip { position: absolute; top: 6px; background: rgba(31,42,31,.9); color: #fff; font-size: 12px; padding: 4px 7px; border-radius: 4px; pointer-events: none; white-space: nowrap; }
+.tg-keys { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 11px; color: #555; }
+.tg-key i { display: inline-block; width: 10px; height: 10px; margin-right: 3px; vertical-align: -1px; border-radius: 2px; }
+
+/* ---- forms ---- */
+.tg-form .tg-field { margin: 12px 0; }
+.tg-form label { display: block; font-weight: 600; margin-bottom: 3px; }
+.tg-form input[type=text], .tg-form select, .tg-form textarea { width: 100%; font: inherit; padding: 6px; }
+.tg-form .tg-help { color: #666; font-size: 13px; }
+.tg-form .errorlist { color: #a33; margin: 4px 0; padding-left: 18px; }
+.tg-form button { font: inherit; padding: 6px 14px; background: var(--tg-accent); color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
+@media (max-width: 640px) {
+  .tg-panel { left: 10px; top: auto; height: 55%; width: auto; right: 10px; max-width: none; }
+  .tg-layers { width: 200px; }
+}

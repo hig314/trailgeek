@@ -6,9 +6,49 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
 <link rel="stylesheet" href="{% static 'core/vendor/maplibre-gl-demshade.css' %}">
 {% endblock %}
-{% block content %}<div id="map"></div>{% endblock %}
+{% block content %}
+<div id="map"></div>
+
+<div id="layers" class="tg-layers">
+  <button id="layers-toggle" class="tg-layers-toggle" title="Layers">Layers</button>
+  <div class="tg-layers-body">
+    <label>Basemap <select id="base"></select></label>
+    <label>Lidar <select id="dem"></select></label>
+    <div id="demstatus" class="tg-muted tg-small"></div>
+    <label>Hillshade opacity <input id="shade-op" type="range" min="0" max="100" value="60"></label>
+    <label class="tg-check"><input id="slope" type="checkbox"> Slope shading</label>
+    <label class="tg-check"><input id="t3d" type="checkbox"> 3D terrain</label>
+    <label>Exaggeration <input id="exag" type="range" min="5" max="30" value="12"></label>
+    <div class="tg-legend">
+      <span><i class="tg-sw" style="background:#2a7f2a"></i> Trail</span>
+      <span><i class="tg-sw tg-dash" style="background:#1f78b4"></i> Proposed</span>
+      <span><i class="tg-sw" style="background:#d9772b"></i> GPS track</span>
+      <span><i class="tg-sw" style="background:#7b3fa0"></i> Alignment</span>
+    </div>
+    <div class="tg-small">
+      {% if can_edit %}<a href="{% url 'track_upload' %}">Upload a GPX track</a> · <a href="/admin/core/">Edit data</a>
+      {% elif user.is_authenticated %}Ask for the trail_editors role to upload tracks.
+      {% else %}<a href="{% url 'login' %}">Sign in</a> to upload tracks.{% endif %}
+    </div>
+  </div>
+</div>
+
+<aside id="panel" class="tg-panel">
+  <button id="panel-close" class="tg-panel-close" title="Close">×</button>
+  <div id="detail"></div>
+  <div id="profile" class="tg-profile-box"></div>
+  <div id="profstats"></div>
+</aside>
+{% endblock %}
 {% block scripts %}
+<script>window.TG_CONFIG = { canEdit: {{ can_edit|yesno:"true,false" }} };</script>
 <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js"></script>
 <script src="{% static 'core/vendor/maplibre-gl-demshade.iife.js' %}"></script>
-<script src="{% static 'core/js/home.js' %}"></script>
+<script src="{% static 'core/js/basemaps.js' %}"></script>
+<script src="{% static 'core/js/ls_hash.js' %}"></script>
+<script src="{% static 'core/js/dem_shade_bridge.js' %}"></script>
+<script src="{% static 'core/js/tg_sample.js' %}"></script>
+<script src="{% static 'core/js/tg_profile.js' %}"></script>
+<script src="{% static 'core/js/map.js' %}"></script>
 {% endblock %}

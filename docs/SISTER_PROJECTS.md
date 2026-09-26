@@ -50,6 +50,14 @@ yet**: it edits landslidescience, which has parallel work streams (see its
 reviewed change. Until then, copy what you need and put a header comment
 naming the source file.
 
+**Copied so far (Phase 1, verbatim, from landslidescience @ 7327b63):**
+`basemaps.js`, `ls_hash.js`, `dem_shade_bridge.js`, into
+`core/static/core/js/`. `basemaps.js` carries thumbnail paths under
+`inventory/img/` that do not exist here; trailgeek does not call
+`thumbnailUrl`. `tg_sample.js` re-implements the Terrarium decode from
+`dem_fill.js` rather than copying the whole compositing protocol, because
+demshade now does the compositing in its worker (`fill`).
+
 ### Lidar data (public, usable today)
 - **Catalogue:** `https://landslidescience.org/lidar/catalog.geojson`
   (checked 2026-09-25: 43 surveys). Each feature has a footprint and these
@@ -67,6 +75,9 @@ naming the source file.
 - **Gated surveys** are for signed-in users only on landslidescience. A
   browser on trailgeek.org can't use that session, so gated data would need
   trailgeek's own ranged proxy and gate.
+- **CORS:** the R2 bucket and tile Worker must allow the trailgeek.org
+  origin before the archives load from this site (docs/OPERATIONS.md, open
+  items). The catalogue endpoint is already `Access-Control-Allow-Origin: *`.
 - **Evaluator test areas are in the catalogue:** `grewingk_2021` (Alpine
   Ridge, Grewingk) and `anchorage_2015` (Ram Valley). Also relevant:
   `kbay_2023`, `homer_2019`, `seldovia_2019`, `glen_alps_2024`,

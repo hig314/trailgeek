@@ -1,14 +1,14 @@
 # trailgeek.org — build plan
 
-*Drafted 2026-09-24; status updated 2026-09-25. A trails-focused web map portal that shares tools, data
+*Drafted 2026-09-24; status updated 2026-09-26. A trails-focused web map portal that shares tools, data
 and hosting patterns with landslidescience.org and groundtruthalaska.org.*
 
-## 0. Status (2026-09-25)
+## 0. Status (2026-09-26)
 
 | Phase | State |
 |---|---|
 | 0 — Scaffold | **Done, live.** Repo public at hig314/trailgeek; droplet `trailgeek-web` provisioned; Cloudflare DNS; Caddy TLS; CI green; home map with demshade + 3D confirmed working. Not done: `hig-maplibre-kit` extraction (deferred, see below); R2 bucket `trailgeek-data` (create when uploads arrive in Phase 1); analytics; backups. |
-| 1 — Portal MVP | **Next.** |
+| 1 — Portal MVP | **Built, in review** (branch `claude/trailgeek-project-b53hqm`). Models, admin, DEM catalogue import, GPX upload, live MVT, demshade + 3D from the lidar catalogue, D3 profile from GPS or Terrarium, detail panel, URL hash. Not yet: Terra Draw, KML/GeoJSON upload, seed alignments, R2 CORS for this origin (owner). |
 | 2–6 | Not started. |
 
 Changes from the original plan, decided during Phase 0:
@@ -24,6 +24,20 @@ Changes from the original plan, decided during Phase 0:
   (docs/OPERATIONS.md).
 - Details that used to live only on the owner's Mac are now in
   `docs/`, especially the algorithm spec in docs/TRAIL_ANALYSIS.md.
+
+Decided during Phase 1:
+- **`Track.geom` is a 3D LineString (Z = device elevation) with timestamps
+  in a `times` JSON column**, not LineStringZM: GeoDjango fields carry Z
+  but not M. Seconds since `taken_at`, one per vertex, is enough for replay.
+- **Client-side profiles sample AWS Terrarium tiles**, not the lidar. That
+  is a quick look; the authoritative lidar profile is the Phase 2 evaluator's
+  job. Lidar PMTiles reads from a second origin also depend on R2 CORS.
+- **Lidar surveys are registered once each in demshade, composited over
+  Terrarium** (`fill`, `fillMode: 'missing'`), so one registration serves
+  both shading and 3D terrain, instead of the lidar preview's three.
+- **The MVT view is a plain Django view**, cached 60 s in the process cache.
+  Good enough for hundreds of trails; a tile cache in Caddy or Redis is the
+  step after that.
 
 ## 1. What it is
 
