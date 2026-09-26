@@ -18,6 +18,7 @@ import urllib.request
 
 from django.contrib.gis.geos import GEOSGeometry, MultiPolygon, Polygon
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.utils import timezone
 
 from core.models import DemSource
@@ -115,8 +116,10 @@ def ensure_context_rows():
     return made
 
 
+@transaction.atomic
 def import_catalog(fc, disable_missing=True):
-    """Upsert every feature; returns a summary dict."""
+    """Upsert every feature; returns a summary dict. Atomic, so a bad row
+    leaves the table as it was rather than half-updated."""
     now = timezone.now()
     seen, created = [], 0
     for f in fc.get("features", []):

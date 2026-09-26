@@ -52,7 +52,10 @@ class DemSource(models.Model):
     source = models.CharField(max_length=300, blank=True, help_text="Who flew / published it.")
     source_url = models.URLField(max_length=500, blank=True)
     horizontal_crs = models.CharField(max_length=40, blank=True, help_text="e.g. EPSG:6334")
-    vertical_datum = models.CharField(max_length=40, blank=True)
+    vertical_datum = models.CharField(
+        max_length=200, blank=True,
+        help_text="Free text from the catalogue, e.g. 'NAVD88 (GEOID12B, after vertical_shift_m)'.",
+    )
     native_res_m = models.FloatField(null=True, blank=True)
     min_zoom = models.IntegerField(default=0)
     max_zoom = models.IntegerField(default=15)
