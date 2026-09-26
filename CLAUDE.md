@@ -64,12 +64,48 @@ earned by incidents. Production is public.
 - The owner tests the branch, either locally (`git checkout <branch> &&
   docker compose up -d`) or by reading the PR, and says whether it is
   approved. **Only after explicit approval** is the PR merged and deployed.
+- **Early-stage relaxation (decided 2026-09-26, until real trail data and
+  users arrive):** approval by reading the PR is enough when CI is green
+  and the cloud session ran a browser smoke test of the map. A local Docker
+  test is still required for a migration that alters existing rows, any
+  change to `Dockerfile`, `entrypoint.sh`, compose, Caddy or `ops/`, and
+  anything touching authentication or uploads. Approval stays explicit.
 - **Deploying needs the owner's Mac**, which is the only machine with the
   droplet's SSH key: `ops/deploy.sh`. A cloud session can't deploy. It should
   finish the PR and tell the owner what to run, including any
   post-deploy steps such as a management command.
 - Migrations: commit them with the change. `makemigrations --check` in CI
   fails if one is missing.
+
+## Two Claude Code instances: cloud builds, local runs the Mac-only steps
+
+The owner runs a cloud session (claude.ai/code) and a local one (Claude
+Code CLI on the Mac). Each has a lane, set by what only the Mac can do.
+
+| | Cloud session | Local session (Mac) |
+|---|---|---|
+| Does | Build features on a branch; run the Django tests on its own PostGIS and a Playwright smoke test; open and drive the PR; keep docs current | Run the Docker stack and test a branch; deploy (`ops/deploy.sh`) and post-deploy commands; rebuild vendored demshade; load data from the external drives; Cloudflare / R2 / DNS settings |
+| Can't | Reach landslidescience.org or the R2 archives; run Docker; deploy | Nothing in principle, but it has no CI feedback loop of its own beyond pushing |
+| Writes | Code, tests, migrations, docs, the PR description | Ops changes, data loads, `VENDOR.md` updates, test results |
+
+**Handoff, cloud → local:** the PR description carries a "For the owner to
+test" section listing exact commands and post-deploy steps. The dated
+state-of-play above says what is built and what is open. The local session
+starts by reading both, then `git fetch origin && git checkout <branch>`.
+The first check of any local run is `git branch --show-current`: the dev
+compose file bind-mounts the source, so a wrong branch shows up as
+"Unknown command" or a missing page, not as an error about branches.
+
+**Handoff, local → cloud:** test results, deploy outcome and anything
+learned on the Mac go into a PR comment (or, after merge, into the
+state-of-play and docs/OPERATIONS.md), committed and pushed. The cloud
+session reads that before continuing. Never leave a fact only in a chat
+window; a cloud session cannot see the local one and vice versa.
+
+**Shared rules for both:** branch + PR, never push to `main`; update the
+state-of-play rather than working around it; one copy of every shared
+thing. When both are active on the same branch, pull before editing and
+keep commits small so the other side can rebase without conflict.
 
 ## Stack and conventions
 
