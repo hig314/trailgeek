@@ -3,6 +3,7 @@
 {% block title %}trailgeek — trail maps and design tools{% endblock %}
 {% block bodyclass %}tg-full{% endblock %}
 {% block head %}
+<meta name="csrf-token" content="{{ csrf_token }}">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
 <link rel="stylesheet" href="{% static 'core/vendor/maplibre-gl-demshade.css' %}">
 {% endblock %}
@@ -20,15 +21,24 @@
     <label class="tg-check"><input id="t3d" type="checkbox"> 3D terrain</label>
     <label>Exaggeration <input id="exag" type="range" min="5" max="30" value="12"></label>
     <div class="tg-legend">
+      <span><i class="tg-sw" style="background:#1e5c1e;height:4px"></i> Major trail</span>
       <span><i class="tg-sw" style="background:#2a7f2a"></i> Trail</span>
-      <span><i class="tg-sw tg-dash" style="background:#1f78b4"></i> Proposed</span>
-      <span><i class="tg-sw" style="background:#d9772b"></i> GPS track</span>
-      <span><i class="tg-sw" style="background:#7b3fa0"></i> Alignment</span>
+      <span><i class="tg-sw tg-dash" style="background:#7a5a2b"></i> Route</span>
+      <span><i class="tg-sw tg-dot" style="background:#2b6cb0"></i> Ski</span>
+      <span><i class="tg-sw" style="background:#7d7d7d;height:2px"></i> Sidewalk</span>
+      <span><i class="tg-sw" style="background:#b5367d"></i> GPS track</span>
+    </div>
+    <div class="tg-legend">
+      <span class="tg-legend-title">Alignment legs</span>
+      <span><i class="tg-sw" style="background:#4d7c2a;height:4px"></i> Existing trail</span>
+      <span><i class="tg-sw" style="background:#7b3fa0;height:4px"></i> New construction</span>
+      <span><i class="tg-sw tg-dash" style="background:#d9601a;height:4px"></i> Reroute</span>
+      <span><i class="tg-sw tg-dash" style="background:#0f7fbf;height:4px"></i> Restoration</span>
     </div>
     <div class="tg-small">
-      {% if can_edit %}<a href="{% url 'track_upload' %}">Upload a GPX track</a> · <a href="/admin/core/">Edit data</a>
-      {% elif user.is_authenticated %}Ask for the trail_editors role to upload tracks.
-      {% else %}<a href="{% url 'login' %}">Sign in</a> to upload tracks.{% endif %}
+      {% if can_edit %}<a href="#" id="new-alignment">New alignment</a> · <a href="{% url 'import_lines' %}">Import trails or alignments</a> · <a href="{% url 'track_upload' %}">Upload a GPX track</a> · <a href="/admin/core/">Edit data</a>
+      {% elif user.is_authenticated %}Ask for the trail_editors role to design alignments and upload tracks.
+      {% else %}<a href="{% url 'login' %}">Sign in</a> to design alignments and upload tracks.{% endif %}
     </div>
   </div>
 </div>
@@ -50,5 +60,7 @@
 <script src="{% static 'core/js/dem_shade_bridge.js' %}"></script>
 <script src="{% static 'core/js/tg_sample.js' %}"></script>
 <script src="{% static 'core/js/tg_profile.js' %}"></script>
+<script src="{% static 'core/js/tg_editor.js' %}"></script>
+<script src="{% static 'core/js/tg_design.js' %}"></script>
 <script src="{% static 'core/js/map.js' %}"></script>
 {% endblock %}

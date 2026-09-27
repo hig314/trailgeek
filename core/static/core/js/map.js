@@ -4,13 +4,14 @@
  * URL-hash grammar (ls_hash.js), and its lidar collection through the
  * demshade bridge (dem_shade_bridge.js), read from this site's DemSource
  * table at /api/dems.geojson. Trail-specific parts are this file's own:
- * trails / tracks / alignments as live vector tiles, the detail panel, and
- * the D3 profile (tg_profile.js) sampled from terrain tiles (tg_sample.js)
- * or from a track's own GPS elevations.
+ * trails / tracks / alignment legs as live vector tiles, the detail panel,
+ * the D3 profile (tg_profile.js) from GPS elevations or terrain tiles
+ * (tg_sample.js), and the trail design panels and editor (tg_design.js,
+ * tg_editor.js), which this file hands a small `app` object.
  *
  * URL hash (LSHash grammar, so a view can be pasted between the two sites):
  *   map=z/lat/lon  base=<id>  li=<dem id>.h l<opacity%>  t3d=1
- *   trail=<slug> | track=<id> | align=<id>
+ *   trail=<slug> | track=<id> | align=<id> | project=<slug>
  */
 (function () {
   'use strict';
@@ -179,7 +180,7 @@
     $('demstatus').textContent = p
       ? p.title + (p.year ? ' (' + p.year + ')' : '') + ' · ' + (p.native_res_m || '?') + ' m' + (p.source ? ' · ' + p.source : '')
       : 'Regional DEM (AWS Terrain Tiles)';
-    if (!map.getLayer('alignments')) return;   // overlays not added yet (style still loading)
+    if (!map.getLayer('legs-line')) return;   // overlays not added yet (style still loading)
     if (changed || force) {
       rebuildShade();
       if (changed) rebuildTerrain();
@@ -220,43 +221,69 @@
     syncHash();
   }
 
-  // ---- trails, tracks, alignments: live MVT --------------------------------
+  // ---- trails, tracks, alignment legs: live MVT ------------------------------
+  // Trail classes follow the Kachemak trails map's symbols; width and dash
+  // carry the class as well as colour.
+  var CLASS_COLOR = ['match', ['get', 'trail_class'], 'major', '#1e5c1e', 'route', '#7a5a2b', 'ski', '#2b6cb0',
+                     'sidewalk', '#7d7d7d', 'abandoned', '#8a8a8a', '#2a7f2a'];
+  var CLASS_DASH = ['match', ['get', 'trail_class'], 'route', ['literal', [2, 1.5]], 'ski', ['literal', [1, 1.5]],
+                    'abandoned', ['literal', [0.5, 1.5]], ['literal', [1, 0]]];
+  var CLASS_W = ['match', ['get', 'trail_class'], 'major', 1.6, 'sidewalk', 0.7, 1.0];
+  var LEG_COLOR = ['match', ['get', 'kind'], 'existing', TgProfile.LEG_COLORS.existing, 'reroute', TgProfile.LEG_COLORS.reroute,
+                   'restore', TgProfile.LEG_COLORS.restore, TgProfile.LEG_COLORS['new']];
+  var tileVersion = Date.now();
+  function tileUrl() { return location.origin + '/tiles/trails/{z}/{x}/{y}.mvt?v=' + tileVersion; }
   function addTrailLayers() {
-    map.addSource('trails', { type: 'vector', tiles: [location.origin + '/tiles/trails/{z}/{x}/{y}.mvt'], minzoom: 5, maxzoom: 18 });
-    map.addLayer({ id: 'alignments', type: 'line', source: 'trails', 'source-layer': 'alignments',
+    map.addSource('trails', { type: 'vector', tiles: [tileUrl()], minzoom: 5, maxzoom: 18 });
+    map.addLayer({ id: 'legs-casing', type: 'line', source: 'trails', 'source-layer': 'legs',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': '#7b3fa0', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 15, 3],
-               'line-opacity': ['case', ['==', ['get', 'priority'], 1], 1, 0.6] } });
+      paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 15, 6], 'line-opacity': 0.7 } });
+    map.addLayer({ id: 'legs-line', type: 'line', source: 'trails', 'source-layer': 'legs',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': LEG_COLOR, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 15, 3.5],
+               'line-opacity': ['case', ['==', ['get', 'priority'], 1], 0.95, 0.65],
+               'line-dasharray': ['match', ['get', 'kind'], 'reroute', ['literal', [2, 1]], 'restore', ['literal', [3, 1, 0.5, 1]], ['literal', [1, 0]]] } });
     map.addLayer({ id: 'tracks', type: 'line', source: 'trails', 'source-layer': 'tracks',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': '#d9772b', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.2, 15, 2.5], 'line-opacity': 0.85 } });
+      paint: { 'line-color': '#b5367d', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.2, 15, 2.5], 'line-opacity': 0.85 } }, 'legs-casing');
     map.addLayer({ id: 'trails-casing', type: 'line', source: 'trails', 'source-layer': 'trails',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3, 15, 6], 'line-opacity': 0.6 } });
+      paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, ['*', 3, CLASS_W], 15, ['*', 6, CLASS_W]], 'line-opacity': 0.6 } }, 'tracks');
     map.addLayer({ id: 'trails-line', type: 'line', source: 'trails', 'source-layer': 'trails',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': ['match', ['get', 'status'], 'proposed', '#1f78b4', 'historic', '#6b6b6b', '#2a7f2a'],
-               'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 15, 3.5],
-               'line-dasharray': ['match', ['get', 'status'], 'proposed', ['literal', [2, 1.5]], 'historic', ['literal', [0.5, 1.5]], ['literal', [1, 0]]] } });
+      paint: { 'line-color': CLASS_COLOR,
+               'line-width': ['interpolate', ['linear'], ['zoom'], 10, ['*', 1.5, CLASS_W], 15, ['*', 3.5, CLASS_W]],
+               'line-dasharray': CLASS_DASH } }, 'tracks');
     map.addSource('selected', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({ id: 'selected-halo', type: 'line', source: 'selected',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': '#ffd400', 'line-width': 9, 'line-opacity': 0.55, 'line-blur': 2 } }, 'alignments');
+      paint: { 'line-color': '#ffd400', 'line-width': 9, 'line-opacity': 0.55, 'line-blur': 2 } }, 'trails-casing');
+    map.addSource('hl', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'hl', type: 'line', source: 'hl', layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#00e5ff', 'line-width': 7, 'line-opacity': 0.8 } });
     map.addSource('cursor', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({ id: 'cursor', type: 'circle', source: 'cursor',
       paint: { 'circle-radius': 6, 'circle-color': '#ffd400', 'circle-stroke-color': '#1f2a1f', 'circle-stroke-width': 2 } });
   }
+  function refreshTiles() {
+    tileVersion = Date.now();
+    if (map.getSource('trails')) map.getSource('trails').setTiles([tileUrl()]);
+  }
 
-  var CLICKABLE = ['trails-line', 'tracks', 'alignments'];
+  var CLICKABLE = ['trails-line', 'tracks', 'legs-line'];
   map.on('click', function (e) {
+    if (window.TgDesign && TgDesign.editing()) return;      // the editor owns clicks
     var fs = map.queryRenderedFeatures(e.point, { layers: CLICKABLE });
     if (!fs.length) return;
+    // Prefer an alignment leg over the trail under it: it is on top.
+    fs.sort(function (a, b) { return CLICKABLE.indexOf(b.layer.id) - CLICKABLE.indexOf(a.layer.id); });
     var f = fs[0];
     if (f.layer.id === 'trails-line') select('trail', f.properties.slug, false);
     else if (f.layer.id === 'tracks') select('track', f.properties.id, false);
     else select('align', f.properties.id, false);
   });
   map.on('mousemove', function (e) {
+    if (window.TgDesign && TgDesign.editing()) return;
     var hit = map.queryRenderedFeatures(e.point, { layers: CLICKABLE }).length > 0;
     map.getCanvas().style.cursor = hit ? 'pointer' : '';
   });
@@ -264,28 +291,44 @@
   // ---- selection + detail panel --------------------------------------------
   var selected = null;      // { kind, key }
   var profile = TgProfile.create('#profile', { onHover: function (s) {
-    map.getSource('cursor').setData({ type: 'FeatureCollection', features: s ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] }, properties: {} }] : [] });
+    setSourceData('cursor', { type: 'FeatureCollection', features: s ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] }, properties: {} }] : [] });
   } });
   var lastFeature = null, lastSamples = null;
+
+  // Selection can arrive (from the URL hash) before the overlay sources
+  // exist; addOverlays() re-applies lastFeature once they do.
+  function setSourceData(id, data) { var src = map.getSource(id); if (src) src.setData(data); }
+  function setSelectedData(data) { setSourceData('selected', data); }
 
   function apiUrl(kind, key) {
     return kind === 'trail' ? '/api/trails/' + encodeURIComponent(key) + '.geojson'
          : kind === 'track' ? '/api/tracks/' + key + '.geojson'
+         : kind === 'project' ? '/api/projects/' + encodeURIComponent(key) + '.json'
          : '/api/alignments/' + key + '.geojson';
   }
   function select(kind, key, fit) {
+    if (window.TgDesign && !TgDesign.leave()) return;
     selected = { kind: kind, key: String(key) };
     syncHash();
     $('panel').classList.add('open');
+    $('panel').classList.toggle('tg-wide', kind === 'project');
     $('detail').innerHTML = '<p class="tg-muted">Loading…</p>';
+    $('profstats').innerHTML = '';
     profile.clear();
     fetch(apiUrl(kind, key), { credentials: 'same-origin' }).then(function (r) {
       if (!r.ok) throw new Error(r.status === 404 ? 'Not found, or not visible to you.' : 'Error ' + r.status);
       return r.json();
     }).then(function (f) {
+      if (kind === 'project') {
+        lastFeature = null;
+        setSelectedData({ type: 'FeatureCollection', features: [] });
+        TgDesign.showProject(f);
+        return;
+      }
       lastFeature = f;
-      map.getSource('selected').setData(f);
-      if (fit) map.fitBounds(bboxOf(f.geometry), { padding: 60, maxZoom: 15, duration: 0 });
+      setSelectedData(f.geometry ? f : { type: 'FeatureCollection', features: [] });
+      if (fit && f.geometry) map.fitBounds(bboxOf(f.geometry), { padding: 60, maxZoom: 15, duration: 0 });
+      if (kind === 'align') { TgDesign.showAlignment(f); return; }
       renderDetail(f);
       loadProfile(f, f.properties.has_elevation ? 'gps' : 'terrain');
     }).catch(function (e) {
@@ -293,9 +336,10 @@
     });
   }
   function clearSelection() {
+    if (window.TgDesign && !TgDesign.leave()) return;
     selected = null; lastFeature = null;
-    map.getSource('selected').setData({ type: 'FeatureCollection', features: [] });
-    map.getSource('cursor').setData({ type: 'FeatureCollection', features: [] });
+    setSelectedData({ type: 'FeatureCollection', features: [] });
+    setSourceData('cursor', { type: 'FeatureCollection', features: [] });
     $('panel').classList.remove('open');
     profile.clear();
     syncHash();
@@ -328,6 +372,7 @@
     if (p.project) h += '<div class="tg-muted">Project: ' + esc(p.project.name) + (p.trailhead ? ' · from ' + esc(p.trailhead) : '') + '</div>';
     if (p.trail) h += '<div class="tg-muted">On trail: <a href="#trail=' + esc(p.trail.slug) + '">' + esc(p.trail.name) + '</a></div>';
     if (p.taken_at) h += '<div class="tg-muted">Recorded ' + esc(p.taken_at.slice(0, 10)) + (p.device ? ' · ' + esc(p.device) : '') + '</div>';
+    if (p.trail_class_label) h += '<div class="tg-muted">' + esc(p.trail_class_label) + (p.builder ? ' · built by ' + esc(p.builder) : '') + '</div>';
     if (p.region) h += '<div class="tg-muted">' + esc(p.region) + '</div>';
     h += '<dl class="tg-stats"><dt>Length</dt><dd>' + fmtKm(p.length_m) + '</dd>';
     if (p.kind === 'track' && p.has_elevation) {
@@ -408,12 +453,12 @@
     baseId = id;
     var terrainOn = $('t3d').checked;
     map.setStyle(LSBasemaps.styleFor(baseOf(id)));
-    map.once('style.load', function () { addOverlays(); if (terrainOn) rebuildTerrain(); });
+    map.once('style.load', function () { addOverlays(); if (terrainOn) rebuildTerrain(); if (window.TgDesign) TgDesign.onStyleReload(); });
     syncHash();
   }
   function addOverlays() {
     addTrailLayers();
-    if (lastFeature) map.getSource('selected').setData(lastFeature);
+    if (lastFeature) setSelectedData(lastFeature);
     syncDem(true);
   }
 
@@ -432,7 +477,8 @@
   window.addEventListener('hashchange', function () {
     if (hashLock) return;
     var s = LSHash.parse(location.hash);
-    var want = s.extras.trail ? ['trail', s.extras.trail] : s.extras.track ? ['track', s.extras.track] : s.extras.align ? ['align', s.extras.align] : null;
+    var want = s.extras.trail ? ['trail', s.extras.trail] : s.extras.track ? ['track', s.extras.track]
+             : s.extras.align ? ['align', s.extras.align] : s.extras.project ? ['project', s.extras.project] : null;
     if (want && (!selected || selected.kind !== want[0] || selected.key !== String(want[1]))) select(want[0], want[1], true);
     else if (!want && selected) clearSelection();
   });
@@ -454,10 +500,26 @@
     if (map.getTerrain()) map.setTerrain({ source: 'dem', exaggeration: +$('exag').value / 10 });
   });
   $('layers-toggle').addEventListener('click', function () { $('layers').classList.toggle('open'); });
+  var na = $('new-alignment');
+  if (na) na.addEventListener('click', function (e) { e.preventDefault(); if (TgDesign.leave()) TgDesign.newAlignment(null); });
 
   function esc(t) {
     return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
   }
+
+  // ---- the hooks tg_design.js uses ------------------------------------------
+  function setGeo(src, geom) {
+    if (map.getSource(src)) map.getSource(src).setData(geom ? { type: 'Feature', properties: {}, geometry: geom.geometry || geom } : { type: 'FeatureCollection', features: [] });
+  }
+  TgDesign.init({
+    map: map, profile: profile, esc: esc,
+    select: select, clearSelection: clearSelection, refreshTiles: refreshTiles,
+    setSelected: function (kind, key) { selected = { kind: kind, key: String(key) }; syncHash(); },
+    setSelectedGeometry: function (geom) { setGeo('selected', geom); },
+    highlight: function (f) { setGeo('hl', f); },
+    fitTo: function (geom, bbox) { map.fitBounds(bbox || bboxOf(geom), { padding: 60, maxZoom: 16 }); },
+    quickProfile: function (f) { if (f.geometry) loadProfile(f, 'terrain'); }
+  });
 
   // ---- boot -------------------------------------------------------------------
   fillBasemaps();
@@ -474,6 +536,7 @@
         if (s.trail) select('trail', s.trail, !hadView);
         else if (s.track) select('track', s.track, !hadView);
         else if (s.align) select('align', s.align, !hadView);
+        else if (s.project) select('project', s.project, !hadView);
       });
   });
 })();
