@@ -87,6 +87,10 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 LOGIN_URL = "/accounts/login/"
+# Django's default after sign-in is /accounts/profile/, which does not exist
+# here: the map is the site, so both sign-in and sign-out land on it.
+LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/"
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 14
 SESSION_SAVE_EVERY_REQUEST = True
 

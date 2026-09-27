@@ -31,6 +31,12 @@ randomly drops real logins.
 ops/deploy.sh          # from a machine with the SSH key: pulls main, builds, up -d, check --deploy
 ```
 
+Post-deploy steps by change (run on the droplet, `$C` as below):
+
+| Change | Command |
+|---|---|
+| Phase 1 (first deploy of the trail models) | `$C exec web python manage.py import_dem_catalog` to seed the DEM catalogue from landslidescience. Re-run whenever that catalogue is rebuilt. Then give yourself `trail_editors` in /admin/ to upload tracks. |
+
 Deploying needs SSH access to the droplet, which only the owner's Mac has.
 A cloud Claude Code session can't deploy; it can prepare the change and
 say what the owner should run. A GitHub Actions deploy workflow (manual
@@ -57,10 +63,45 @@ $C restart caddy          # retries certificate issuance
 else. Changing `DJANGO_SECRET_KEY` logs everyone out.
 
 ### Known state and open items
+- **R2 CORS for trailgeek.org (needed by Phase 1; confirmed 2026-09-26
+  from localhost:8002: "No 'Access-Control-Allow-Origin' header").** The
+  lidar archives are read by demshade in a Web Worker with `fetch`, which
+  needs CORS from two places, both configured in landslidescience's
+  Cloudflare account, so this is a local-session (Mac) job:
+  1. **The R2 bucket** `landslidescience-lidar` (custom domain
+     `lidar.landslidescience.org`): Cloudflare dashboard → R2 → the bucket
+     → Settings → CORS policy. Add the trailgeek origins to
+     `AllowedOrigins`, keeping the existing ones:
+     ```json
+     [{"AllowedOrigins": ["https://landslidescience.org", "https://www.landslidescience.org",
+                          "http://localhost:8001",
+                          "https://trailgeek.org", "https://www.trailgeek.org", "http://localhost:8002"],
+       "AllowedMethods": ["GET", "HEAD"],
+       "AllowedHeaders": ["Range", "If-None-Match", "If-Range"],
+       "ExposeHeaders": ["ETag", "Content-Range", "Content-Length", "Accept-Ranges", "Last-Modified"],
+       "MaxAgeSeconds": 86400}]
+     ```
+     The existing policy may already list more headers; add origins, do
+     not remove anything. `Range` in AllowedHeaders and `Content-Range` in
+     ExposeHeaders are what make ranged PMTiles reads work at all.
+  2. **The tile Worker** `lidar-tiles` (`tiles.landslidescience.org`), used
+     when a catalogue row has `tiles_url`: in the landslidescience repo,
+     `workers/lidar-tiles/wrangler.toml`, append the same three origins to
+     `ALLOWED_ORIGINS` (the comment there says it mirrors the bucket
+     policy) and redeploy with `npx wrangler deploy` from that directory.
+     That is a landslidescience change, so it goes through that repo's
+     own branch-and-test rule.
+  Until both are done the map logs one warning per survey
+  (`lidar <id> is not readable from http://localhost:8002`), leaves the
+  survey out of the Lidar picker and shades from Terrarium. Reload after
+  the change; Cloudflare applies CORS policy edits within a minute.
 - **No backups yet.** The database lives in the `pgdata` Docker volume on
-  the droplet, and DigitalOcean droplet backups are off. It holds nothing
-  irreplaceable yet, but must be sorted out before real trail data arrives:
-  a nightly `pg_dump` to R2 or Spaces, following GTA's `ops/gta-backup`.
+  the droplet, and DigitalOcean droplet backups are off. Phase 1 adds
+  uploaded GPX originals under `/opt/trailgeek/data/media/` (bind-mounted
+  `./data`), so a backup now needs both `pg_dump` and that directory:
+  nightly to R2 or Spaces, following GTA's `ops/gta-backup`. The
+  `trailgeek-data` R2 bucket from PLAN.md §3 is not created yet; uploads go
+  to local disk until it is.
 - `manage.py check --deploy` gives two warnings on purpose. W008 (no
   SSL redirect) is handled by Caddy. W004 (HSTS) is off until the site is
   settled, because browsers cache HSTS and it is hard to undo.
@@ -97,8 +138,23 @@ installs `gdal-bin` on Ubuntu 24.04 and starts a `postgis/postgis:16-3.4`
 service, then runs `makemigrations --check`, the Django tests, and
 `node --check` on the site JS. A cloud session can push a branch and read
 the CI result with `gh run list` / `gh run view --log-failed`. It can also
-try to install PostgreSQL + PostGIS and GDAL locally with apt, with the same
-environment variables as CI. That may or may not work in the sandbox.
+install PostgreSQL + PostGIS and GDAL locally with apt, with the same
+environment variables as CI. This worked on 2026-09-26:
+
+```bash
+apt-get update && apt-get install -y postgresql-16-postgis-3 gdal-bin
+service postgresql start
+su postgres -c "psql -c \"CREATE USER trailgeek WITH SUPERUSER PASSWORD 'ci';\""
+su postgres -c "psql -c 'CREATE DATABASE trailgeek OWNER trailgeek;'"
+su postgres -c "psql -d trailgeek -c 'CREATE EXTENSION postgis;'"
+export DJANGO_SECRET_KEY=ci DJANGO_DEBUG=1 POSTGRES_HOST=localhost POSTGRES_PASSWORD=ci
+python manage.py test
+```
+
+The sandbox blocks unpkg.com and landslidescience.org but not the AWS
+terrain tiles or the npm registry, so a browser smoke test of the map is
+possible with Playwright's bundled Chromium by serving MapLibre and D3 from
+`npm pack` copies and stubbing basemap tiles (done for Phase 1).
 
 Tests need `DJANGO_SECRET_KEY` set and a PostGIS database. The settings
 switch static storage to plain `StaticFilesStorage` under `manage.py test`,
