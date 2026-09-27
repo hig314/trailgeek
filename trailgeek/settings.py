@@ -77,7 +77,9 @@ HUEY = {
     "huey_class": "huey.RedisHuey",
     "name": "trailgeek",
     "url": os.environ.get("REDIS_URL", "redis://redis:6379/0"),
-    "immediate": False,
+    # HUEY_IMMEDIATE=1 runs tasks inline in the web process (no Redis, no
+    # worker): only for a quick look without the compose stack.
+    "immediate": os.environ.get("HUEY_IMMEDIATE") == "1",
 }
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -109,6 +111,8 @@ STORAGES = {
 # bind-mount hides the image's staticfiles/), so the manifest would be missing.
 if "test" in sys.argv[1:2]:
     STORAGES["staticfiles"] = {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}
+    # Tasks run inline with in-memory result storage: no Redis in tests.
+    HUEY["immediate"] = True
 MEDIA_ROOT = DATA_DIR / "media"
 MEDIA_URL = "/media/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

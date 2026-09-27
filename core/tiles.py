@@ -2,7 +2,7 @@
 with ST_AsMVT, so an edit in /admin/ or an upload shows on the map on the
 next tile fetch, with no rebuild.
 
-One tile carries three layers: `trails`, `tracks`, `alignments`. Each
+One tile carries three layers: `trails`, `tracks`, `legs` (alignment legs). Each
 query applies the same visibility rule as the GeoJSON API (core.access),
 and the result is cached per (tile, viewer class) for a short time.
 """
@@ -23,7 +23,7 @@ BUFFER = 64
 _LAYERS = {
     "trails": {
         "table": "core_trail",
-        "cols": "t.id, t.slug, t.name, t.status, t.region, t.visibility, t.length_m",
+        "cols": "t.id, t.slug, t.name, t.status, t.trail_class, t.region, t.visibility, t.length_m",
         "order": "t.length_m DESC",
     },
     "tracks": {
@@ -32,10 +32,14 @@ _LAYERS = {
                 "to_char(t.taken_at, 'YYYY-MM-DD') AS taken",
         "order": "t.taken_at DESC NULLS LAST",
     },
-    "alignments": {
-        "table": "core_alignment",
-        "cols": "t.id, t.name, t.priority, t.trailhead, t.project_id, t.length_m",
-        "order": "t.priority, t.name",
+    # One feature per leg, so the map can colour an alignment by what each
+    # stretch is (existing trail, new construction, ...). `id` is the
+    # alignment, which is what a click selects.
+    "legs": {
+        "table": "core_leg",
+        "cols": "a.id AS id, t.id AS leg_id, a.name, a.priority, a.project_id, t.kind, t.\"order\" AS leg_order, "
+                "a.parent_id IS NOT NULL AS variant",
+        "order": "a.priority DESC, a.id, t.\"order\"",
     },
 }
 
@@ -48,14 +52,14 @@ def _viewer_key(user):
 
 def _layer_sql(name, z, x, y, user):
     spec = _LAYERS[name]
-    if name == "alignments":
+    if name == "legs":
         # Visibility lives on the project; members of the project also see it.
         vis, params = access.visibility_sql(user, "p")
         if user.is_authenticated:
             vis = (f"({vis[1:-1]} OR EXISTS (SELECT 1 FROM core_project_members m "
                    f"WHERE m.project_id = p.id AND m.user_id = %s))")
             params = params + [user.pk]
-        join = "JOIN core_project p ON p.id = t.project_id"
+        join = "JOIN core_alignment a ON a.id = t.alignment_id JOIN core_project p ON p.id = a.project_id"
     else:
         vis, params = access.visibility_sql(user, "t")
         join = ""
@@ -85,10 +89,21 @@ def render_tile(z, x, y, user):
     return b"".join(parts)
 
 
+def bump():
+    """Invalidate every cached tile (after an edit or an import): the
+    version is part of the cache key, so old entries simply stop matching
+    and expire on their own."""
+    try:
+        cache.incr("mvt:version")
+    except ValueError:
+        cache.set("mvt:version", 2, None)
+
+
 def trails_mvt(request, z, x, y):
     if not (MIN_ZOOM <= z <= MAX_ZOOM) or not (0 <= x < 2**z and 0 <= y < 2**z):
         return HttpResponse(status=404)
-    key = "mvt:" + hashlib.sha1(f"{_viewer_key(request.user)}/{z}/{x}/{y}".encode()).hexdigest()
+    ver = cache.get_or_set("mvt:version", 1, None)
+    key = "mvt:" + hashlib.sha1(f"{ver}/{_viewer_key(request.user)}/{z}/{x}/{y}".encode()).hexdigest()
     data = cache.get(key)
     if data is None:
         data = render_tile(z, x, y, request.user)

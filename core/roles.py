@@ -17,6 +17,7 @@ ROLE_GROUPS = {
         ("core", "track", _ALL),
         ("core", "project", _ALL),
         ("core", "alignment", _ALL),
+        ("core", "leg", _ALL),
         ("core", "demsource", ["view"]),
     ],
     # Can edit Page content in /admin/.

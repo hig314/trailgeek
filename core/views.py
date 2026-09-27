@@ -9,7 +9,7 @@ from django.views.decorators.http import require_http_methods
 
 from . import access
 from .forms import TrackUploadForm
-from .models import Alignment, DemSource, Trail, Track
+from .models import DemSource, Trail, Track
 from .track_import import create_track_from_gpx
 from .gpx import GpxError
 
@@ -70,7 +70,8 @@ def api_trail(request, slug):
     tracks = Track.objects.filter(trail=t).filter(access.visible_q(request.user)).distinct()
     return _geojson(_feature(t, "trail", {
         "slug": t.slug, "name": t.name, "description": t.description, "status": t.status,
-        "region": t.region, "tags": t.tags, "source": t.source, "visibility": t.visibility,
+        "trail_class": t.trail_class, "trail_class_label": t.get_trail_class_display(),
+        "builder": t.builder, "region": t.region, "tags": t.tags, "source": t.source, "visibility": t.visibility,
         "length_m": t.length_m, "has_elevation": False,
         "tracks": [{"id": x.pk, "name": x.name, "taken": x.taken_at.date().isoformat() if x.taken_at else None}
                    for x in tracks],
@@ -87,20 +88,6 @@ def api_track(request, pk):
         "length_m": t.length_m, "climb_m": t.climb_m, "descent_m": t.descent_m,
         "point_count": t.point_count, "original": bool(t.original),
         "can_edit": bool(request.user.is_authenticated and (request.user == t.owner or request.user.is_superuser)),
-    }))
-
-
-def api_alignment(request, pk):
-    a = get_object_or_404(
-        Alignment.objects.filter(access.visible_q(request.user, prefix="project__")).distinct().select_related("project"),
-        pk=pk,
-    )
-    return _geojson(_feature(a, "alignment", {
-        "name": a.name, "priority": a.priority, "trailhead": a.trailhead, "notes": a.notes,
-        "project": {"slug": a.project.slug, "name": a.project.name, "id": a.project.pk},
-        "length_m": a.length_m, "runs_uphill": a.runs_uphill, "has_elevation": False,
-        "siblings": [{"id": s.pk, "name": s.name, "priority": s.priority}
-                     for s in a.project.alignments.exclude(pk=a.pk)],
     }))
 
 
