@@ -35,6 +35,7 @@ Post-deploy steps by change (run on the droplet, `$C` as below):
 
 | Change | Command |
 |---|---|
+| Trail design (legs, evaluator, import) | Migration 0003 runs on web start and gives every existing alignment one leg. **Restart the worker too** (`$C up -d` does): it now runs the evaluations. Then load the owner's data, either at https://trailgeek.org/import/ (trail editors; simplest from the Mac) or by copying the files to the droplet and running `$C exec web python manage.py import_lines /app/data/260927_Trails.zip --as trails --owner hig` and `$C exec web python manage.py import_lines /app/data/250924_Scouting_plans.gpkg --as alignments --project-name "Scouting plans 2025-09" --owner hig` (the compose stack mounts `./data` at `/app/data`). Each imported alignment queues an evaluation; the 88 km lines take ~30 s each on Terrarium. |
 | Phase 1 (first deploy of the trail models) | `$C exec web python manage.py import_dem_catalog` to seed the DEM catalogue from landslidescience. Re-run whenever that catalogue is rebuilt. Then give yourself `trail_editors` in /admin/ to upload tracks. |
 
 Deploying needs SSH access to the droplet, which only the owner's Mac has.
@@ -95,6 +96,11 @@ else. Changing `DJANGO_SECRET_KEY` logs everyone out.
   (`lidar <id> is not readable from http://localhost:8002`), leaves the
   survey out of the Lidar picker and shades from Terrarium. Reload after
   the change; Cloudflare applies CORS policy edits within a minute.
+- **Evaluations need outbound HTTPS from the worker** to
+  `lidar.landslidescience.org` (COG byte ranges) and
+  `s3.amazonaws.com` (Terrarium tiles). The droplet firewall is inbound
+  only, so this works; a DEM that cannot be read is skipped with a warning
+  in the result, and the worker log has the GDAL error.
 - **No backups yet.** The database lives in the `pgdata` Docker volume on
   the droplet, and DigitalOcean droplet backups are off. Phase 1 adds
   uploaded GPX originals under `/opt/trailgeek/data/media/` (bind-mounted
@@ -150,6 +156,12 @@ su postgres -c "psql -d trailgeek -c 'CREATE EXTENSION postgis;'"
 export DJANGO_SECRET_KEY=ci DJANGO_DEBUG=1 POSTGRES_HOST=localhost POSTGRES_PASSWORD=ci
 python manage.py test
 ```
+
+For the live editor the worker must run too: `apt-get install
+redis-server`, `redis-server --daemonize yes`, export
+`REDIS_URL=redis://localhost:6379/0`, and start `python manage.py run_huey`
+beside `runserver`. `HUEY_IMMEDIATE=1` instead runs tasks inline in the web
+process (no Redis), which is enough for a quick look.
 
 The sandbox blocks unpkg.com and landslidescience.org but not the AWS
 terrain tiles or the npm registry, so a browser smoke test of the map is

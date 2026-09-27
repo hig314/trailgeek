@@ -18,6 +18,7 @@ cp .env.example .env          # then set DJANGO_SECRET_KEY and POSTGRES_PASSWORD
 docker compose up -d --build
 docker compose exec web python manage.py createsuperuser
 docker compose exec web python manage.py import_dem_catalog   # lidar catalogue from landslidescience
+docker compose exec web python manage.py import_lines data/260927_Trails.zip --as trails   # or use /import/
 open http://localhost:8002/
 ```
 
@@ -28,7 +29,8 @@ Tests: `docker compose exec web python manage.py test`
 | Path | What |
 |---|---|
 | `trailgeek/` | settings, urls |
-| `core/` | the map, trails, tracks, projects and alignments, the DEM catalogue, GPX upload, vector tiles, role groups, Huey tasks |
+| `core/` | the map and alignment editor, trails, tracks, projects, alignments and legs, the DEM catalogue, imports, vector tiles, Huey tasks |
+| `trailgeek_analysis/` | the trail evaluator (grade, TSA, side-slope, bands, effort), pure Python + numpy |
 | `pages/` | Markdown pages edited in `/admin/` |
 | `ops/` | droplet provisioning and deploy scripts |
 | `docs/` | operations, sister projects, algorithm spec |
