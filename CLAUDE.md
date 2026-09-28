@@ -20,8 +20,9 @@ server and Django reasoning rather than assume it.
   `import_dem_catalog` from landslidescience's lidar catalogue), `Trail`,
   `Track`, `Project`, GPX upload, live MVT tiles, the home map with lidar
   shading / 3D through demshade, and the D3 profile.
-- **Trail design (this branch, `claude/trailgeek-project-b53hqm`, PR open,
-  awaiting the owner's local test and approval):**
+- **Trail design is merged** (hig314/trailgeek#2, 2026-09-28). The 3D
+  views, the /lidar/ seam fixes and the code sharing below are on
+  `claude/trailgeek-project-b53hqm` in a new PR, awaiting approval.
   - An **Alignment is a continuous line of ordered Legs**. Each leg is
     existing trail to follow, or a build effort (new construction, reroute,
     restoration) with an effort factor. `Alignment.geom` is derived from the
