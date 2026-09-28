@@ -1,7 +1,7 @@
 /* Copied verbatim from landslidescience inventory/static/inventory/js/dem_shade_bridge.js
- * (hig314/landslidescience @ 7327b63, 2026-09-26). One copy of every shared
- * thing: do not edit here; change it there and re-copy, until the modules
- * move to hig-maplibre-kit (PLAN.md §0). */
+ * (hig314/landslidescience @ 1c63e60, 2026-09-28). One copy of every shared
+ * thing: do not edit here; change it there and run
+ * `python tools/sync_shared.py sync` (tools/shared.json pins the commit). */
 /* dem_shade_bridge.js — the old `window.DemShade` API on top of the
  * maplibre-gl-demshade package (vendor/maplibre-gl-demshade.iife.js).
  *
@@ -16,7 +16,7 @@
  *   DemShade.catalogOpts(props, extra);       // addDataset opts from a catalog feature
  *   DemShade.addImageServer(id, url, opts);   // e.g. USGS 3DEP, live float32 exports
  *   DemShade.url(id, { az, alt, hs, bl, sl, md, as, ve });
- *   DemShade.demUrl(id);                      // raster-dem passthrough (terrain)
+ *   DemShade.demUrl(id, size);                // raster-dem passthrough (terrain); size 256|512
  *   DemShade.diffUrl(newerId, olderId, dmax); // PRGn difference, newer - older
  *
  * `opts.fill` names another registered source to read where this one has no
@@ -55,6 +55,8 @@ window.DemShade = (function () {
       // inside it stay holes instead of showing the regional DEM's idea
       // of the sea surface.
       if (opts.fillMode) spec.fillMode = opts.fillMode;
+      // 'outside' needs the survey boundary: the footprint's OUTER rings.
+      if (opts.footprint) spec.footprint = opts.footprint;
       if (opts.overzoom) spec.overzoom = true;
       // Pre-baked slope pyramid (build_lidar.py --stage slope): the slope ramp
       // reads true slope from the float32 archive instead of a gradient of
@@ -89,7 +91,7 @@ window.DemShade = (function () {
           .catch(function (e) { delete known[id]; console.warn('demshade: source ' + id + ' failed', e); });
     },
     url: function (id, o) { return inst.tileUrl(id, P.toOptions(o || {})); },
-    demUrl: function (id) { return inst.demTileUrl(id); },
+    demUrl: function (id, size) { return inst.demTileUrl(id, size === 512 ? 512 : 256); },
     // Difference layer: newer minus older, ColorBrewer PRGn. Pass the pair
     // in TIME order -- green means the ground rose, which is only true when
     // the first id is the later survey.
@@ -106,6 +108,8 @@ window.DemShade = (function () {
     // Keep the map centre on the terrain surface without MapLibre's per-frame
     // re-solve (see terrain-center.ts in the package). Returns a detach fn.
     trackTerrainCenter: function (map, opts) { return P.trackTerrainCenter(map, opts); },
+    // A trackTerrainCenter threshold that scales with the camera's height.
+    relativeThreshold: function (fraction, min) { return P.relativeThreshold(fraction, min); },
     instance: inst
   };
 })();

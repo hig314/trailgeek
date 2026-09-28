@@ -2,8 +2,9 @@
  *
  * Base layers lean on landslidescience: the basemap list (basemaps.js), the
  * URL-hash grammar (ls_hash.js), and its lidar collection through the
- * demshade bridge (dem_shade_bridge.js), read from this site's DemSource
- * table at /api/dems.geojson. Trail-specific parts are this file's own:
+ * demshade bridge (dem_shade_bridge.js) and the DEM stack shared with
+ * /lidar/ (dem_stack.js), read from this site's DemSource table at
+ * /api/dems.geojson. Trail-specific parts are this file's own:
  * trails / tracks / alignment legs as live vector tiles, the detail panel,
  * the D3 profile (tg_profile.js) from GPS elevations or terrain tiles
  * (tg_sample.js), and the trail design panels and editor (tg_design.js,
@@ -52,35 +53,24 @@
   var activeDem = null;     // id of the survey feeding shade + terrain, or null for context only
   var explicitDem = state.li ? Object.keys(state.li)[0] : null;
   var shadeOpacity = state.li && explicitDem ? (state.li[explicitDem].opLeft != null ? state.li[explicitDem].opLeft : 0.6) : 0.6;
+  // The context under the lidar, as on /lidar/: the baked USGS 3DEP 1/3"
+  // context (the catalogue's `ctx_3dep`, z5-z13, over-zoomed above) where
+  // its archive is readable from here, and AWS Terrarium beyond it (in place
+  // of /lidar/'s live 3DEP service: global, CORS open, no 1-2 s exports).
+  // CTX is also the picker's "regional DEM only" value; ctxFill is what the
+  // surveys actually composite over.
   var CTX = 'terrarium';
+  var ctxFill = CTX, ctxBaked = null;
+  var footprints = {};      // id -> outer rings, the survey boundary for fillMode 'outside'
 
   function registerDems(fc) {
+    var ctxReady = Promise.resolve();
     fc.features.forEach(function (f) {
       var p = f.properties;
+      if (p.kind !== 'context' || p.encoding !== 'terrarium') return;
       dems[p.id] = p;
-      if (p.kind === 'context') {
-        if (p.encoding === 'terrarium') {
-          DemShade.instance.addSource(p.id, { tiles: p.tiles_url, encoding: 'terrarium', maxzoom: p.max_zoom, alphaNoData: false })
-            .catch(function (e) { console.warn('demshade context', e); });
-        } else if (p.encoding === 'imageserver') {
-          DemShade.addImageServer(p.id, p.tiles_url, { maxzoom: p.max_zoom });
-        }
-      } else {
-        lidarIds.push(p.id);
-        probe(p).then(function () {
-          // One registration per survey, composited over the regional DEM
-          // so both shading and 3D terrain run to the horizon (dem_fill.js's
-          // idea, done inside the demshade worker). 'missing' keeps holes
-          // inside the survey honest instead of patching sea surface in.
-          DemShade.addDataset(p.id, p.pmtiles_url, DemShade.catalogOpts(p, {
-            fill: CTX, fillMode: p.fill_mode || 'missing'
-          }));
-          p.ready = true;
-        }, function (e) {
-          p.unavailable = true;
-          if (explicitDem === p.id) explicitDem = null;
-        }).then(function () { fillDemPicker(); syncDem(false); });
-      }
+      DemShade.instance.addSource(p.id, { tiles: p.tiles_url, encoding: 'terrarium', maxzoom: p.max_zoom, alphaNoData: false })
+        .catch(function (e) { console.warn('demshade context', e); });
     });
     if (!dems[CTX]) {
       // Catalogue not imported yet: still give the map some terrain.
@@ -89,6 +79,40 @@
         encoding: 'terrarium', maxzoom: 15, alphaNoData: false
       }).catch(function (e) { console.warn('demshade context', e); });
     }
+    fc.features.forEach(function (f) {
+      var p = f.properties;
+      if (p.kind !== 'context' || p.encoding === 'terrarium') return;
+      dems[p.id] = p;
+      if (p.encoding === 'imageserver') {
+        DemShade.addImageServer(p.id, p.tiles_url, { maxzoom: p.max_zoom });
+      } else if (p.pmtiles_url || p.tiles_url) {
+        // The baked context. The surveys wait for it, so they are
+        // registered over whichever context this origin can actually read.
+        ctxReady = probe(p).then(function () {
+          DemShade.addDataset(p.id, p.pmtiles_url, LSDemStack.contextOpts(p, CTX));
+          p.ready = true;
+          ctxFill = ctxBaked = p.id;
+          if (!activeDem) syncDem(true, true);
+        }, function () { p.unavailable = true; });
+      }
+    });
+    fc.features.forEach(function (f) {
+      var p = f.properties;
+      if (p.kind === 'context') return;
+      dems[p.id] = p;
+      lidarIds.push(p.id);
+      footprints[p.id] = LSDemStack.outerRings(f.geometry);
+      Promise.all([probe(p), ctxReady]).then(function () {
+        // One registration per survey, composited over the context so both
+        // shading and 3D terrain run to the horizon without a seam at the
+        // survey's edge (dem_stack.js, surveyOpts).
+        DemShade.addDataset(p.id, p.pmtiles_url, LSDemStack.surveyOpts(p, ctxFill, footprints[p.id]));
+        p.ready = true;
+      }, function (e) {
+        p.unavailable = true;
+        if (explicitDem === p.id) explicitDem = null;
+      }).then(function () { fillDemPicker(); syncDem(false); });
+    });
   }
 
   // The archives live on landslidescience's R2 bucket, whose CORS allowlist
@@ -99,10 +123,25 @@
   // regional DEM with a single warning per survey instead of an error per
   // tile. Resolves when readable, rejects otherwise.
   var corsWarned = false;
+  // With both a tile-Worker URL and an archive, a Worker this origin cannot
+  // read falls back to the archive (the Worker's CORS list is set separately
+  // from the bucket's).
   function probe(p) {
+    if (p.tiles_url && p.pmtiles_url) {
+      return probeOne(p, true).catch(function () {
+        p.tiles_url = null;
+        return probeOne(p, false);
+      });
+    }
+    return probeOne(p, !!p.tiles_url);
+  }
+  function probeOne(p, tiles) {
     var url, init = { mode: 'cors', credentials: 'omit' };
-    if (p.tiles_url) {
-      var z = p.min_zoom, n = Math.pow(2, z), c = p.bounds ? [(p.bounds[0] + p.bounds[2]) / 2, (p.bounds[1] + p.bounds[3]) / 2] : [0, 0];
+    if (tiles) {
+      // A tile at the centre of the survey's bounds. The baked context has
+      // no bounds: a z9 tile over Kachemak Bay, which it covers.
+      var b = p.bounds || [-151.5, 59.5, -151.0, 59.8];
+      var z = p.bounds ? p.min_zoom : Math.max(p.min_zoom, 9), n = Math.pow(2, z), c = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
       var lr = c[1] * Math.PI / 180;
       url = p.tiles_url.replace('{z}', z).replace('{x}', Math.floor((c[0] + 180) / 360 * n))
                        .replace('{y}', Math.floor((1 - Math.log(Math.tan(lr) + 1 / Math.cos(lr)) / Math.PI) / 2 * n));
@@ -164,22 +203,34 @@
     sel.innerHTML = opts;
     sel.value = explicitDem || '';
   }
-  function shadeSourceId() { return activeDem || CTX; }
+  function shadeSourceId() { return activeDem || ctxFill; }
   function shadeUrl() {
     var o = { az: SHADE.az, alt: SHADE.alt, hs: SHADE.hs, bl: SHADE.bl, ve: SHADE.ve };
     if ($('slope').checked) o.sl = 0.6;
     return DemShade.url(shadeSourceId(), o);
   }
-  function activeMaxZoom() { var p = dems[shadeSourceId()]; return p && p.max_zoom ? p.max_zoom : 15; }
-  function syncDem(force) {
+  // Zoom range of what feeds shade and terrain. The context is asked for up
+  // to z15 whichever it is (the bake is over-zoomed past its z13).
+  function activeZooms() {
+    var p = activeDem ? dems[activeDem] : null;
+    return p ? { min_zoom: p.min_zoom || 0, max_zoom: p.max_zoom || 15 } : { min_zoom: 0, max_zoom: 15 };
+  }
+  function activeMaxZoom() { return activeZooms().max_zoom; }
+  function contextLabel() {
+    return ctxBaked ? 'Regional DEM: USGS 3DEP 1/3″ (baked), AWS Terrain Tiles beyond'
+                    : 'Regional DEM (AWS Terrain Tiles)';
+  }
+  // ctxChanged: the context under everything changed (the baked one became
+  // readable), so shade and terrain are rebuilt even if the survey did not.
+  function syncDem(force, ctxChanged) {
     var want = explicitDem === CTX ? null : (explicitDem || autoDem());
     if (want && !usable(want)) want = null;
-    var changed = want !== activeDem;
+    var changed = want !== activeDem || !!ctxChanged;
     activeDem = want;
     var p = activeDem ? dems[activeDem] : null;
     $('demstatus').textContent = p
       ? p.title + (p.year ? ' (' + p.year + ')' : '') + ' · ' + (p.native_res_m || '?') + ' m' + (p.source ? ' · ' + p.source : '')
-      : 'Regional DEM (AWS Terrain Tiles)';
+      : contextLabel();
     if (!map.getLayer('legs-line')) return;   // overlays not added yet (style still loading)
     if (changed || force) {
       rebuildShade();
@@ -195,7 +246,7 @@
     if (map.getLayer('shade')) map.removeLayer('shade');
     if (map.getSource('shade')) map.removeSource('shade');
     map.addSource('shade', { type: 'raster', tiles: [shadeUrl()], tileSize: 256, maxzoom: activeMaxZoom(),
-                             attribution: 'Terrain: AWS Terrain Tiles; lidar via landslidescience.org' });
+                             attribution: 'Terrain: USGS 3DEP, AWS Terrain Tiles; lidar via landslidescience.org' });
     map.addLayer({ id: 'shade', type: 'raster', source: 'shade', paint: {
       'raster-opacity': shadeOpacity, 'raster-fade-duration': 0, 'raster-opacity-transition': { duration: 0, delay: 0 }
     } }, map.getLayer('selected-halo') ? 'selected-halo' : firstSymbolLayer());
@@ -207,61 +258,32 @@
   }
 
   // ---- 3D ---------------------------------------------------------------------
+  // Terrain, sky, the centre tracker and the white-washout fix come from
+  // dem_stack.js, shared with /lidar/.
   var untrack = null;
+  var FOG_MIN_PITCH = 20;   // looking straight down there is no far field for fog to soften
+  var setSky = LSDemStack.skySwitch(map, {
+    'sky-color': '#cfe0ee', 'horizon-color': '#e9eef3', 'fog-color': '#e9eef3',
+    'fog-ground-blend': 0.55, 'horizon-fog-blend': 0.9, 'sky-horizon-blend': 0.6, 'atmosphere-blend': 0
+  });
+  function applySky() { setSky(!!map.getTerrain() && map.getPitch() >= FOG_MIN_PITCH); }
+  map.on('pitchend', applySky);
+  LSDemStack.floorTerrainMinimum(map, function () {
+    var p = activeDem ? dems[activeDem] : null;
+    return p && p.z_min != null ? p.z_min : null;
+  });
   function rebuildTerrain() {
     var on = $('t3d').checked;
     if (map.getTerrain()) map.setTerrain(null);
     if (map.getSource('dem')) map.removeSource('dem');
-    if (!on) { map.setSky(null); if (untrack) { untrack(); untrack = null; } syncHash(); return; }
-    map.addSource('dem', { type: 'raster-dem', tiles: [DemShade.demUrl(shadeSourceId())], encoding: 'mapbox', tileSize: 256, maxzoom: activeMaxZoom() });
+    if (!on) { setSky(false); if (untrack) { untrack(); untrack = null; } syncHash(); return; }
+    // The 512 mesh (dem_stack.js). minzoom 0 even over lidar: the chain ends
+    // in Terrarium, which exists at every zoom.
+    map.addSource('dem', LSDemStack.terrainSource(shadeSourceId(), activeZooms(), { minzoom: 0 }));
     map.setTerrain({ source: 'dem', exaggeration: +$('exag').value / 10 });
-    map.setSky({ 'sky-color': '#cfe0ee', 'horizon-color': '#e9eef3', 'fog-color': '#e9eef3',
-                 'fog-ground-blend': 0.55, 'horizon-fog-blend': 0.9, 'sky-horizon-blend': 0.6, 'atmosphere-blend': 0 });
-    if (!untrack && !nearHorizontal) untrack = trackTerrainCentre(map);
+    applySky();
+    if (!untrack && !nearHorizontal) untrack = LSDemStack.trackTerrainCentre(map);
     syncHash();
-  }
-
-  // Keep the map centre on the terrain surface after each gesture and once
-  // tiles settle (rather than MapLibre's per-frame re-clamping, which makes
-  // the view lurch as sharper DEM tiles stream in).
-  // Adapted from maplibre-gl-demshade's trackTerrainCenter (terrain-center.ts
-  // in the vendored build, DemShade.trackTerrainCenter), with two fixes to
-  // take upstream (see core/static/core/vendor/VENDOR.md):
-  //   1. detaching also cancels an already-scheduled "idle" re-solve, which
-  //      otherwise fires after detach and moves the camera;
-  //   2. no re-solve above 80 degrees pitch: it derives zoom from
-  //      height / cos(pitch), which degenerates near horizontal.
-  function trackTerrainCentre(m, opts) {
-    opts = opts || {};
-    var duration = opts.duration != null ? opts.duration : 250;
-    var threshold = opts.threshold != null ? opts.threshold : 0.25;
-    var busy = false, waiting = false, alive = true;
-    var priv = typeof m._getTransformForUpdate === 'function' && typeof m._applyUpdatedTransform === 'function';
-    function settle() {
-      if (!alive || busy || !m.getTerrain() || m.getPitch() > 80) return;
-      var u = m.queryTerrainElevation(m.getCenter());
-      if (u == null || !isFinite(u) || Math.abs(u - m.getCenterElevation()) < threshold) return;
-      busy = true;
-      try {
-        if (priv) {
-          var tr = m._getTransformForUpdate();
-          tr.recalculateZoomAndCenter(m.terrain);
-          m._applyUpdatedTransform(tr);
-          if (typeof m._update === 'function') m._update(); else m.triggerRepaint();
-        } else {
-          m.jumpTo({ elevation: u });
-        }
-      } finally { setTimeout(function () { busy = false; }, 0); }
-    }
-    function onMoveEnd() {
-      if (busy) return;
-      settle();
-      if (!waiting) { waiting = true; m.once('idle', function () { waiting = false; settle(); }); }
-    }
-    m.setCenterClampedToGround(false);
-    m.on('moveend', onMoveEnd);
-    onMoveEnd();
-    return function detach() { alive = false; m.off('moveend', onMoveEnd); m.setCenterClampedToGround(true); };
   }
 
   // ---- near-horizontal views -------------------------------------------------
@@ -282,7 +304,7 @@
     // and back ON when it detaches, so detach first, then set clamping.
     if (on && untrack) { untrack(); untrack = null; }
     map.setCenterClampedToGround(!on);
-    if (!on && map.getTerrain() && !untrack) untrack = trackTerrainCentre(map);
+    if (!on && map.getTerrain() && !untrack) untrack = LSDemStack.trackTerrainCentre(map);
   }
   map.on('pitch', function () {
     var p = map.getPitch();
@@ -527,6 +549,7 @@
     map.setStyle(LSBasemaps.styleFor(baseOf(id)));
     map.once('style.load', function () {
       baseWidth = {};                         // the layers come back unscaled
+      setSky(false);                          // a new style has no sky, whatever the switch last set
       addOverlays(); if (terrainOn) rebuildTerrain(); if (window.TgDesign) TgDesign.onStyleReload();
       rescaleLines(true);
     });

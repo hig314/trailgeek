@@ -19,8 +19,7 @@ server and Django reasoning rather than assume it.
   owner reports it running). Phase 1 gave `DemSource` (seeded by
   `import_dem_catalog` from landslidescience's lidar catalogue), `Trail`,
   `Track`, `Project`, GPX upload, live MVT tiles, the home map with lidar
-  shading / 3D through demshade, and the D3 profile. Basemaps, the hash
-  grammar and the demshade bridge are copied verbatim from landslidescience.
+  shading / 3D through demshade, and the D3 profile.
 - **Trail design (this branch, `claude/trailgeek-project-b53hqm`, PR open,
   awaiting the owner's local test and approval):**
   - An **Alignment is a continuous line of ordered Legs**. Each leg is
@@ -32,7 +31,9 @@ server and Django reasoning rather than assume it.
     geometric TSA, side-slope, null-aware running means, bands with correct
     longest runs, the construction / maintenance rubric per leg kind).
     Terrain sampling is `core/dem.py`: lidar COGs on R2 via GDAL /vsicurl/
-    (GeoDjango's GDAL, no rasterio), then Terrarium where there is no lidar.
+    (GeoDjango's GDAL, no rasterio), then the baked 3DEP context (`ctx_3dep`,
+    through the tile Worker's URLs when the catalogue has them), then
+    Terrarium.
     Always in the Huey worker (`core/tasks.py`), for live edits and saved
     alignments alike.
   - **Editor** (`core/static/core/js/tg_editor.js`, `tg_design.js`): drag,
@@ -45,9 +46,22 @@ server and Django reasoning rather than assume it.
     and a "Side view" link per trail or alignment place the camera
     side-on, just clearing the terrain (MapLibre calculateCameraOptionsFromTo).
     Above 80 degrees the centre re-solving (MapLibre clamping and the
-    terrain-centre tracker, now a fixed local copy of demshade's; see
-    VENDOR.md) is switched off, and line widths are rescaled under pitch:
-    that was the "trails go fat near horizontal" bug.
+    terrain-centre tracker, a fixed copy of demshade's in `dem_stack.js`;
+    see VENDOR.md) is switched off, and line widths are rescaled under
+    pitch: that was the "trails go fat near horizontal" bug.
+  - **/lidar/'s 3DEP seam fixes** (landslidescience 9a99a0f, 2026-09-28):
+    lidar composites over the baked 3DEP context (`ctx_3dep`, imported by
+    `import_dem_catalog` from the catalogue's `context` member) with
+    `fillMode 'outside'` and the survey's footprint, so the context runs
+    right up to the survey boundary instead of a 0 m shelf at tile edges;
+    Terrarium beyond the bake; the 512 px terrain mesh; a camera-height
+    re-solve threshold; sky set only on a change.
+  - **Code sharing with landslidescience** (docs/SISTER_PROJECTS.md): the
+    shared files are synced by `tools/sync_shared.py`, pinned in
+    `tools/shared.json`, and CI fails if one is edited here. The DEM-stack
+    logic that /lidar/ keeps inline is now one DOM-free module,
+    `core/static/core/js/dem_stack.js`, proposed for landslidescience; the
+    local session moves it there (handoff steps in SISTER_PROJECTS.md).
   - **Import** (`core/importers.py`): `manage.py import_lines FILE --as
     trails|alignments` and the `/import/` page for trail editors. The
     owner's `260927_Trails.zip` (443 trails) and `250924_Scouting_plans.gpkg`
@@ -55,9 +69,12 @@ server and Django reasoning rather than assume it.
     repo** (the repo is public and scouting lines can cross private land):
     load them with the command or the page after deploying.
 - **Open:** the R2 CORS change for trailgeek.org (bucket done by the owner;
-  the lidar-tiles Worker origin change in landslidescience still to do). Until
-  lidar reaches the worker, evaluations use Terrarium (~60 m data in Alaska)
-  and say so. No backups yet, and uploads now exist.
+  the lidar-tiles Worker origin change in landslidescience still to do; until
+  then the map falls back from the Worker's tile URLs to the archives).
+  Until lidar reaches the evaluator, evaluations use the baked 3DEP
+  (~10 m) or Terrarium (~60 m data in Alaska) and say so. No backups yet,
+  and uploads now exist. Local session: adopt `dem_stack.js` in /lidar/
+  and fix the three demshade issues in VENDOR.md.
 - **Next up:** check evaluations against real lidar once deployed; revive
   switchback / curvature detection; a routing tool (PLAN.md Phase 5) can
   reuse the leg model and the evaluator; the profile's 10×/1:1 panels.
@@ -131,13 +148,16 @@ keep commits small so the other side can rebase without conflict.
 - Frontend: **MapLibre GL JS 5.24** from unpkg, vanilla JS in IIFEs, **no
   build step** for the site. D3 v7 for charts. Tool bundles (Phase 3) may use
   Vite + TypeScript.
-- **demshade is vendored** in `core/static/core/vendor/`. Its source repo is
-  on the owner's Mac only, so a cloud session can't rebuild it (see
-  `VENDOR.md`). The source map must stay next to the `.js`, or
+- **demshade is vendored** in `core/static/core/vendor/`, synced from
+  landslidescience's vendored copy. Its source repo is on the owner's Mac
+  only, so a cloud session can't rebuild it (see `VENDOR.md`). The source map must stay next to the `.js`, or
   `collectstatic` fails under WhiteNoise's manifest storage.
 - **One copy of every shared thing.** Before writing a map helper, check
-  landslidescience (public repo) per docs/SISTER_PROJECTS.md. When copying,
-  add a header comment naming the source file.
+  landslidescience (public repo) per docs/SISTER_PROJECTS.md. Files taken
+  from there are listed in `tools/shared.json` and brought in with
+  `python tools/sync_shared.py sync --repo PATH` (or `--github`), never
+  edited here: CI's `sync_shared.py check` fails on a local edit. To change
+  one, change it in landslidescience first.
 - Role groups live in `core/roles.py`; `init_groups` runs on every web
   container start. Only the web container migrates (`SKIP_MIGRATE=1` on the
   worker).
@@ -164,5 +184,6 @@ keep commits small so the other side can rebase without conflict.
 | `pages/` | `Page` model (Markdown), served at `/<slug>/` (catch-all, so it is routed last) |
 | `templates/` | `base.html`, login |
 | `ops/` | `provision.sh` (droplet setup, idempotent), `deploy.sh` |
+| `tools/` | `sync_shared.py` + `shared.json`: the files shared with landslidescience, pinned and checked in CI |
 | `docs/` | operations, sister projects, algorithm spec |
 | `Caddyfile`, `docker-compose*.yml`, `Dockerfile`, `entrypoint.sh` | the stack |

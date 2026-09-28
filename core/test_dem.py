@@ -1,15 +1,18 @@
 """core.dem and core.evaluation against synthetic rasters (no network)."""
 import math
+import struct
 import tempfile
+import zlib
 
 import numpy as np
 from django.contrib.gis.gdal import GDALRaster
-from django.contrib.gis.geos import LineString
+from django.contrib.gis.geos import LineString, MultiPolygon, Polygon
 from django.test import SimpleTestCase, TestCase
 
 from core import evaluation
-from core.dem import CogSource, TerrariumSource, sample_stack, transform_xy
-from core.models import Alignment, Leg, Project
+from core.dem import CogSource, TerrariumSource, TileSource, decode_mapbox, sample_stack, transform_xy
+from core.evaluation import choose_sources
+from core.models import Alignment, DemSource, Leg, Project
 
 SLOPE = 0.25
 
@@ -63,6 +66,44 @@ class SampleTests(SimpleTestCase):
         self.assertIn("could not be read", warn[0])
 
 
+def png_rgba(rgba):
+    """A PNG file's bytes from an (h, w, 4) uint8 array."""
+    h, w, _ = rgba.shape
+    raw = b"".join(b"\x00" + rgba[r].tobytes() for r in range(h))
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+class TileSourceTests(SimpleTestCase):
+    def test_decode_mapbox_with_nodata(self):
+        rgba = np.zeros((2, 2, 4), np.uint8)
+        v = int((123.4 + 10000) * 10)                     # 123.4 m
+        rgba[0, 0] = [v >> 16, (v >> 8) & 255, v & 255, 255]
+        rgba[0, 1] = [v >> 16, (v >> 8) & 255, v & 255, 0]  # transparent: no data
+        rgba[1, 0] = [0, 0, 0, 255]                         # the -10000 m code: no data
+        rgba[1, 1] = [v >> 16, (v >> 8) & 255, v & 255, 255]
+        h = decode_mapbox(png_rgba(rgba))
+        self.assertAlmostEqual(float(h[0, 0]), 123.4, places=3)
+        self.assertTrue(np.isnan(h[0, 1]) and np.isnan(h[1, 0]))
+
+    def test_tile_sources_do_not_share_cache_entries(self):
+        class Const(TileSource):
+            def __init__(self, key, value):
+                super().__init__(key, key, "https://x/{z}/{x}/{y}.png", 13, data_res=10.0, encoding="mapbox")
+                self.value = value
+
+            def fetch_tile(self, z, x, y):
+                return np.full((256, 256), self.value, np.float32)
+        x, y = transform_xy([-151.2], [59.6], 4326, 32605)
+        a, b = Const("ctx_a", 50.0), Const("ctx_b", 70.0)
+        self.assertAlmostEqual(float(a.sample(x, y, 32605)[0]), 50.0)
+        self.assertAlmostEqual(float(b.sample(x, y, 32605)[0]), 70.0)
+        self.assertEqual(b.res, 10.0)
+
+
 class FlatTerrarium(TerrariumSource):
     """Terrarium without the network: every tile is a 100 m plateau."""
     def fetch_tile(self, z, x, y):
@@ -97,3 +138,22 @@ class EvaluateAlignmentTests(TestCase):
         self.assertEqual(up.stats["effort"]["construct_days"], 0.0)           # existing trail
         self.assertGreater(across.stats["effort"]["construct_days"], 0.0)
         self.assertEqual(a.evaluation["summary"]["lidar_pct"], 100.0)
+
+
+class ChooseSourcesTests(TestCase):
+    def test_lidar_then_baked_context_then_terrarium(self):
+        box = Polygon.from_bbox((-151.3, 59.55, -151.0, 59.7))
+        box.srid = 4326
+        DemSource.objects.create(slug="grewingk_2021", title="G", kind="lidar", native_res_m=0.5,
+                                 cog_url="https://x/g.tif", footprint=MultiPolygon(box, srid=4326))
+        DemSource.objects.create(slug="terrarium", title="T", kind="context", encoding="terrarium")
+        ctx = DemSource.objects.create(slug="ctx_3dep", title="C", kind="context", encoding="mapbox",
+                                       max_zoom=13, native_res_m=10.0, pmtiles_url="https://x/c.pmtiles")
+        line = LineString((-151.19, 59.62), (-151.18, 59.63), srid=4326)
+        # Without tile URLs the worker cannot read the bake (PMTiles), so it is skipped.
+        self.assertEqual([s.key for s in choose_sources(line)], ["grewingk_2021", "terrarium"])
+        ctx.tiles_url = "https://tiles.example/ctx_3dep/{z}/{x}/{y}.png?v=1"
+        ctx.save()
+        srcs = choose_sources(line)
+        self.assertEqual([s.key for s in srcs], ["grewingk_2021", "ctx_3dep", "terrarium"])
+        self.assertEqual((srcs[1].z, srcs[1].res, srcs[1].kind), (13, 10.0, "context"))

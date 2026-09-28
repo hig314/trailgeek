@@ -16,7 +16,11 @@ Changes from the original plan, decided during Phase 0:
 - **`hig-maplibre-kit` is deferred.** Moving the shared JS out of
   landslidescience edits that repo, which has parallel work streams and its
   own test-before-ship rule. It will be a separate, reviewed change. Until
-  then, copy modules with a header naming the source.
+  then, shared files are synced from landslidescience by
+  `tools/sync_shared.py` against a pin in `tools/shared.json`, and CI fails
+  on a local edit (2026-09-28). The DEM-stack logic /lidar/ kept inline is
+  factored into `dem_stack.js`, proposed for landslidescience
+  (docs/SISTER_PROJECTS.md).
 - **Ubuntu 24.04 with Docker from Docker's apt repo**, set up by
   `ops/provision.sh`, instead of DigitalOcean's Docker image, so the droplet
   can be rebuilt from the repo.

@@ -1,7 +1,7 @@
 /* Copied verbatim from landslidescience inventory/static/inventory/js/basemaps.js
- * (hig314/landslidescience @ 7327b63, 2026-09-26). One copy of every shared
- * thing: do not edit here; change it there and re-copy, until the modules
- * move to hig-maplibre-kit (PLAN.md §0). */
+ * (hig314/landslidescience @ 1c63e60, 2026-09-28). One copy of every shared
+ * thing: do not edit here; change it there and run
+ * `python tools/sync_shared.py sync` (tools/shared.json pins the commit). */
 /* Shared basemap handling — the single source of truth for the built-in basemap
  * list and for turning a basemap descriptor into a MapLibre style, used by BOTH
  * the main inventory map (map.js) and the edit/review preview map

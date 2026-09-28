@@ -43,20 +43,78 @@ Reusable pieces:
 | Role groups, `init_groups`, auto-join signal | `inventory/auth.py`, `inventory/signals.py` | Already copied in shape to `core/roles.py` |
 | Photo ingest with EXIF GPS and HEIC | `inventory/photos.py` | Trail photos, later |
 
-The plan (PLAN.md §2) is to move the shared JS modules into their own package,
-`hig-maplibre-kit`, vendored by both sites. **This is deliberately not done
-yet**: it edits landslidescience, which has parallel work streams (see its
-`WORKSTREAMS.md`) and its own test-before-ship rule. Do it as a separate,
-reviewed change. Until then, copy what you need and put a header comment
-naming the source file.
+### How trailgeek shares code with landslidescience (2026-09-28)
 
-**Copied so far (Phase 1, verbatim, from landslidescience @ 7327b63):**
-`basemaps.js`, `ls_hash.js`, `dem_shade_bridge.js`, into
-`core/static/core/js/`. `basemaps.js` carries thumbnail paths under
-`inventory/img/` that do not exist here; trailgeek does not call
+The shared files are **synced, not hand-copied**. `tools/shared.json` pins a
+landslidescience commit and the SHA-256 of each file's upstream content;
+`tools/sync_shared.py` does the rest:
+
+| Command | Does |
+|---|---|
+| `python tools/sync_shared.py check` | CI step: every copy still matches its pin. An edit here fails the build. |
+| `python tools/sync_shared.py status --repo ~/path/to/landslidescience` (or `--github`) | Which shared files changed upstream since the pin |
+| `python tools/sync_shared.py sync --repo …` (or `--github`) | Copy them all at `origin/main` (`--ref` for another), rewrite the provenance headers, update the pin |
+
+Synced today, from landslidescience @ 1c63e60:
+
+| trailgeek | landslidescience |
+|---|---|
+| `core/static/core/js/basemaps.js` | `inventory/static/inventory/js/basemaps.js` |
+| `core/static/core/js/ls_hash.js` | `inventory/static/inventory/js/ls_hash.js` |
+| `core/static/core/js/dem_shade_bridge.js` | `inventory/static/inventory/js/dem_shade_bridge.js` |
+| `core/static/core/vendor/maplibre-gl-demshade.iife.js` (+ `.map`) | `inventory/static/inventory/js/vendor/…` (demshade 3adeb09) |
+
+The .js copies carry a four-line provenance header (the check strips it);
+the vendored build is byte-identical. `basemaps.js` carries thumbnail paths
+under `inventory/img/` that do not exist here; trailgeek does not call
 `thumbnailUrl`. `tg_sample.js` re-implements the Terrarium decode from
 `dem_fill.js` rather than copying the whole compositing protocol, because
 demshade now does the compositing in its worker (`fill`).
+
+**What was still duplicated, and what to do about it.** The logic that turns
+the catalogue into a DEM stack lives inline in /lidar/'s template
+(`pages/templates/pages/lidar_preview.html`), so trailgeek could only copy
+it by hand, and the two had already drifted: /lidar/ gained the boundary
+fill, the baked context, the 512 mesh and the relative threshold on
+2026-09-26/28, and trailgeek had its own fixed centre tracker. That logic
+is now one DOM-free module, **`core/static/core/js/dem_stack.js`**
+(`window.LSDemStack`), written in trailgeek from /lidar/ @ 1c63e60 and used
+by trailgeek's map. It is listed under `proposed` in `tools/shared.json`:
+
+| `LSDemStack.` | Replaces in lidar_preview.html |
+|---|---|
+| `outerRings(geometry)` | `outerOf[p.id] = cs.map(poly => poly[0])` |
+| `contextOpts(ctx, beyond)` | the two `DemShade.addDataset(fc.context.id…)` calls |
+| `surveyOpts(p, fill, footprint)` | the options in `ensureCtxReg` |
+| `terrainSource(id, p, {size, minzoom})` | the `map.addSource('dem', …)` in `rebuildDem` |
+| `trackTerrainCentre(map, opts)` | `DemShade.trackTerrainCenter(map, {threshold: …})`, with the fixes in vendor/VENDOR.md |
+| `relativeThreshold(fraction, min)` | `DemShade.relativeThreshold`, which is a fixed 0.5 m on MapLibre 5 (VENDOR.md) |
+| `floorTerrainMinimum(map, zMin)` | `floorTerrainMinimum` / `watchTerrainForFloor` |
+| `skySwitch(map, sky)` | the `skyOn` bookkeeping in `applySky` |
+
+**Handoff to the owner's local session** (a cloud session cannot push to
+landslidescience; the landslidescience-side steps follow its own
+test-before-ship rule):
+
+1. Copy trailgeek's `core/static/core/js/dem_stack.js` to landslidescience
+   `inventory/static/inventory/js/dem_stack.js`, dropping the "Status" note
+   in its header. Load it after `dem_shade_bridge.js` in
+   `lidar_preview.html` and replace the inline pieces in the table above.
+   The page keeps its controls (`ctx`, `ctxlive`, `tmesh`, `fog`) and
+   passes plain values in. Test /lidar/ (context on/off, live 3DEP, both
+   meshes, a deep survey such as Pedersen at high exaggeration, a 3D
+   permalink), then ship it there.
+2. Fix the three demshade issues in vendor/VENDOR.md in the demshade
+   source, rebuild, and vendor the build into landslidescience.
+3. In trailgeek: move the `proposed` entry into `files` in
+   `tools/shared.json` (`"header": true`), run `python tools/sync_shared.py
+   sync --repo …`, and open a PR. From then on the module has one home.
+
+`hig-maplibre-kit` (PLAN.md §2) stays the longer-term home for all of these,
+still deliberately deferred: it edits landslidescience, which has parallel
+work streams (its `WORKSTREAMS.md`). The sync above is what keeps the two
+sites identical in the meantime, and it moves to the kit unchanged when the
+kit exists (only the pinned repo and paths change).
 
 ### Lidar data (public, usable today)
 - **Catalogue:** `https://landslidescience.org/lidar/catalog.geojson`
@@ -66,7 +124,12 @@ demshade now does the compositing in its worker (`fill`).
   max_zoom, bounds, cog_url, pmtiles_url, slope_url, slope_tiles_url,
   slope_step, tiles_url, ortho_url, fill_mode, coverage_km2, notes`, plus
   byte sizes. `catalog-gated.geojson` lists the gated surveys and needs a
-  signed-in session.
+  signed-in session. A top-level `context` member (when the bake exists)
+  describes `ctx_3dep`, the USGS 3DEP 1/3 arc-second context baked around
+  the surveys (`tools/lidar/bake_context.py`: Mapbox terrain-RGB PMTiles,
+  z5-z13, plus a tile-Worker `tiles_url`). `import_dem_catalog` stores it as
+  a context row; the map composites lidar over it, and the evaluator reads
+  it (through `tiles_url`) between lidar and Terrarium.
 - **Files** are on Cloudflare R2 bucket `landslidescience-lidar`, served at
   `https://lidar.landslidescience.org/cog/<id>` (archive COG, local UTM,
   NAD83(2011)) and `https://lidar.landslidescience.org/pmtiles/<id>`
@@ -109,7 +172,8 @@ as USGS 3DEP). It also provides a `raster-dem` source, so PMTiles can drive 3D
 terrain. `DemShadeControl` is a slider panel with a 3D toggle.
 
 trailgeek vendors its IIFE build in `core/static/core/vendor/` (see
-`VENDOR.md` there). A cloud session **can't rebuild it**. Use the vendored
+`VENDOR.md` there), synced from landslidescience's vendored copy so the two
+sites run the same build. A cloud session **can't rebuild it**. Use the vendored
 copy, and ask the owner to rebuild if a change is needed. Publishing it to
 GitHub and npm is an open item.
 
