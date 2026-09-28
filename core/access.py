@@ -29,6 +29,8 @@ def visible_q(user, owner_field="owner", prefix=""):
     q = Q(**{f"{prefix}visibility": Visibility.PUBLIC})
     if not user.is_authenticated:
         return q
+    if user.is_superuser:
+        return Q()
     if is_data_user(user):
         q |= Q(**{f"{prefix}visibility": Visibility.GATED})
     q |= Q(**{f"{prefix}{owner_field}": user})
@@ -42,9 +44,23 @@ def visibility_sql(user, table_alias):
     Returns (sql, params)."""
     sql = f"{table_alias}.visibility = 'public'"
     params = []
+    if user.is_authenticated and user.is_superuser:
+        return "(TRUE)", []
     if user.is_authenticated:
         if is_data_user(user):
             sql += f" OR {table_alias}.visibility = 'gated'"
         sql += f" OR {table_alias}.owner_id = %s"
         params.append(user.pk)
     return f"({sql})", params
+
+
+def can_edit_project(user, project):
+    """Owner, project members and superusers may edit a project's
+    alignments; so may any trail editor, unless the project is private."""
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser or project.owner_id == user.pk:
+        return True
+    if project.members.filter(pk=user.pk).exists():
+        return True
+    return is_trail_editor(user) and project.visibility != Visibility.PRIVATE

@@ -1,15 +1,16 @@
 # trailgeek.org — build plan
 
-*Drafted 2026-09-24; status updated 2026-09-26. A trails-focused web map portal that shares tools, data
+*Drafted 2026-09-24; status updated 2026-09-27. A trails-focused web map portal that shares tools, data
 and hosting patterns with landslidescience.org and groundtruthalaska.org.*
 
-## 0. Status (2026-09-26)
+## 0. Status (2026-09-27)
 
 | Phase | State |
 |---|---|
 | 0 — Scaffold | **Done, live.** Repo public at hig314/trailgeek; droplet `trailgeek-web` provisioned; Cloudflare DNS; Caddy TLS; CI green; home map with demshade + 3D confirmed working. Not done: `hig-maplibre-kit` extraction (deferred, see below); R2 bucket `trailgeek-data` (create when uploads arrive in Phase 1); analytics; backups. |
-| 1 — Portal MVP | **Built, in review** (branch `claude/trailgeek-project-b53hqm`). Models, admin, DEM catalogue import, GPX upload, live MVT, demshade + 3D from the lidar catalogue, D3 profile from GPS or Terrarium, detail panel, URL hash. Not yet: Terra Draw, KML/GeoJSON upload, seed alignments, R2 CORS for this origin (owner). |
-| 2–6 | Not started. |
+| 1 — Portal MVP | **Merged** (hig314/trailgeek#1). Models, admin, DEM catalogue import, GPX upload, live MVT, demshade + 3D from the lidar catalogue, D3 profile, detail panel, URL hash. |
+| 2 — Analysis engine | **Built, in review** (branch `claude/trailgeek-project-b53hqm`), pulled forward together with alignment editing: `trailgeek_analysis` evaluator with tests, legs, live and saved evaluations, per-leg effort, compare table, variants, line import. Not yet: segment generalisation, curvature/switchbacks, CSV/SVG export. |
+| 3–6 | Not started. The editor (Phase 1's "Draw") is built without Terra Draw; see below. |
 
 Changes from the original plan, decided during Phase 0:
 - **`hig-maplibre-kit` is deferred.** Moving the shared JS out of
@@ -24,6 +25,32 @@ Changes from the original plan, decided during Phase 0:
   (docs/OPERATIONS.md).
 - Details that used to live only on the owner's Mac are now in
   `docs/`, especially the algorithm spec in docs/TRAIL_ANALYSIS.md.
+
+Decided while building trail design (2026-09-27):
+- **Alignment = ordered Legs** (`core.models.Leg`): each leg is existing
+  trail or a build effort (new / reroute / restore) with an effort factor.
+  `Alignment.geom` is derived; legs share joint vertices. This is the
+  "continuous alignment with legs that are separate build efforts" model;
+  §4 below predates it.
+- **One copy of the analysis, server side.** `trailgeek_analysis` is pure
+  numpy; the browser never recomputes grade or TSA. Live edits are
+  evaluated by the same Huey job as saved alignments (debounced in the
+  editor, polled), so the tweak-time numbers are the saved numbers.
+- **GeoDjango's GDAL instead of rasterio** for DEM reads (`core/dem.py`):
+  the image already has system libgdal for GeoDjango, and a second GDAL copy
+  (rasterio wheels) in the same process is a known source of PROJ/driver
+  clashes. `/vsicurl/` reads the R2 COGs in windows.
+- **TSA is geometric**: the angle between the trail heading and the
+  terrain gradient, from four probe points in the route's own UTM grid, so a
+  lidar archive in another UTM zone needs no convergence correction. It
+  equals acos(|grade|/slope) on a plane, without the clipping.
+- **Terrarium is the fallback DEM** for points outside every lidar
+  footprint, and results say which DEM each stretch came from.
+- **The package lives at the repo root** (`trailgeek_analysis/`), not under
+  `packages/`, until it has a second user; it imports nothing from Django.
+- **Custom editor, not Terra Draw**: legs share joints, snap to trails and
+  follow the trail network, which Terra Draw's generic modes do not model.
+  landslidescience's Terra Draw wrapper is polygon-specific.
 
 Decided during Phase 1:
 - **`Track.geom` is a 3D LineString (Z = device elevation) with timestamps

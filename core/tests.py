@@ -10,7 +10,7 @@ from django.test import TestCase, override_settings
 
 from .gpx import GpxError, parse_gpx
 from .management.commands.import_dem_catalog import ensure_context_rows, import_catalog
-from .models import Alignment, DemSource, Project, Trail, Track, Visibility
+from .models import Alignment, DemSource, Leg, Project, Trail, Track, Visibility
 
 # A short climb on Alpine Ridge above Grewingk Glacier, in the test lidar area.
 GPX = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -99,8 +99,12 @@ class ModelTests(TestCase):
 
     def test_alignment_length_and_str(self):
         p = Project.objects.create(slug="ram", name="Ram Valley")
-        a = Alignment.objects.create(project=p, name="A", geom=LineString((-149.5, 61.3), (-149.49, 61.3), srid=4326))
+        a = Alignment.objects.create(project=p, name="A")
+        Leg.objects.create(alignment=a, order=0, geom=LineString((-149.5, 61.3), (-149.495, 61.3), srid=4326))
+        Leg.objects.create(alignment=a, order=1, kind="existing", geom=LineString((-149.495, 61.3), (-149.49, 61.3), srid=4326))
+        a.rebuild_from_legs()
         self.assertAlmostEqual(a.length_m, 536, delta=10)
+        self.assertEqual(len(a.geom.coords), 3)          # the shared joint is written once
         self.assertEqual(str(a), "Ram Valley: A")
         self.assertEqual(p.effective_settings()["sample_spacing"], "5 ft")
 
@@ -194,9 +198,10 @@ class ApiAndTileTests(TestCase):
             has_elevation=True, trail=self.public, visibility=Visibility.PUBLIC,
         )
         self.project = Project.objects.create(slug="p", name="P", visibility=Visibility.PRIVATE, owner=self.owner)
-        self.alignment = Alignment.objects.create(
-            project=self.project, name="A1", geom=LineString((-151.19, 59.62), (-151.18, 59.63), srid=4326)
-        )
+        self.alignment = Alignment.objects.create(project=self.project, name="A1")
+        Leg.objects.create(alignment=self.alignment, order=0, kind="new",
+                           geom=LineString((-151.19, 59.62), (-151.18, 59.63), srid=4326))
+        self.alignment.rebuild_from_legs()
 
     def test_trail_api_respects_visibility(self):
         r = self.client.get("/api/trails/public-trail.geojson")

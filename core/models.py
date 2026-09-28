@@ -1,5 +1,6 @@
-"""Phase 1 data model (PLAN.md §4): the DEM catalogue, trails, GPS tracks,
-design projects and their candidate alignments.
+"""Data model (PLAN.md §4): the DEM catalogue, trails, GPS tracks, design
+projects, their candidate alignments, and the legs each alignment is built
+from.
 
 Everything geographic is stored in EPSG:4326. Lengths are computed in a
 local UTM zone at save time (core.geo) so list views never need PostGIS
@@ -7,6 +8,7 @@ maths just to show a distance.
 """
 from django.conf import settings
 from django.contrib.gis.db import models
+from django.contrib.gis.geos import LineString
 from django.urls import reverse
 
 from . import geo
@@ -117,13 +119,29 @@ class Trail(OwnedMixin):
         PROPOSED = "proposed", "Proposed"
         HISTORIC = "historic", "Historic"
 
-    slug = models.SlugField(unique=True)
+    class TrailClass(models.TextChoices):
+        # The "Symbol" classes of the Kachemak trails map (200111_TRAILS).
+        MAJOR = "major", "Major trail"
+        REGULAR = "regular", "Trail"
+        ROUTE = "route", "Route (unmaintained / cross-country)"
+        SKI = "ski", "Ski trail"
+        SIDEWALK = "sidewalk", "Sidewalk / path"
+        ABANDONED = "abandoned", "Abandoned"
+        OTHER = "other", "Other"
+
+    slug = models.SlugField(unique=True, max_length=120)
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True, help_text="Markdown.")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.EXISTING)
+    trail_class = models.CharField(max_length=10, choices=TrailClass.choices, default=TrailClass.REGULAR)
     region = models.CharField(max_length=100, blank=True)
+    builder = models.CharField(max_length=100, blank=True, help_text="Who built or maintains it.")
     tags = models.JSONField(default=list, blank=True)
     source = models.CharField(max_length=300, blank=True, help_text="Where the line came from.")
+    source_key = models.CharField(
+        max_length=200, blank=True, db_index=True,
+        help_text="Import provenance, e.g. '200111_TRAILS#17'. Re-importing a file replaces its rows.",
+    )
     geom = models.MultiLineStringField(srid=4326)
     length_m = models.FloatField(default=0, editable=False)
 
@@ -186,6 +204,24 @@ DEFAULT_PROJECT_SETTINGS = {
     "sample_spacing": "5 ft",
     "averaging": {"grade_%": [9, 21], "TSA": [9], "slope_%": [5], "elev_m": [5, 9]},
     "thresholds": {"grade_%": [5, 18, 35], "slope_%": [10, 20, 73, 100], "TSA": [45, 60, 68]},
+    # The construction / maintenance rubric (TRAIL_ANALYSIS.md §1.7). Slope
+    # bands use the smoothed side-slope, grade bands the smoothed |grade|.
+    "effort_rubric": {
+        "slope_effect": [
+            {"min": "0 %", "max": "10 %", "construct": "10 m/day", "maintain": "1 mi/day", "note": "turnpike"},
+            {"min": "10 %", "max": "20 %", "construct": "30 m/day", "maintain": "1 mi/day", "note": "drainage structures"},
+            {"min": "20 %", "max": "50 %", "construct": "100 m/day", "maintain": "1 mi/day", "note": "ideal bench"},
+            {"min": "50 %", "max": "90 %", "construct": "50 m/day", "maintain": "0.5 mi/day", "note": "heavy cut"},
+            {"min": "90 %", "max": "10000 %", "construct": "10 m/day", "maintain": "0.5 mi/day", "note": "walls / ledging"},
+        ],
+        "grade_effect": [
+            {"min": "0 %", "max": "15 %", "construct": "1 mi/day", "maintain": "3 mi/day"},
+            {"min": "15 %", "max": "25 %", "construct": "1 mi/day", "maintain": "2 mi/day"},
+            {"min": "25 %", "max": "45 %", "construct": "20 m/day", "maintain": "2 mi/day", "note": "stairs, hardening"},
+            {"min": "45 %", "max": "77 %", "construct": "5 m/day", "maintain": "0.5 mi/day", "note": "build stairs"},
+            {"min": "77 %", "max": "10000 %", "construct": "0.5 m/day", "maintain": "0.1 mi/day", "note": "effectively impossible"},
+        ],
+    },
 }
 
 
@@ -211,18 +247,45 @@ class Project(OwnedMixin):
 
 
 class Alignment(models.Model):
-    """One candidate line within a Project. The stored geometry is never
-    rewritten: the evaluator records which way is uphill in `runs_uphill`
-    and works on a derived copy (fixing the old fix_direction_of_paths)."""
+    """One candidate route within a Project: a continuous line made of
+    ordered Legs. Each leg is either existing trail to follow or a specific
+    build effort (new construction, reroute, restoration), so the same route
+    can be costed leg by leg.
+
+    `geom` is derived: the legs joined end to end, rebuilt by
+    `rebuild_from_legs()`. It is never reversed or rewritten by the
+    evaluator; which way is uphill is recorded in `runs_uphill`
+    (fixing the old fix_direction_of_paths, TRAIL_ANALYSIS.md §1.1).
+    """
+
+    class EvalStatus(models.TextChoices):
+        NONE = "none", "Not evaluated"
+        QUEUED = "queued", "Queued"
+        DONE = "done", "Done"
+        FAILED = "failed", "Failed"
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="alignments")
     name = models.CharField(max_length=200)
     priority = models.IntegerField(default=1, help_text="1 = primary candidate.")
     trailhead = models.CharField(max_length=200, blank=True)
     notes = models.TextField(blank=True)
-    geom = models.LineStringField(srid=4326)
+    parent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="variants",
+        help_text="The alignment this one was duplicated from, when it is a variant.",
+    )
+    source = models.CharField(max_length=300, blank=True, help_text="Import provenance, if imported.")
+    geom = models.LineStringField(srid=4326, null=True, blank=True, editable=False)
     runs_uphill = models.BooleanField(null=True, blank=True, editable=False, help_text="Set by the evaluator.")
     length_m = models.FloatField(default=0, editable=False)
+    evaluation = models.JSONField(null=True, blank=True, editable=False)
+    headline = models.JSONField(
+        null=True, blank=True, editable=False,
+        help_text="The few numbers compare tables show, kept apart from the (large) evaluation.")
+    evaluation_status = models.CharField(
+        max_length=10, choices=EvalStatus.choices, default=EvalStatus.NONE, editable=False
+    )
+    evaluation_error = models.TextField(blank=True, editable=False)
+    evaluated_at = models.DateTimeField(null=True, blank=True, editable=False)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -233,8 +296,64 @@ class Alignment(models.Model):
         return f"{self.project.name}: {self.name}"
 
     def save(self, *args, **kwargs):
-        self.length_m = geo.length_m(self.geom)
+        self.length_m = geo.length_m(self.geom) if self.geom else 0
         super().save(*args, **kwargs)
 
     def get_absolute_url(self):
         return reverse("home") + f"#align={self.pk}"
+
+    def rebuild_from_legs(self, save=True):
+        """Join the legs (in order) into `geom`. Consecutive legs share their
+        joining vertex, so it is written once."""
+        coords = []
+        for leg in self.legs.order_by("order"):
+            cs = list(leg.geom.coords)
+            if coords and cs and coords[-1] == cs[0]:
+                cs = cs[1:]
+            coords.extend(cs)
+        self.geom = LineString(coords, srid=4326) if len(coords) >= 2 else None
+        if save:
+            self.save()
+
+
+class Leg(models.Model):
+    """One stretch of an Alignment. Consecutive legs share their joining
+    vertex (the API refuses a gap), so an alignment is always continuous."""
+
+    class Kind(models.TextChoices):
+        EXISTING = "existing", "Existing trail"
+        NEW = "new", "New construction"
+        REROUTE = "reroute", "Reroute"
+        RESTORE = "restore", "Restoration"
+
+    # Kinds whose construction effort the rubric estimates. Existing trail
+    # only costs maintenance.
+    BUILD_KINDS = {Kind.NEW, Kind.REROUTE, Kind.RESTORE}
+
+    alignment = models.ForeignKey(Alignment, on_delete=models.CASCADE, related_name="legs")
+    order = models.PositiveIntegerField(default=0)
+    name = models.CharField(max_length=200, blank=True)
+    kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.NEW)
+    trail = models.ForeignKey(
+        Trail, null=True, blank=True, on_delete=models.SET_NULL, related_name="legs",
+        help_text="For existing-trail legs: the trail followed (the main one, if several).",
+    )
+    effort_factor = models.FloatField(
+        default=1.0,
+        help_text="Multiplier on the rubric's construction days, e.g. 0.5 for a restoration "
+                  "where half the tread survives. Ignored for existing trail.",
+    )
+    notes = models.TextField(blank=True)
+    geom = models.LineStringField(srid=4326)
+    length_m = models.FloatField(default=0, editable=False)
+    stats = models.JSONField(null=True, blank=True, editable=False, help_text="From the last evaluation.")
+
+    class Meta:
+        ordering = ["alignment", "order"]
+
+    def __str__(self):
+        return self.name or f"{self.get_kind_display()} leg {self.order + 1}"
+
+    def save(self, *args, **kwargs):
+        self.length_m = geo.length_m(self.geom)
+        super().save(*args, **kwargs)

@@ -6,3 +6,4 @@ huey>=2.5,<3
 redis>=5
 Markdown>=3.7
 nh3>=0.2.18
+numpy>=1.26,<3

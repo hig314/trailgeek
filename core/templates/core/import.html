@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Import trails or alignments · trailgeek{% endblock %}
+{% block content %}
+<article class="tg-page">
+  <h1>Import trails or alignments</h1>
+  <p>Load existing trails from a trail map, or proposed lines from a scouting
+  file. Fields are matched by name: <code>Name</code>, <code>Symbol</code> or
+  <code>Type</code>, <code>Area</code>, <code>Builder</code>,
+  <code>Default</code> (Hidden rows are shown to signed-in collaborators
+  only). Coordinates can be in any projection the file declares.</p>
+  {% if report %}
+    <div class="tg-report">
+      <strong>Imported {{ target }}:</strong> {{ report }}.
+      {% if report.project %}<a href="/#project={{ report.project.slug }}">Open the project on the map</a>{% else %}<a href="/">Back to the map</a>{% endif %}
+    </div>
+  {% endif %}
+  <form method="post" enctype="multipart/form-data" class="tg-form">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    {% for field in form %}
+      <div class="tg-field">
+        {{ field.label_tag }}
+        {{ field }}
+        {% if field.help_text %}<div class="tg-help">{{ field.help_text }}</div>{% endif %}
+        {{ field.errors }}
+      </div>
+    {% endfor %}
+    <button type="submit">Import</button> <a href="/">Back to the map</a>
+  </form>
+</article>
+{% endblock %}

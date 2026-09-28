@@ -16,8 +16,25 @@ and fix the rest deliberately.
 | `~/PycharmProjects/ian_trail_scripts/create_profiles_from_higs_big_csv_231204.py` | Ian's slope-segment profile figures (the model for the D3 profile) |
 
 Old dependencies: GDAL/OGR (`osgeo`), numpy, matplotlib, pandas/geopandas/
-shapely (Ian's). The port uses rasterio, pyproj, shapely 2, numpy, and numba
-for the router only. No `osgeo` imports.
+shapely (Ian's). The port uses numpy only for the analysis
+(`trailgeek_analysis/`), and GeoDjango's GDAL bindings for DEM reads
+(`core/dem.py`); numba for the router only, later. No `osgeo` imports.
+
+**Status (2026-09-27): the evaluator (§1) is ported** as
+`trailgeek_analysis/evaluate.py`, tested against synthetic planes in
+`trailgeek_analysis/tests/`. What changed from the old code, deliberately:
+
+| §1 step | Port |
+|---|---|
+| 1. Direction | Input never rewritten; `Alignment.runs_uphill` records it. |
+| 2. Resample | Per leg, equal steps ≤ spacing, so leg joints are samples; in the route's UTM zone. |
+| 3. Sample | Bilinear, not nearest; lidar COG first, Terrarium where there is none; slope computed, not read from a slope raster. |
+| 4. Grade / TSA | Grade as before (gaps bridged). TSA geometric (heading vs gradient), null below 3 % slope instead of 0. |
+| 5. Running means | Null-aware; edge windows shrink symmetrically (keeps end elevations and climb exact). |
+| 6. Stats | Longest runs count every point (single-point runs included); bands by |value|. |
+| 7. Effort | |grade| bands (descents no longer fall outside); per leg kind: existing trail costs maintenance only; effort factor per leg. |
+| 8–9. Outputs | JSON: summary, per-leg stats, bands, effort, and a downsampled profile for the D3 chart. No shapefiles or SVGs. |
+| curvature | Not yet. |
 
 ---
 
