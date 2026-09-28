@@ -140,3 +140,5 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .tg-profile .tg-strip-label { font-size: 9px; fill: #555; }
 .tg-profile .tg-empty { font-size: 12px; fill: #777; }
 .tg-key-sep { font-weight: 600; margin-left: 6px; }
+.tg-views { margin: 6px 0 2px; font-size: 13px; }
+.tg-views .tg-btn { font-size: 12px; padding: 2px 8px; margin-left: 3px; }

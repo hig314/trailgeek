@@ -26,6 +26,16 @@ Changes from the original plan, decided during Phase 0:
 - Details that used to live only on the owner's Mac are now in
   `docs/`, especially the algorithm spec in docs/TRAIL_ANALYSIS.md.
 
+Decided for near-horizontal 3D views (2026-09-28):
+- MapLibre sizes draped lines from the scale at the map centre, and with
+  terrain both its clamping and demshade's centre tracker re-derive zoom from
+  height / cos(pitch). Near 90 degrees that sent the centre to the horizon
+  and made trails ~40 m wide stripes. map.js now switches the re-solving off
+  above 80 degrees, rescales line widths by the square root of near-to-centre
+  ground scale when pitched, and places side views explicitly. Draped lines
+  are still ground stripes, so very distant ones thin out and can break up at
+  grazing angles; true 3D lines would need a custom or deck.gl layer.
+
 Decided while building trail design (2026-09-27):
 - **Alignment = ordered Legs** (`core.models.Leg`): each leg is existing
   trail or a build effort (new / reroute / restore) with an effort factor.

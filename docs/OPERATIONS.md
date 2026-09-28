@@ -52,6 +52,8 @@ $C ps
 $C logs -f web            # or worker, caddy, db
 $C exec web python manage.py shell
 $C exec web python manage.py createsuperuser
+$C exec web python manage.py changepassword hig   # forgotten admin password
+$C exec web python manage.py shell -c "from django.contrib.auth.models import User; print(list(User.objects.filter(is_superuser=True).values_list('username', flat=True)))"   # which admin accounts exist
 $C restart caddy          # retries certificate issuance
 ```
 

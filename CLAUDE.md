@@ -13,7 +13,7 @@ server and Django reasoning rather than assume it.
 | [docs/SISTER_PROJECTS.md](docs/SISTER_PROJECTS.md) | What to reuse from landslidescience, GTA, demshade, and the public lidar catalogue |
 | [docs/TRAIL_ANALYSIS.md](docs/TRAIL_ANALYSIS.md) | Spec of the evaluator, profile and router algorithms to port, with their known bugs |
 
-## State of play (2026-09-27): the one dated section; update it, don't work around it
+## State of play (2026-09-28): the one dated section; update it, don't work around it
 
 - **Phase 0 and Phase 1 are merged** (hig314/trailgeek#1, 2026-09-27; the
   owner reports it running). Phase 1 gave `DemSource` (seeded by
@@ -41,6 +41,13 @@ server and Django reasoning rather than assume it.
     split legs, change kinds, undo; a live evaluation of every change shows
     as Saved / Now / Change tradeoffs and a profile with the saved version in
     grey. Project view is a sortable compare table.
+  - **3D views** (map.js): pitch goes to 90; Top / Oblique / Side buttons
+    and a "Side view" link per trail or alignment place the camera
+    side-on, just clearing the terrain (MapLibre calculateCameraOptionsFromTo).
+    Above 80 degrees the centre re-solving (MapLibre clamping and the
+    terrain-centre tracker, now a fixed local copy of demshade's; see
+    VENDOR.md) is switched off, and line widths are rescaled under pitch:
+    that was the "trails go fat near horizontal" bug.
   - **Import** (`core/importers.py`): `manage.py import_lines FILE --as
     trails|alignments` and the `/import/` page for trail editors. The
     owner's `260927_Trails.zip` (443 trails) and `250924_Scouting_plans.gpkg`

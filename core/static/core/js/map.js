@@ -36,7 +36,7 @@
     container: 'map',
     center: hadView ? [state.lon, state.lat] : [HOME.lon, HOME.lat],
     zoom: hadView ? state.zoom : HOME.zoom,
-    maxPitch: 85,
+    maxPitch: 90,            // 90 = horizontal: a side-on view of a climb (see the view buttons)
     hash: false,
     transformRequest: LSBasemaps.transformRequest,
     style: LSBasemaps.styleFor(baseOf(baseId))
@@ -217,9 +217,78 @@
     map.setTerrain({ source: 'dem', exaggeration: +$('exag').value / 10 });
     map.setSky({ 'sky-color': '#cfe0ee', 'horizon-color': '#e9eef3', 'fog-color': '#e9eef3',
                  'fog-ground-blend': 0.55, 'horizon-fog-blend': 0.9, 'sky-horizon-blend': 0.6, 'atmosphere-blend': 0 });
-    if (!untrack && DemShade.trackTerrainCenter) untrack = DemShade.trackTerrainCenter(map);
+    if (!untrack && !nearHorizontal) untrack = trackTerrainCentre(map);
     syncHash();
   }
+
+  // Keep the map centre on the terrain surface after each gesture and once
+  // tiles settle (rather than MapLibre's per-frame re-clamping, which makes
+  // the view lurch as sharper DEM tiles stream in).
+  // Adapted from maplibre-gl-demshade's trackTerrainCenter (terrain-center.ts
+  // in the vendored build, DemShade.trackTerrainCenter), with two fixes to
+  // take upstream (see core/static/core/vendor/VENDOR.md):
+  //   1. detaching also cancels an already-scheduled "idle" re-solve, which
+  //      otherwise fires after detach and moves the camera;
+  //   2. no re-solve above 80 degrees pitch: it derives zoom from
+  //      height / cos(pitch), which degenerates near horizontal.
+  function trackTerrainCentre(m, opts) {
+    opts = opts || {};
+    var duration = opts.duration != null ? opts.duration : 250;
+    var threshold = opts.threshold != null ? opts.threshold : 0.25;
+    var busy = false, waiting = false, alive = true;
+    var priv = typeof m._getTransformForUpdate === 'function' && typeof m._applyUpdatedTransform === 'function';
+    function settle() {
+      if (!alive || busy || !m.getTerrain() || m.getPitch() > 80) return;
+      var u = m.queryTerrainElevation(m.getCenter());
+      if (u == null || !isFinite(u) || Math.abs(u - m.getCenterElevation()) < threshold) return;
+      busy = true;
+      try {
+        if (priv) {
+          var tr = m._getTransformForUpdate();
+          tr.recalculateZoomAndCenter(m.terrain);
+          m._applyUpdatedTransform(tr);
+          if (typeof m._update === 'function') m._update(); else m.triggerRepaint();
+        } else {
+          m.jumpTo({ elevation: u });
+        }
+      } finally { setTimeout(function () { busy = false; }, 0); }
+    }
+    function onMoveEnd() {
+      if (busy) return;
+      settle();
+      if (!waiting) { waiting = true; m.once('idle', function () { waiting = false; settle(); }); }
+    }
+    m.setCenterClampedToGround(false);
+    m.on('moveend', onMoveEnd);
+    onMoveEnd();
+    return function detach() { alive = false; m.off('moveend', onMoveEnd); m.setCenterClampedToGround(true); };
+  }
+
+  // ---- near-horizontal views -------------------------------------------------
+  // With terrain on, MapLibre (centerClampedToGround) and demshade's
+  // trackTerrainCenter both re-solve the map centre after a move so that it
+  // sits on the ground under the view ray, deriving zoom from the camera
+  // height / cos(pitch). Near 90 degrees that divides by ~0: the centre is
+  // flung towards the horizon, zoom collapses (14 -> ~11.9), the camera can
+  // drop to sea level, and every draped line is sized for that far-off
+  // centre (the fat-trails bug). So above 80 degrees both are switched off
+  // and the camera simply orbits the point it was looking at; below 75 they
+  // come back. MapLibre's own guard against a camera inside terrain stays on.
+  var nearHorizontal = false;
+  function setNearHorizontal(on) {
+    if (on === nearHorizontal) return;
+    nearHorizontal = on;
+    // Order matters: the centre tracker turns clamping off when it attaches
+    // and back ON when it detaches, so detach first, then set clamping.
+    if (on && untrack) { untrack(); untrack = null; }
+    map.setCenterClampedToGround(!on);
+    if (!on && map.getTerrain() && !untrack) untrack = trackTerrainCentre(map);
+  }
+  map.on('pitch', function () {
+    var p = map.getPitch();
+    if (p > 80) setNearHorizontal(true);
+    else if (p < 75) setNearHorizontal(false);
+  });
 
   // ---- trails, tracks, alignment legs: live MVT ------------------------------
   // Trail classes follow the Kachemak trails map's symbols; width and dash
@@ -263,7 +332,8 @@
       paint: { 'line-color': '#00e5ff', 'line-width': 7, 'line-opacity': 0.8 } });
     map.addSource('cursor', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({ id: 'cursor', type: 'circle', source: 'cursor',
-      paint: { 'circle-radius': 6, 'circle-color': '#ffd400', 'circle-stroke-color': '#1f2a1f', 'circle-stroke-width': 2 } });
+      paint: { 'circle-radius': 6, 'circle-color': '#ffd400', 'circle-stroke-color': '#1f2a1f', 'circle-stroke-width': 2,
+               'circle-pitch-scale': 'viewport' } });
   }
   function refreshTiles() {
     tileVersion = Date.now();
@@ -397,6 +467,7 @@
       links.push('<a href="' + adminUrl + '">Edit</a>');
     }
     links.push('<a href="#" id="zoomto">Zoom to</a>');
+    links.push('<a href="#" id="sideview" title="Look at it (nearly) horizontally, from the side, to see how steady the climb is">Side view</a>');
     h += '<div class="tg-links">' + links.join(' · ') + '</div>';
     // Profile source switch: a track with GPS elevations can be compared
     // against the terrain tiles.
@@ -407,6 +478,7 @@
     }
     $('detail').innerHTML = h;
     $('zoomto').addEventListener('click', function (ev) { ev.preventDefault(); map.fitBounds(bboxOf(f.geometry), { padding: 60, maxZoom: 15 }); });
+    $('sideview').addEventListener('click', function (ev) { ev.preventDefault(); sideViewOf(f.geometry); });
     Array.prototype.forEach.call(document.querySelectorAll('input[name=psrc]'), function (r) {
       r.addEventListener('change', function () { loadProfile(f, r.value); });
     });
@@ -453,7 +525,11 @@
     baseId = id;
     var terrainOn = $('t3d').checked;
     map.setStyle(LSBasemaps.styleFor(baseOf(id)));
-    map.once('style.load', function () { addOverlays(); if (terrainOn) rebuildTerrain(); if (window.TgDesign) TgDesign.onStyleReload(); });
+    map.once('style.load', function () {
+      baseWidth = {};                         // the layers come back unscaled
+      addOverlays(); if (terrainOn) rebuildTerrain(); if (window.TgDesign) TgDesign.onStyleReload();
+      rescaleLines(true);
+    });
     syncHash();
   }
   function addOverlays() {
@@ -461,6 +537,165 @@
     if (lastFeature) setSelectedData(lastFeature);
     syncDem(true);
   }
+
+  // ---- line widths under pitch ------------------------------------------------
+  // MapLibre drapes a line on the ground as a stripe whose width in metres is
+  // fixed per frame from the scale at the map CENTRE (width px x metres per
+  // px there). Looking down that is what you want. Tilted towards the
+  // horizon, the centre slides far away, the map zoom drops (14 -> ~12 at
+  // 85 degrees) and a 2-3 px trail becomes a ~40 m stripe, which the nearer
+  // ground in view then magnifies: the "trails go fat when nearly
+  // horizontal" bug. So when pitched, widths are scaled down by how much
+  // nearer the ground in view (sampled below the centre of the screen) is
+  // than the far-off centre, square-rooted as a compromise between near and
+  // far. Recomputed on every moveend. `window.tgLineScale = false` in the
+  // console turns it off for comparison.
+  var SCALED_LINES = ['legs-casing', 'legs-line', 'tracks', 'trails-casing', 'trails-line', 'selected-halo', 'hl',
+                      'ed-legs-casing', 'ed-legs-line', 'ed-rubber'];
+  var baseWidth = {};         // layer id -> its own line-width, captured before scaling
+  var lineScale = 1;
+  function groundMetresPerPx(x, y) {
+    var a = map.unproject([x - 8, y]), b = map.unproject([x + 8, y]);
+    if (!a || !b) return null;
+    var m = TgSample.metres([a.lng, a.lat], [b.lng, b.lat]) / 16;
+    return isFinite(m) && m > 0 ? m : null;
+  }
+  function computeLineScale() {
+    if (window.tgLineScale === false) return 1;     // console switch, for comparing
+    if (map.getPitch() < 40) return 1;
+    var c = map.getCanvas(), w = c.clientWidth, h = c.clientHeight;
+    var atCentre = groundMetresPerPx(w / 2, h / 2);
+    if (!atCentre) return 1;
+    // The ground people look at when tilted: the lower middle of the view.
+    var ratios = [0.6, 0.7, 0.8].map(function (f) {
+      var m = groundMetresPerPx(w / 2, h * f);
+      return m ? m / atCentre : null;
+    }).filter(function (r) { return r !== null && r < 1; }).sort();
+    if (!ratios.length) return 1;
+    var r = ratios[Math.floor(ratios.length / 2)];
+    // Full correction (r) makes the near ground right but thins trails at
+    // mid distance to nothing; the square root splits the difference (checked
+    // side-on at 80-90 degrees over the Grewingk trails).
+    return Math.max(0.25, Math.min(1, Math.sqrt(r)));
+  }
+  // A zoom expression must stay at the top level of a style value, so the
+  // factor goes inside interpolate / step outputs rather than around them.
+  function scaleWidth(expr, f) {
+    if (typeof expr === 'number') return expr * f;
+    if (Array.isArray(expr) && (expr[0] === 'interpolate' || expr[0] === 'step')) {
+      // interpolate: [op, type, input, stop, out, stop, out...] (outputs from 4)
+      // step:        [op, input, out, stop, out...]            (outputs 2, 4, ...)
+      var out = expr.slice();
+      if (expr[0] === 'step') out[2] = ['*', f, expr[2]];
+      for (var i = 4; i < out.length; i += 2) out[i] = ['*', f, expr[i]];
+      return out;
+    }
+    return ['*', f, expr];
+  }
+  function rescaleLines(force) {
+    var f = computeLineScale();
+    if (!force && Math.abs(f - lineScale) < 0.02) return;
+    lineScale = f;
+    SCALED_LINES.forEach(function (id) {
+      if (!map.getLayer(id)) return;
+      if (!(id in baseWidth)) baseWidth[id] = map.getPaintProperty(id, 'line-width');
+      var base = baseWidth[id];
+      if (base === undefined) return;
+      map.setPaintProperty(id, 'line-width', f >= 0.99 ? base : scaleWidth(base, f));
+    });
+  }
+  map.on('moveend', function () { rescaleLines(false); });
+
+  // ---- views: top, oblique, and side-on ------------------------------------
+  // Side-on means looking (nearly) horizontally at a slope to judge how
+  // steady a climb is. Just tilting to 90 degrees puts the camera at the
+  // height of the point it looks at, so any hill in between swallows it.
+  // Instead the camera is placed explicitly (MapLibre's
+  // calculateCameraOptionsFromTo): off to one side of the target, and lifted
+  // just enough that the line of sight clears the ground, sampled from the
+  // terrain tiles along the way (tg_sample.js, so it does not depend on which
+  // tiles happen to be loaded). The result is as close to horizontal as the
+  // terrain allows; the user can still tilt all the way to 90.
+  var SIDE_CLEARANCE_M = 25;
+  function ensureTerrain() {
+    if ($('t3d').checked) return;
+    $('t3d').checked = true; $('exag').disabled = false; rebuildTerrain();
+  }
+  function offset(ll, bearingDeg, dist) {      // point `dist` metres from ll along a bearing
+    var R = 6371008.8, b = bearingDeg * Math.PI / 180, lat = ll[1] * Math.PI / 180;
+    return [ll[0] + dist * Math.sin(b) / (R * Math.cos(lat)) * 180 / Math.PI,
+            ll[1] + dist * Math.cos(b) / R * 180 / Math.PI];
+  }
+  function bearingOf(a, b) {
+    var lat = (a[1] + b[1]) / 2 * Math.PI / 180;
+    return Math.atan2((b[0] - a[0]) * Math.cos(lat), b[1] - a[1]) * 180 / Math.PI;
+  }
+  // Camera for looking at `target` from bearing `from` (degrees, the
+  // direction the camera sits in, seen from the target) at `dist` metres.
+  // Resolves to {options, altitude} or null.
+  function sideCamera(target, from, dist) {
+    var cam = offset(target, from, dist);
+    return TgSample.profile([cam, target], { spacing: Math.max(10, dist / 60) }).then(function (s) {
+      var ex = map.getTerrain() ? map.getTerrain().exaggeration || 1 : +$('exag').value / 10;
+      var zT = s[s.length - 1].z * ex, need = s[0].z * ex + SIDE_CLEARANCE_M;
+      s.forEach(function (p) {
+        var t = p.d / dist;
+        if (t <= 0 || t >= 0.97) return;
+        // The sight line from camera (t=0) to target (t=1) must pass above
+        // this ground point: alt + (zT - alt) t >= ground + clearance.
+        need = Math.max(need, (p.z * ex + SIDE_CLEARANCE_M - zT * t) / (1 - t));
+      });
+      var alt = Math.max(need, zT + 1);
+      return { options: map.calculateCameraOptionsFromTo(cam, alt, target, zT), altitude: alt - zT,
+               cam: cam, camAlt: alt, groundAtCam: s[0].z * ex };
+    });
+  }
+  function sideView(target, lineBearing, dist) {
+    ensureTerrain();
+    // A line is seen from across its direction (either side); the map centre
+    // from behind the current view, or a little either side of it. Each at
+    // three distances: nearer can look over less terrain.
+    var bearings = lineBearing == null ? [0, 25, -25].map(function (d) { return map.getBearing() + 180 + d; })
+                                       : [lineBearing + 90, lineBearing - 90];
+    var tries = [];
+    bearings.forEach(function (b) { [0.6, 1, 1.5].forEach(function (k) { tries.push([b, dist * k]); }); });
+    Promise.all(tries.map(function (t) {
+      return sideCamera(target, t[0], t[1]).then(function (c) { c.dist = t[1]; return c; }, function () { return null; });
+    })).then(function (cams) {
+      // Closest to horizontal wins (angle of the camera above the target);
+      // ties go to the more distant, wider view.
+      cams = cams.filter(Boolean).sort(function (a, b) {
+        var da = Math.atan2(a.altitude, a.dist), db = Math.atan2(b.altitude, b.dist);
+        return Math.abs(da - db) > 0.01 ? da - db : b.dist - a.dist;
+      });
+      if (!cams.length) { map.easeTo({ pitch: 85, duration: 800 }); return; }
+      setNearHorizontal(true);                 // keep the placement: no re-solving of the centre
+      // jumpTo, not easeTo: only jumpTo honours `elevation` (the height of
+      // the point looked at); easeTo re-derives it from the terrain tiles.
+      map.jumpTo(cams[0].options);
+      window.tgLastSideView = cams[0];         // for console debugging
+    });
+  }
+  // Side-on view of a line: from across its overall direction, far enough to
+  // take in all of it.
+  function sideViewOf(geom) {
+    var cs = flatCoords(geom).filter(function (c) { return c && isFinite(c[0]); });
+    if (cs.length < 2) return;
+    var b = bboxOf(geom), mid = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+    var span = TgSample.metres([b[0], b[1]], [b[2], b[3]]);
+    sideView(mid, bearingOf(cs[0], cs[cs.length - 1]), Math.max(700, span * 1.1));
+  }
+  function setView(which) {
+    if (which === 'top') { map.easeTo({ pitch: 0, duration: 800 }); return; }
+    if (which === 'oblique') { ensureTerrain(); map.easeTo({ pitch: 60, duration: 800 }); return; }
+    // Side-on: the selected line if there is one, else what is at the centre.
+    if (lastFeature && lastFeature.geometry) { sideViewOf(lastFeature.geometry); return; }
+    var c = map.getCenter(), mpp = 40075016.686 * Math.cos(c.lat * Math.PI / 180) / (512 * Math.pow(2, map.getZoom()));
+    sideView([c.lng, c.lat], null, Math.min(2500, Math.max(700, mpp * map.getCanvas().clientWidth * 0.5)));
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (b) {
+    b.addEventListener('click', function () { setView(b.dataset.view); });
+  });
 
   // ---- hash ----------------------------------------------------------------
   var hashLock = false;
@@ -518,7 +753,9 @@
     setSelectedGeometry: function (geom) { setGeo('selected', geom); },
     highlight: function (f) { setGeo('hl', f); },
     fitTo: function (geom, bbox) { map.fitBounds(bbox || bboxOf(geom), { padding: 60, maxZoom: 16 }); },
-    quickProfile: function (f) { if (f.geometry) loadProfile(f, 'terrain'); }
+    quickProfile: function (f) { if (f.geometry) loadProfile(f, 'terrain'); },
+    rescaleLines: function () { rescaleLines(true); },
+    sideView: sideViewOf
   });
 
   // ---- boot -------------------------------------------------------------------
