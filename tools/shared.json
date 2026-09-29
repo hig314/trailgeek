@@ -1,0 +1,44 @@
+{
+  "upstream": "hig314/landslidescience",
+  "ref": "1c63e6066476fbc5d29ae18c3ba5a8f7baea4586",
+  "synced": "2026-09-28",
+  "files": [
+    {
+      "local": "core/static/core/js/basemaps.js",
+      "upstream": "inventory/static/inventory/js/basemaps.js",
+      "header": true,
+      "sha256": "01fefa00fada41cb5312bc6f402486e77e2c067f9da05e50ce70df2eb92c7d73"
+    },
+    {
+      "local": "core/static/core/js/ls_hash.js",
+      "upstream": "inventory/static/inventory/js/ls_hash.js",
+      "header": true,
+      "sha256": "569d1f8906957ea2a3a48a3922427973ca70e7914f24969eb3324e11999f01c5"
+    },
+    {
+      "local": "core/static/core/js/dem_shade_bridge.js",
+      "upstream": "inventory/static/inventory/js/dem_shade_bridge.js",
+      "header": true,
+      "sha256": "d2382206820551385ace3ed9b6a6f3e3799ea675511b7f78d5af7f0326a4d1b6"
+    },
+    {
+      "local": "core/static/core/vendor/maplibre-gl-demshade.iife.js",
+      "upstream": "inventory/static/inventory/js/vendor/maplibre-gl-demshade.iife.js",
+      "header": false,
+      "sha256": "019220752628b59d551782aed0e294d47fc45bb62133962a19aa30a9fc8a0993"
+    },
+    {
+      "local": "core/static/core/vendor/maplibre-gl-demshade.iife.js.map",
+      "upstream": "inventory/static/inventory/js/vendor/maplibre-gl-demshade.iife.js.map",
+      "header": false,
+      "sha256": "b2dc49f96a5c113491c89b97f1a0ab51318a993aa54747fc38212af0aa03c551"
+    }
+  ],
+  "proposed": [
+    {
+      "local": "core/static/core/js/dem_stack.js",
+      "upstream": "inventory/static/inventory/js/dem_stack.js",
+      "note": "Written here from /lidar/'s inline logic; landslidescience adopts it, then it moves to files."
+    }
+  ]
+}

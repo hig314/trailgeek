@@ -131,7 +131,8 @@ window.TgDesign = (function () {
     if (p.evaluation) h += sourcesNote(p.evaluation) + bandsHtml(p.evaluation);
     if (p.notes) h += '<p class="tg-desc tg-small">' + esc(p.notes) + '</p>';
     h += compareHtml(p);
-    h += '<div class="tg-links"><a href="#" id="zoomto">Zoom to</a> · <a href="/api/alignments/' + p.id + '.geojson" download="alignment-' + p.id + '.geojson">GeoJSON</a></div>';
+    h += '<div class="tg-links"><a href="#" id="zoomto">Zoom to</a> · <a href="#" id="sideview" title="Look at it (nearly) horizontally, from the side, to see how steady the climb is">Side view</a> · ' +
+         '<a href="/api/alignments/' + p.id + '.geojson" download="alignment-' + p.id + '.geojson">GeoJSON</a></div>';
     h += '<div class="tg-sub">Profile <span id="profsrc" class="tg-muted"></span></div>';
     $('detail').innerHTML = h;
     $('profstats').innerHTML = p.evaluation ? '<div class="tg-keys">' + app.profile.legend(true) + '</div>' : '';
@@ -205,6 +206,7 @@ window.TgDesign = (function () {
   function wireView(f) {
     var p = f.properties;
     var z = $('zoomto'); if (z) z.addEventListener('click', function (e) { e.preventDefault(); app.fitTo(f.geometry); });
+    var sv = $('sideview'); if (sv && f.geometry) sv.addEventListener('click', function (e) { e.preventDefault(); app.sideView(f.geometry); });
     Array.prototype.forEach.call(document.querySelectorAll('.tg-legs tr[data-leg]'), function (tr) {
       tr.addEventListener('mouseenter', function () { app.highlight(legFeature(p.legs[+tr.dataset.leg])); });
       tr.addEventListener('mouseleave', function () { app.highlight(null); });
@@ -334,7 +336,8 @@ window.TgDesign = (function () {
       onChange: function () { dirty = true; renderEditPanel(); scheduleEval(); },
       onMode: function () { renderToolbar(); },
       onSelectLeg: function (j) { highlightLegRow(j); },
-      onMessage: function (t, err) { var m = $('ed-msg'); if (m) { m.textContent = t; m.className = 'tg-small ' + (err ? 'tg-error' : 'tg-muted'); } }
+      onMessage: function (t, err) { var m = $('ed-msg'); if (m) { m.textContent = t; m.className = 'tg-small ' + (err ? 'tg-error' : 'tg-muted'); } },
+      onLayers: function () { app.rescaleLines(); }
     });
     renderEditShell();
     ed.start(f.properties.legs);

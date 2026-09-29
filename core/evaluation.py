@@ -15,7 +15,7 @@ from trailgeek_analysis import evaluate, resample_legs
 from trailgeek_analysis.evaluate import spacing_m
 
 from . import geo
-from .dem import CogSource, TerrariumSource, sample_stack, transform_xy
+from .dem import CogSource, TerrariumSource, TileSource, sample_stack, transform_xy
 from .models import DEFAULT_PROJECT_SETTINGS, DemSource
 
 MAX_SAMPLES_LIVE = 20000      # keeps a live evaluation of a long route to a few seconds
@@ -25,7 +25,8 @@ MAX_SAMPLES_SAVED = 80000     # ~120 km at the default 5 ft spacing
 def choose_sources(line, project=None):
     """DEM stack for a line (a GEOS geometry in 4326): the project's DEM if
     it has one, then every enabled, public lidar survey whose footprint
-    touches the line, finest first, newest first; then Terrarium."""
+    touches the line, finest first, newest first; then the baked 3DEP
+    context when the catalogue serves it as tiles; then Terrarium."""
     out, seen = [], set()
 
     def add_lidar(d):
@@ -41,6 +42,13 @@ def choose_sources(line, project=None):
           .order_by("native_res_m", "-year"))
     for d in qs:
         add_lidar(d)
+    # The baked context is a PMTiles archive; the worker reads it through
+    # the tile Worker's per-tile URLs, so it is only used when those exist.
+    for c in (DemSource.objects.filter(kind=DemSource.Kind.CONTEXT, enabled=True,
+                                       encoding=DemSource.Encoding.MAPBOX)
+              .exclude(tiles_url="").order_by("slug")):
+        out.append(TileSource(c.slug, c.title, c.tiles_url, c.max_zoom, data_res=c.native_res_m,
+                              encoding="mapbox"))
     ctx = DemSource.objects.filter(slug="terrarium", enabled=True).first()
     if ctx is None and not DemSource.objects.filter(slug="terrarium").exists():
         out.append(TerrariumSource())           # catalogue not imported: still evaluate

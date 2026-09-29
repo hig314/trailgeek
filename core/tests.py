@@ -279,6 +279,22 @@ class DemCatalogTests(TestCase):
         self.assertFalse(stale.enabled)
         self.assertTrue(DemSource.objects.get(slug="terrarium").enabled)
 
+    def test_baked_context_member_becomes_a_context_row(self):
+        ctx = {"id": "ctx_3dep", "title": "USGS 3DEP 1/3 arc-second context", "min_zoom": 5, "max_zoom": 13,
+               "pmtiles_url": "https://lidar.landslidescience.org/pmtiles/ctx_3dep.pmtiles",
+               "tiles_url": "https://tiles.example/ctx_3dep/{z}/{x}/{y}.png?v=abc"}
+        s = import_catalog({**CATALOG, "context": ctx})
+        self.assertEqual(s["context"], "ctx_3dep")
+        d = DemSource.objects.get(slug="ctx_3dep")
+        self.assertEqual((d.kind, d.encoding, d.min_zoom, d.max_zoom), ("context", "mapbox", 5, 13))
+        self.assertEqual(d.tiles_url, ctx["tiles_url"])
+        # Re-import without tile URLs updates in place; the lidar sweep leaves context rows alone.
+        s = import_catalog({**CATALOG, "context": {**ctx, "tiles_url": None}})
+        d.refresh_from_db()
+        self.assertEqual((d.tiles_url, d.enabled), ("", True))
+        self.assertEqual(import_catalog(CATALOG)["context"], None)
+        self.assertTrue(DemSource.objects.get(slug="ctx_3dep").enabled)
+
     def test_command_reads_a_file_and_api_serves_it(self):
         with tempfile.NamedTemporaryFile("w", suffix=".geojson", delete=False) as fh:
             json.dump(CATALOG, fh)

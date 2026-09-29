@@ -31,10 +31,18 @@ randomly drops real logins.
 ops/deploy.sh          # from a machine with the SSH key: pulls main, builds, up -d, check --deploy
 ```
 
+The owner's Mac has the droplet's host key under its IP, not its name, so
+the default `root@trailgeek.org` fails there with "Host key verification
+failed". Deploy with `TRAILGEEK_HOST=root@137.184.246.228 ops/deploy.sh`
+(or accept the key once with an interactive `ssh root@trailgeek.org`). The
+local Claude session's permission rules for this live in
+`.claude/settings.local.json`, which is gitignored.
+
 Post-deploy steps by change (run on the droplet, `$C` as below):
 
 | Change | Command |
 |---|---|
+| /lidar/ seam fixes, baked 3DEP context (same PR) | `$C exec web python manage.py import_dem_catalog` **before** loading the data below, so the new `ctx_3dep` context row exists; the command's last line names it ("baked context: ctx_3dep", or "none in this catalogue" if landslidescience's catalogue was published without it). The map uses it from its PMTiles archive; the evaluator only when the catalogue also gives it a tile-Worker `tiles_url`, and otherwise stays on Terrarium. |
 | Trail design (legs, evaluator, import) | Migration 0003 runs on web start and gives every existing alignment one leg. **Restart the worker too** (`$C up -d` does): it now runs the evaluations. Then load the owner's data, either at https://trailgeek.org/import/ (trail editors; simplest from the Mac) or by copying the files to the droplet and running `$C exec web python manage.py import_lines /app/data/260927_Trails.zip --as trails --owner hig` and `$C exec web python manage.py import_lines /app/data/250924_Scouting_plans.gpkg --as alignments --project-name "Scouting plans 2025-09" --owner hig` (the compose stack mounts `./data` at `/app/data`). Each imported alignment queues an evaluation; the 88 km lines take ~30 s each on Terrarium. |
 | Phase 1 (first deploy of the trail models) | `$C exec web python manage.py import_dem_catalog` to seed the DEM catalogue from landslidescience. Re-run whenever that catalogue is rebuilt. Then give yourself `trail_editors` in /admin/ to upload tracks. |
 
@@ -52,6 +60,8 @@ $C ps
 $C logs -f web            # or worker, caddy, db
 $C exec web python manage.py shell
 $C exec web python manage.py createsuperuser
+$C exec web python manage.py changepassword hig   # forgotten admin password
+$C exec web python manage.py shell -c "from django.contrib.auth.models import User; print(list(User.objects.filter(is_superuser=True).values_list('username', flat=True)))"   # which admin accounts exist
 $C restart caddy          # retries certificate issuance
 ```
 
@@ -64,11 +74,14 @@ $C restart caddy          # retries certificate issuance
 else. Changing `DJANGO_SECRET_KEY` logs everyone out.
 
 ### Known state and open items
-- **R2 CORS for trailgeek.org (needed by Phase 1; confirmed 2026-09-26
-  from localhost:8002: "No 'Access-Control-Allow-Origin' header").** The
-  lidar archives are read by demshade in a Web Worker with `fetch`, which
-  needs CORS from two places, both configured in landslidescience's
-  Cloudflare account, so this is a local-session (Mac) job:
+- **R2 CORS for trailgeek.org: done on both hosts** (verified from the Mac
+  2026-09-27 with an Origin header; the Worker was deployed from
+  landslidescience branch `lidar-tiles-cors-trailgeek`, and
+  hig314/landslidescience#3 brings its `main` in line). Kept as the recipe
+  for adding another origin. The lidar archives are read by demshade in a
+  Web Worker with `fetch`, which needs CORS from two places, both
+  configured in landslidescience's Cloudflare account, so this is a
+  local-session (Mac) job:
   1. **The R2 bucket** `landslidescience-lidar` (custom domain
      `lidar.landslidescience.org`): Cloudflare dashboard → R2 → the bucket
      → Settings → CORS policy. Add the trailgeek origins to
@@ -92,7 +105,7 @@ else. Changing `DJANGO_SECRET_KEY` logs everyone out.
      policy) and redeploy with `npx wrangler deploy` from that directory.
      That is a landslidescience change, so it goes through that repo's
      own branch-and-test rule.
-  Until both are done the map logs one warning per survey
+  Without both, the map logs one warning per survey
   (`lidar <id> is not readable from http://localhost:8002`), leaves the
   survey out of the Lidar picker and shades from Terrarium. Reload after
   the change; Cloudflare applies CORS policy edits within a minute.

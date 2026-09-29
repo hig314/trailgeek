@@ -20,6 +20,11 @@
     <label class="tg-check"><input id="slope" type="checkbox"> Slope shading</label>
     <label class="tg-check"><input id="t3d" type="checkbox"> 3D terrain</label>
     <label>Exaggeration <input id="exag" type="range" min="5" max="30" value="12"></label>
+    <div class="tg-views">View:
+      <button type="button" class="tg-btn" data-view="top" title="Straight down">Top</button>
+      <button type="button" class="tg-btn" data-view="oblique" title="Tilted 60°, turns 3D terrain on">Oblique</button>
+      <button type="button" class="tg-btn" data-view="side" title="Side-on and (nearly) horizontal, looking at the selected trail or the map centre, with the camera just clearing the ground. Turns 3D terrain on">Side</button>
+    </div>
     <div class="tg-legend">
       <span><i class="tg-sw" style="background:#1e5c1e;height:4px"></i> Major trail</span>
       <span><i class="tg-sw" style="background:#2a7f2a"></i> Trail</span>
@@ -58,6 +63,7 @@
 <script src="{% static 'core/js/basemaps.js' %}"></script>
 <script src="{% static 'core/js/ls_hash.js' %}"></script>
 <script src="{% static 'core/js/dem_shade_bridge.js' %}"></script>
+<script src="{% static 'core/js/dem_stack.js' %}"></script>
 <script src="{% static 'core/js/tg_sample.js' %}"></script>
 <script src="{% static 'core/js/tg_profile.js' %}"></script>
 <script src="{% static 'core/js/tg_editor.js' %}"></script>
