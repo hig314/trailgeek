@@ -31,6 +31,13 @@ randomly drops real logins.
 ops/deploy.sh          # from a machine with the SSH key: pulls main, builds, up -d, check --deploy
 ```
 
+The owner's Mac has the droplet's host key under its IP, not its name, so
+the default `root@trailgeek.org` fails there with "Host key verification
+failed". Deploy with `TRAILGEEK_HOST=root@137.184.246.228 ops/deploy.sh`
+(or accept the key once with an interactive `ssh root@trailgeek.org`). The
+local Claude session's permission rules for this live in
+`.claude/settings.local.json`, which is gitignored.
+
 Post-deploy steps by change (run on the droplet, `$C` as below):
 
 | Change | Command |

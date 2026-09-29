@@ -20,7 +20,10 @@ server and Django reasoning rather than assume it.
   `import_dem_catalog` from landslidescience's lidar catalogue), `Trail`,
   `Track`, `Project`, GPX upload, live MVT tiles, the home map with lidar
   shading / 3D through demshade, and the D3 profile.
-- **Trail design is merged** (hig314/trailgeek#2, 2026-09-28). The 3D
+- **Trail design is merged and deployed** (hig314/trailgeek#2, merged and
+  deployed from the Mac 2026-09-27; migration 0003 applied in production).
+  **The owner's trails and scouting plans are loaded in local dev only,
+  not in production** (see Open). The 3D
   views, the /lidar/ seam fixes and the code sharing below are on
   `claude/trailgeek-project-b53hqm` in a new PR, awaiting approval.
   - An **Alignment is a continuous line of ordered Legs**. Each leg is
@@ -69,9 +72,19 @@ server and Django reasoning rather than assume it.
     (71 alignments) import cleanly in the sandbox; **they are not in the
     repo** (the repo is public and scouting lines can cross private land):
     load them with the command or the page after deploying.
-- **Open:** the R2 CORS change for trailgeek.org (bucket done by the owner;
-  the lidar-tiles Worker origin change in landslidescience still to do; until
-  then the map falls back from the Worker's tile URLs to the archives).
+- **Open:** R2 CORS for trailgeek.org is **done on both hosts**, verified
+  from the Mac 2026-09-27 with an Origin header: the `landslidescience-lidar`
+  bucket (owner) and the lidar-tiles Worker on `tiles.landslidescience.org`
+  (deployed from branch `lidar-tiles-cors-trailgeek`, Worker version
+  9381e78d; hig314/landslidescience#3 brings `main` in line and awaits
+  approval). The bucket list lacks `www.landslidescience.org`, which the
+  Worker list has.
+  **Production data is not loaded:** the owner's 443 trails and 71
+  alignments are only in local dev. Loading them in production publishes
+  380 trails as public (63 gated, project KBSP gated, as in the dev import),
+  so it waits for the owner. `260927_Trails.zip` is not on the Mac's disks
+  that the local session searched; `250924_Scouting_plans.gpkg` is on the
+  Nunatak drive under `Trail_science/Graduation_Peak`.
   Until lidar reaches the evaluator, evaluations use the baked 3DEP
   (~10 m) or Terrarium (~60 m data in Alaska) and say so. No backups yet,
   and uploads now exist. Local session: adopt `dem_stack.js` in /lidar/
