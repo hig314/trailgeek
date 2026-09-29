@@ -74,11 +74,14 @@ $C restart caddy          # retries certificate issuance
 else. Changing `DJANGO_SECRET_KEY` logs everyone out.
 
 ### Known state and open items
-- **R2 CORS for trailgeek.org (needed by Phase 1; confirmed 2026-09-26
-  from localhost:8002: "No 'Access-Control-Allow-Origin' header").** The
-  lidar archives are read by demshade in a Web Worker with `fetch`, which
-  needs CORS from two places, both configured in landslidescience's
-  Cloudflare account, so this is a local-session (Mac) job:
+- **R2 CORS for trailgeek.org: done on both hosts** (verified from the Mac
+  2026-09-27 with an Origin header; the Worker was deployed from
+  landslidescience branch `lidar-tiles-cors-trailgeek`, and
+  hig314/landslidescience#3 brings its `main` in line). Kept as the recipe
+  for adding another origin. The lidar archives are read by demshade in a
+  Web Worker with `fetch`, which needs CORS from two places, both
+  configured in landslidescience's Cloudflare account, so this is a
+  local-session (Mac) job:
   1. **The R2 bucket** `landslidescience-lidar` (custom domain
      `lidar.landslidescience.org`): Cloudflare dashboard → R2 → the bucket
      → Settings → CORS policy. Add the trailgeek origins to
@@ -102,7 +105,7 @@ else. Changing `DJANGO_SECRET_KEY` logs everyone out.
      policy) and redeploy with `npx wrangler deploy` from that directory.
      That is a landslidescience change, so it goes through that repo's
      own branch-and-test rule.
-  Until both are done the map logs one warning per survey
+  Without both, the map logs one warning per survey
   (`lidar <id> is not readable from http://localhost:8002`), leaves the
   survey out of the Lidar picker and shades from Terrarium. Reload after
   the change; Cloudflare applies CORS policy edits within a minute.

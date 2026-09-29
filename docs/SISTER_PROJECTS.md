@@ -138,9 +138,9 @@ kit exists (only the pinned repo and paths change).
 - **Gated surveys** are for signed-in users only on landslidescience. A
   browser on trailgeek.org can't use that session, so gated data would need
   trailgeek's own ranged proxy and gate.
-- **CORS:** the R2 bucket and tile Worker must allow the trailgeek.org
-  origin before the archives load from this site (docs/OPERATIONS.md, open
-  items). The catalogue endpoint is already `Access-Control-Allow-Origin: *`.
+- **CORS:** the R2 bucket and the tile Worker both allow the trailgeek.org
+  and localhost:8002 origins (done 2026-09-27; the recipe is in
+  docs/OPERATIONS.md). The catalogue endpoint is already `Access-Control-Allow-Origin: *`.
 - **Evaluator test areas are in the catalogue:** `grewingk_2021` (Alpine
   Ridge, Grewingk) and `anchorage_2015` (Ram Valley). Also relevant:
   `kbay_2023`, `homer_2019`, `seldovia_2019`, `glen_alps_2024`,
