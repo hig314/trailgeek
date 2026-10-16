@@ -461,7 +461,7 @@
     var kindLabel = { trail: 'Trail', track: 'GPS track', alignment: 'Alignment' }[p.kind];
     h += '<div class="tg-kind">' + kindLabel + (p.status ? ' · ' + esc(p.status) : '') + (p.priority ? ' · priority ' + p.priority : '') + '</div>';
     h += '<h2>' + esc(p.name) + '</h2>';
-    if (p.project) h += '<div class="tg-muted">Project: ' + esc(p.project.name) + (p.trailhead ? ' · from ' + esc(p.trailhead) : '') + '</div>';
+    if (p.project) h += '<div class="tg-muted">Project: <a href="#project=' + esc(p.project.slug) + '">' + esc(p.project.name) + '</a>' + (p.trailhead ? ' · from ' + esc(p.trailhead) : '') + '</div>';
     if (p.trail) h += '<div class="tg-muted">On trail: <a href="#trail=' + esc(p.trail.slug) + '">' + esc(p.trail.name) + '</a></div>';
     if (p.taken_at) h += '<div class="tg-muted">Recorded ' + esc(p.taken_at.slice(0, 10)) + (p.device ? ' · ' + esc(p.device) : '') + '</div>';
     if (p.trail_class_label) h += '<div class="tg-muted">' + esc(p.trail_class_label) + (p.builder ? ' · built by ' + esc(p.builder) : '') + '</div>';

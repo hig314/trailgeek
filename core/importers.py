@@ -12,7 +12,10 @@ from that file that are no longer in it are deleted (trails) or left alone
 
 Field mapping is by name, case-insensitive, so the Kachemak trails map
 (200111_TRAILS: Name, Symbol, descriptio, Area, Builder, Default) and the
-scouting plans GeoPackage (Name, Type) both import without configuration.
+scouting plans GeoPackages (Name, Type; or Name, Class, Notes as in
+Tutka_Tusk_sections) both import without configuration. A Class or
+Priority field of Preferred / Alternate / Future (or a number) sets
+Alignment.priority; Notes go into Alignment.notes.
 """
 import os
 import re
@@ -39,6 +42,26 @@ _CLASS = {
 # Scouting "Type" -> Leg.kind. Everything proposed is new construction
 # unless it says it restores an old line.
 _LEG_KIND = {"restored": Leg.Kind.RESTORE, "restore": Leg.Kind.RESTORE, "reroute": Leg.Kind.REROUTE}
+# Scouting "Class" / "Priority" -> Alignment.priority (see Alignment.PRIORITY_LABELS).
+_PRIORITY = {"preferred": 1, "primary": 1, "proposed": 1, "alternate": 2, "alternative": 2, "option": 2,
+             "future": 3, "someday": 3}
+
+
+def parse_priority(value, default=1):
+    """'Preferred' -> 1, 'Alternate' -> 2, 'Future' -> 3, '2' -> 2, else default."""
+    if value is None or value == "":
+        return default
+    text = str(value).strip().lower()
+    if text in _PRIORITY:
+        return _PRIORITY[text]
+    try:
+        n = int(float(text))
+    except ValueError:
+        for word, n in _PRIORITY.items():
+            if word in text:
+                return n
+        return default
+    return n if n >= 1 else default
 
 
 class ImportError_(ValueError):
@@ -252,10 +275,13 @@ def import_alignments(path, project=None, project_name=None, owner=None,
             continue
         ftype = _get(feat, fmap, "type", "kind", "status") or ""
         kind = _LEG_KIND.get(str(ftype).lower(), Leg.Kind.NEW)
+        priority = parse_priority(_get(feat, fmap, "class", "priority", "rank"))
         name = _get(feat, fmap, "name", "title")
         base_name = name or (f"{ftype} line {fid}" if ftype else f"Line {fid}")
         src_len = _get(feat, fmap, "length (m)", "length_m", "length")
-        notes = "; ".join(x for x in (f"Type: {ftype}" if ftype else "",
+        src_notes = _get(feat, fmap, "notes", "note", "description", "descriptio", "comment", "comments")
+        notes = "; ".join(x for x in (str(src_notes).strip() if src_notes else "",
+                                       f"Type: {ftype}" if ftype else "",
                                        f"source length {src_len} m" if src_len else "") if x)
         for part, ls in enumerate(lines, 1):
             src = f"{stem}#{fid}" + (f".{part}" if len(lines) > 1 else "")
@@ -271,6 +297,7 @@ def import_alignments(path, project=None, project_name=None, owner=None,
                 rep.updated += 1
             a.name = aname
             a.notes = notes
+            a.priority = priority
             a.save()
             a.legs.all().delete()
             Leg.objects.create(alignment=a, order=0, kind=kind, name="", geom=ls)

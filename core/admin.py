@@ -27,8 +27,9 @@ class TrailAdmin(gis_admin.GISModelAdmin):
 
 @admin.register(Track)
 class TrackAdmin(gis_admin.GISModelAdmin):
-    list_display = ("name", "taken_at", "trail", "visibility", "length_km", "climb_m", "owner")
-    list_filter = ("visibility", "has_elevation")
+    list_display = ("name", "taken_at", "trail", "project", "visibility", "length_km", "climb_m", "owner")
+    list_filter = ("project", "visibility", "has_elevation")
+    raw_id_fields = ("trail",)
     search_fields = ("name", "description", "device")
     readonly_fields = ("length_m", "point_count", "climb_m", "descent_m", "times")
 
@@ -47,8 +48,9 @@ class AlignmentInline(admin.TabularInline):
 
 @admin.register(Project)
 class ProjectAdmin(gis_admin.GISModelAdmin):
-    list_display = ("name", "slug", "dem", "visibility", "owner", "updated")
-    list_filter = ("visibility",)
+    list_display = ("name", "slug", "parent", "dem", "visibility", "owner", "updated")
+    list_filter = ("parent", "visibility")
+    raw_id_fields = ("parent",)
     search_fields = ("name", "slug", "description")
     prepopulated_fields = {"slug": ("name",)}
     filter_horizontal = ("members",)

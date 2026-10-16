@@ -199,8 +199,29 @@ aspect, exaggeration`.
   peaks along trails.
 - **terrain_sandbox**: a D3/canvas landscape-evolution toy, already a static
   bundle. It is educational.
-- **Map_app ("FieldMap")**: an offline Android map app that renders trails and
-  GPS tracks from MBTiles. It could consume trailgeek exports later.
+- **Map_app ("FieldMap")**, `/Users/Hig/Claude_projects/Map_app`: the
+  owner's offline Android field map (Kotlin, MapLibre Native, no INTERNET
+  permission), sold per map area. It is the scouts' field map, and
+  trailgeek feeds it two ways (2026-10-16):
+  - **GPX overlays**: the app imports GPX files (tracks and waypoints,
+    drawn cyan). `/api/projects/<slug>.gpx` is such a file, so the same
+    download serves GaiaGPS and the app. Scouts' recorded tracks come back
+    through the app's GPX export and the `/tracks/upload/` page, attached
+    to the project.
+  - **Vector MBTiles overlays** (`format=pbf`, magenta dashed lines, tap
+    shows the attributes): built from `/api/projects/<slug>.geojson` with
+    GDAL's MVT writer and the product stamp the app filters on, the way
+    `09_alpine_ridge_trail.mbtiles` was made:
+    ```bash
+    GDAL=/Applications/QGIS-LTR.app/Contents/MacOS/bin
+    $GDAL/ogr2ogr -f MBTILES pipeline/out/10_tutka_tusk_plan.mbtiles tutka-tusk.geojson \
+      -dsco NAME="Tutka Tusk plan" -dsco MINZOOM=10 -dsco MAXZOOM=16
+    sqlite3 pipeline/out/10_tutka_tusk_plan.mbtiles \
+      "DELETE FROM metadata WHERE name='product'; INSERT INTO metadata(name,value) VALUES('product','kachemak');"
+    ```
+    The file then goes to the phone's Downloads and in through MANAGE MAPS.
+    The app's shade layers for Tutka Bay come from the same NOAA 2023/24
+    Kachemak Bay lidar that landslidescience serves as `kbay_2023`.
 
 ## GeoLibre (external, MIT)
 

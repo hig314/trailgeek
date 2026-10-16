@@ -3,6 +3,7 @@ from django.contrib.auth import views as auth_views
 from django.urls import include, path
 
 from core import design_views as design
+from core import exports as core_exports
 from core import tiles as core_tiles
 from core import views as core_views
 
@@ -30,6 +31,10 @@ urlpatterns = [
     path("api/route/trails", design.api_trail_route, name="api_trail_route"),
     path("api/projects/", design.api_projects, name="api_projects"),
     path("api/projects/<slug:slug>.json", design.api_project, name="api_project"),
+    # Field exports: GPX for GaiaGPS / phones, GeoJSON of the legs for offline map products.
+    path("api/alignments/<int:pk>.gpx", core_exports.api_alignment_gpx, name="api_alignment_gpx"),
+    path("api/projects/<slug:slug>.gpx", core_exports.api_project_gpx, name="api_project_gpx"),
+    path("api/projects/<slug:slug>.geojson", core_exports.api_project_geojson, name="api_project_geojson"),
     path("import/", design.import_lines, name="import_lines"),
     path("tracks/upload/", core_views.track_upload, name="track_upload"),
     path("tracks/<int:pk>/download/", core_views.track_download, name="track_download"),

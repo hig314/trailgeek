@@ -8,7 +8,7 @@ from .gpx import parse_gpx
 from .models import Track
 
 
-def create_track_from_gpx(uploaded, owner, name="", trail=None, visibility="public", description=""):
+def create_track_from_gpx(uploaded, owner, name="", trail=None, project=None, visibility="public", description=""):
     """`uploaded` is a Django UploadedFile. Raises GpxError on bad input."""
     data = uploaded.read()
     parsed = parse_gpx(data)
@@ -34,6 +34,7 @@ def create_track_from_gpx(uploaded, owner, name="", trail=None, visibility="publ
         name=name or parsed["name"] or uploaded.name.rsplit(".", 1)[0],
         description=description,
         trail=trail,
+        project=project,
         device=parsed["device"][:100],
         taken_at=first_time,
         geom=LineString(coords, srid=4326),

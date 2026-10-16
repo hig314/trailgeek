@@ -309,3 +309,161 @@ class DemCatalogTests(TestCase):
         DemSource.objects.filter(slug="grewingk_2021").update(gated=True)
         ids = {f["properties"]["id"] for f in self.client.get("/api/dems.geojson").json()["features"]}
         self.assertNotIn("grewingk_2021", ids)
+
+
+class GpxWriteTests(TestCase):
+    def test_write_round_trips_and_carries_names_and_colour(self):
+        from .gpx import write_gpx
+        body = write_gpx("Plan", [{"name": "A 1 new", "coords": [(-151.19, 59.62), (-151.18, 59.63, 12.0)],
+                                   "color": "Red", "desc": "preferred"}],
+                         [{"name": "A start", "lon": -151.19, "lat": 59.62, "sym": "Flag, Green"}])
+        text = body.decode()
+        self.assertTrue(text.startswith('<?xml version="1.0" encoding="UTF-8"?>'))
+        self.assertIn("<name>A 1 new</name>", text)
+        self.assertIn("<gpxx:DisplayColor>Red</gpxx:DisplayColor>", text)
+        self.assertIn('<wpt lat="59.6200000" lon="-151.1900000">', text)
+        parsed = parse_gpx(body)
+        self.assertEqual(parsed["name"], "A 1 new")
+        self.assertEqual(parsed["points"][1][2], 12.0)
+        self.assertEqual(parsed["device"], "trailgeek.org")
+
+
+class ImporterTests(TestCase):
+    def write(self, features):
+        f = tempfile.NamedTemporaryFile("w", suffix=".geojson", delete=False)
+        json.dump({"type": "FeatureCollection", "features": features}, f)
+        f.close()
+        return f.name
+
+    def test_priority_words_and_numbers(self):
+        from .importers import parse_priority
+        self.assertEqual(parse_priority("Preferred"), 1)
+        self.assertEqual(parse_priority(" alternate "), 2)
+        self.assertEqual(parse_priority("Future"), 3)
+        self.assertEqual(parse_priority("2"), 2)
+        self.assertEqual(parse_priority(None), 1)
+        self.assertEqual(parse_priority("whatever"), 1)
+
+    def test_class_and_notes_become_priority_and_notes(self):
+        from .importers import import_alignments
+        path = self.write([
+            {"type": "Feature", "properties": {"Name": "Lagoon Bypass Trail", "Class": "Preferred", "Notes": "ST109 in KBSP plan"},
+             "geometry": {"type": "LineString", "coordinates": [[-151.40, 59.40], [-151.39, 59.41]]}},
+            {"type": "Feature", "properties": {"Name": "Link option B", "Class": "Alternate", "Notes": None},
+             "geometry": {"type": "LineString", "coordinates": [[-151.39, 59.41], [-151.38, 59.42]]}},
+            {"type": "Feature", "properties": {"Name": "Backdoor loop connection", "Class": "Future"},
+             "geometry": {"type": "LineString", "coordinates": [[-151.38, 59.42], [-151.36, 59.43]]}},
+        ])
+        rep = import_alignments(path, project_name="Tutka Tusk", evaluate=False)
+        self.assertEqual(rep.created, 3)
+        by_name = {a.name: a for a in Alignment.objects.all()}
+        self.assertEqual(by_name["Lagoon Bypass Trail"].priority, 1)
+        self.assertEqual(by_name["Lagoon Bypass Trail"].notes, "ST109 in KBSP plan")
+        self.assertEqual(by_name["Link option B"].priority, 2)
+        self.assertEqual(by_name["Link option B"].notes, "")
+        self.assertEqual(by_name["Backdoor loop connection"].priority_label, "future")
+        self.assertEqual(rep.project.slug, "tutka-tusk")
+        self.assertEqual(rep.project.visibility, Visibility.PRIVATE)
+        # Re-import updates in place and keeps the count.
+        rep2 = import_alignments(path, project=rep.project, evaluate=False)
+        self.assertEqual((rep2.created, rep2.updated), (0, 3))
+        self.assertEqual(Alignment.objects.count(), 3)
+
+
+class FieldExportTests(TestCase):
+    def setUp(self):
+        call_command("init_groups", verbosity=0)
+        self.owner = User.objects.create_user("own", password="pw")
+        self.other = User.objects.create_user("oth", password="pw")
+        self.programme = Project.objects.create(slug="backdoor", name="Backdoor Trail", owner=self.owner)
+        self.project = Project.objects.create(slug="tusk", name="Tutka Tusk", visibility=Visibility.PRIVATE,
+                                              owner=self.owner, parent=self.programme)
+        self.a = Alignment.objects.create(project=self.project, name="Tusk preferred", priority=1, trailhead="Lagoon")
+        Leg.objects.create(alignment=self.a, order=0, kind="existing", name="Lagoon Bypass",
+                           geom=LineString((-151.40, 59.40), (-151.39, 59.41), srid=4326))
+        Leg.objects.create(alignment=self.a, order=1, kind="new",
+                           geom=LineString((-151.39, 59.41), (-151.38, 59.42), srid=4326))
+        self.a.rebuild_from_legs()
+        self.b = Alignment.objects.create(project=self.project, name="Link B", priority=2, parent=self.a)
+        Leg.objects.create(alignment=self.b, order=0, kind="new",
+                           geom=LineString((-151.39, 59.41), (-151.37, 59.41), srid=4326))
+        self.b.rebuild_from_legs()
+        self.track = Track.objects.create(name="scout 1", project=self.project, owner=self.owner,
+                                          visibility=Visibility.PRIVATE,
+                                          geom=LineString((-151.40, 59.40, 10), (-151.39, 59.41, 20), srid=4326))
+
+    def test_alignment_gpx_has_a_track_per_leg_and_joint_waypoints(self):
+        url = f"/api/alignments/{self.a.pk}.gpx"
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.client.login(username="own", password="pw")
+        r = self.client.get(url)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r["Content-Type"], "application/gpx+xml")
+        self.assertIn('filename="tutka-tusk-tusk-preferred.gpx"', r["Content-Disposition"])
+        text = r.content.decode()
+        self.assertEqual(text.count("<trk>"), 2)
+        self.assertIn("<name>Tusk preferred 1 Lagoon Bypass</name>", text)
+        self.assertIn("<name>Tusk preferred 2 new construction</name>", text)
+        self.assertIn("<gpxx:DisplayColor>Red</gpxx:DisplayColor>", text)
+        self.assertEqual(text.count("<wpt "), 3)  # start, jct 1, end
+        self.assertIn("<name>Tusk preferred jct 1</name>", text)
+        self.assertIn("from Lagoon", text)
+
+    def test_project_gpx_and_geojson(self):
+        self.client.login(username="own", password="pw")
+        twin = Alignment.objects.create(project=self.project, name="Link B", priority=2)
+        Leg.objects.create(alignment=twin, order=0, kind="new",
+                           geom=LineString((-151.39, 59.41), (-151.37, 59.40), srid=4326))
+        twin.rebuild_from_legs()
+        r = self.client.get("/api/projects/tusk.gpx")
+        self.assertEqual(r.status_code, 200)
+        text = r.content.decode()
+        self.assertEqual(text.count("<trk>"), 4)
+        self.assertIn("<gpxx:DisplayColor>Blue</gpxx:DisplayColor>", text)
+        self.assertIn("<name>Link B</name>", text)
+        self.assertIn("<name>Link B (2)</name>", text)  # a repeated name is made distinct
+        # Link B and the twin start where leg 1 of the preferred ends: one flag, joined names.
+        self.assertEqual(text.count("<wpt "), 5)
+        self.assertIn("<name>Tusk preferred jct 1 / Link B start / Link B (2) start</name>", text)
+        twin.delete()
+        r = self.client.get("/api/projects/tusk.geojson")
+        self.assertEqual(r.status_code, 200)
+        fc = r.json()
+        self.assertEqual(len(fc["features"]), 3)
+        props = {f["properties"]["name"]: f["properties"] for f in fc["features"]}
+        self.assertEqual(props["Link B"]["class"], "alternate")
+        self.assertEqual(props["Tusk preferred 1 Lagoon Bypass"]["kind"], "existing")
+        self.assertEqual(props["Tusk preferred 2 new construction"]["leg"], 2)
+        # Not visible to a stranger.
+        self.client.login(username="oth", password="pw")
+        self.assertEqual(self.client.get("/api/projects/tusk.gpx").status_code, 404)
+        self.assertEqual(self.client.get("/api/projects/tusk.geojson").status_code, 404)
+
+    def test_project_json_carries_hierarchy_and_tracks(self):
+        self.client.login(username="own", password="pw")
+        d = self.client.get("/api/projects/tusk.json").json()
+        self.assertEqual(d["project"]["parents"], [{"slug": "backdoor", "name": "Backdoor Trail"}])
+        self.assertEqual(d["project"]["gpx_url"], "/api/projects/tusk.gpx")
+        self.assertEqual([t["name"] for t in d["tracks"]], ["scout 1"])
+        d = self.client.get("/api/projects/backdoor.json").json()
+        self.assertEqual(d["project"]["children"], [{"slug": "tusk", "name": "Tutka Tusk"}])
+        # The private child is not listed for a stranger, and the track API names the project.
+        self.client.login(username="oth", password="pw")
+        self.assertEqual(self.client.get("/api/projects/backdoor.json").json()["project"]["children"], [])
+        self.client.login(username="own", password="pw")
+        self.assertEqual(self.client.get(f"/api/tracks/{self.track.pk}.geojson").json()["properties"]["project"]["slug"], "tusk")
+
+    def test_upload_can_attach_a_project(self):
+        editor = User.objects.create_user("ed", password="pw")
+        editor.groups.add(Group.objects.get(name="trail_editors"))
+        self.client.login(username="ed", password="pw")
+        # A project the editor cannot see is refused by the form.
+        r = self.client.post("/tracks/upload/", {"file": SimpleUploadedFile("r.gpx", GPX), "visibility": "public",
+                                                 "project": self.project.pk})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(Track.objects.filter(owner=editor).count(), 0)
+        self.project.members.add(editor)
+        r = self.client.post("/tracks/upload/", {"file": SimpleUploadedFile("r.gpx", GPX), "visibility": "public",
+                                                 "project": self.project.pk})
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(Track.objects.get(owner=editor).project, self.project)

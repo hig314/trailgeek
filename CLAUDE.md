@@ -13,7 +13,7 @@ server and Django reasoning rather than assume it.
 | [docs/SISTER_PROJECTS.md](docs/SISTER_PROJECTS.md) | What to reuse from landslidescience, GTA, demshade, and the public lidar catalogue |
 | [docs/TRAIL_ANALYSIS.md](docs/TRAIL_ANALYSIS.md) | Spec of the evaluator, profile and router algorithms to port, with their known bugs |
 
-## State of play (2026-09-28): the one dated section; update it, don't work around it
+## State of play (2026-10-16): the one dated section; update it, don't work around it
 
 - **Phase 0 and Phase 1 are merged** (hig314/trailgeek#1, 2026-09-27; the
   owner reports it running). Phase 1 gave `DemSource` (seeded by
@@ -72,6 +72,31 @@ server and Django reasoning rather than assume it.
     (71 alignments) import cleanly in the sandbox; **they are not in the
     repo** (the repo is public and scouting lines can cross private land):
     load them with the command or the page after deploying.
+- **Field support for the Tutka Tusk scouting season** (branch
+  `field-support-projects-gpx`, built on the Mac 2026-10-16 on top of PR #3,
+  in a PR awaiting approval; migration 0004):
+  - **Projects nest** (`Project.parent`) and **tracks attach to projects**
+    (`Track.project`, on the upload form, the track API and the project
+    panel as "Scouting tracks"). PLAN.md §0 (2026-10-16) has the reasoning:
+    segment (Trail), route (not built), project (tree).
+  - **Field exports** (`core/exports.py`): `/api/alignments/<id>.gpx`,
+    `/api/projects/<slug>.gpx` (a GPX track per leg, named for GaiaGPS,
+    waypoints at joints and ends, priority colours) and
+    `/api/projects/<slug>.geojson` (legs, for MapApp vector MBTiles; the
+    recipe is in docs/SISTER_PROJECTS.md). Links are in the alignment and
+    project panels. The GPX writer lives in `core/gpx.py`.
+  - **Importer** reads Class → priority (Preferred 1 / Alternate 2 / Future
+    3) and Notes → notes. Project members now see their projects everywhere
+    (`access.visible_projects_q`), not only their alignments.
+  - **Dev data (local only):** `backdoor-trail` programme project (private,
+    its description lists the Backdoor Trail in order) with `tutka-tusk` as
+    a child: the 8 lines of `Tutka_Tusk_sections.gpkg` as 8 single-leg
+    alignments, evaluated 100 % on the `kbay_2023` lidar. The first field
+    files were exported from it (`261016_Tutka_Tusk_plan.gpx`,
+    `261016_Tutka_Tusk_legs.geojson`, in the owner's Tutka GIS data
+    folder). Still to do by hand: stitch the preferred pieces (Lagoon
+    Bypass, Link A, the two Tutka Tusk pieces, Upper ascent A) into one
+    alignment of legs in the editor, with Link B and Upper B as variants.
 - **Open:** R2 CORS for trailgeek.org is **done on both hosts**, verified
   from the Mac 2026-09-27 with an Origin header: the `landslidescience-lidar`
   bucket (owner) and the lidar-tiles Worker on `tiles.landslidescience.org`
@@ -89,9 +114,11 @@ server and Django reasoning rather than assume it.
   (~10 m) or Terrarium (~60 m data in Alaska) and say so. No backups yet,
   and uploads now exist. Local session: adopt `dem_stack.js` in /lidar/
   and fix the three demshade issues in VENDOR.md.
-- **Next up:** check evaluations against real lidar once deployed; revive
-  switchback / curvature detection; a routing tool (PLAN.md Phase 5) can
-  reuse the leg model and the evaluator; the profile's 10×/1:1 panels.
+- **Next up:** the `Route` model (an ordered chain of Trail segments; seed
+  it with the Backdoor Trail from PLAN.md §0); check evaluations against
+  real lidar once deployed; revive switchback / curvature detection; a
+  routing tool (PLAN.md Phase 5) can reuse the leg model and the evaluator;
+  the profile's 10×/1:1 panels.
 - **Deliberately deferred:** extracting landslidescience's shared JS into
   `hig-maplibre-kit` (a separate reviewed change). Uptime check and
   analytics are open items in OPERATIONS.md.

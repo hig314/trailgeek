@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import Trail, Track, Visibility
+from .models import Project, Trail, Track, Visibility
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
@@ -11,14 +11,19 @@ class TrackUploadForm(forms.Form):
     trail = forms.ModelChoiceField(
         queryset=Trail.objects.none(), required=False, help_text="The trail this track follows, if any."
     )
+    project = forms.ModelChoiceField(
+        queryset=Project.objects.none(), required=False,
+        help_text="The design project this track scouts, if any; it then shows up on the project's page.",
+    )
     visibility = forms.ChoiceField(choices=Visibility.choices, initial=Visibility.PUBLIC)
     description = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), required=False)
 
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         from . import access
-        qs = Trail.objects.filter(access.visible_q(user)) if user is not None else Trail.objects.none()
-        self.fields["trail"].queryset = qs.distinct()
+        if user is not None:
+            self.fields["trail"].queryset = Trail.objects.filter(access.visible_q(user)).distinct()
+            self.fields["project"].queryset = Project.objects.filter(access.visible_projects_q(user)).distinct()
 
     def clean_file(self):
         f = self.cleaned_data["file"]
@@ -32,7 +37,7 @@ class TrackUploadForm(forms.Form):
 class TrackEditForm(forms.ModelForm):
     class Meta:
         model = Track
-        fields = ["name", "description", "trail", "visibility"]
+        fields = ["name", "description", "trail", "project", "visibility"]
 
 
 IMPORT_SUFFIXES = (".zip", ".gpkg", ".geojson", ".json", ".kml")
@@ -55,7 +60,7 @@ class LineImportForm(forms.Form):
         super().__init__(*args, **kwargs)
         from . import access
         from .models import Project
-        self.fields["project"].queryset = (Project.objects.filter(access.visible_q(user)).distinct()
+        self.fields["project"].queryset = (Project.objects.filter(access.visible_projects_q(user)).distinct()
                                            if user is not None else Project.objects.none())
 
     def clean_file(self):

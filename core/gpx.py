@@ -1,4 +1,4 @@
-"""GPX reader for Track uploads. Standard library only: a track file is
+"""GPX reader for Track uploads, and a GPX writer for field exports. Standard library only: a track file is
 `<trk><trkseg><trkpt lat lon><ele/><time/></trkpt>…`, which is not worth a
 dependency. GPX 1.0 and 1.1 namespaces are both accepted, as are files with
 no namespace at all (some phone apps).
@@ -101,3 +101,71 @@ def parse_gpx(data):
     if len(points) < 2:
         raise GpxError("no track with at least two points")
     return {"name": name or "", "points": points, "device": device}
+
+
+# ---------------------------------------------------------------------------
+# Writing
+# ---------------------------------------------------------------------------
+
+GPX_NS = "http://www.topografix.com/GPX/1/1"
+# Garmin's track extension carries a display colour that GaiaGPS and Garmin
+# devices honour on import; other readers ignore it.
+GPXX_NS = "http://www.garmin.com/xmlschemas/GpxExtensions/v3"
+GPXX_COLORS = {"Black", "DarkRed", "DarkGreen", "DarkYellow", "DarkBlue", "DarkMagenta", "DarkCyan",
+               "LightGray", "DarkGray", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White"}
+
+
+def _text(parent, tag, text):
+    if text is None or text == "":
+        return None
+    e = ET.SubElement(parent, tag)
+    e.text = str(text)
+    return e
+
+
+def write_gpx(name, tracks, waypoints=(), creator="trailgeek.org", desc=None, when=None):
+    """Build a GPX 1.1 document and return it as bytes (UTF-8, declaration
+    included). Standard library only, like the reader.
+
+    tracks: iterable of dicts {name, coords, desc?, type?, color?}; coords is
+      a sequence of (lon, lat) or (lon, lat, ele) tuples. Each becomes one
+      <trk> with one <trkseg>. Named tracks are what GaiaGPS lists, so every
+      track should have a distinct, sortable name.
+    waypoints: iterable of dicts {name, lon, lat, desc?, ele?, sym?}.
+    color: one of GPXX_COLORS, written as a Garmin DisplayColor extension.
+    """
+    ET.register_namespace("", GPX_NS)
+    ET.register_namespace("gpxx", GPXX_NS)
+    root = ET.Element(f"{{{GPX_NS}}}gpx", {"version": "1.1", "creator": creator})
+    meta = ET.SubElement(root, f"{{{GPX_NS}}}metadata")
+    _text(meta, f"{{{GPX_NS}}}name", name)
+    _text(meta, f"{{{GPX_NS}}}desc", desc)
+    when = when or datetime.datetime.now(datetime.timezone.utc)
+    _text(meta, f"{{{GPX_NS}}}time", when.replace(microsecond=0).isoformat().replace("+00:00", "Z"))
+
+    for w in waypoints:
+        wpt = ET.SubElement(root, f"{{{GPX_NS}}}wpt", {"lat": f"{w['lat']:.7f}", "lon": f"{w['lon']:.7f}"})
+        if w.get("ele") is not None:
+            _text(wpt, f"{{{GPX_NS}}}ele", f"{w['ele']:.1f}")
+        _text(wpt, f"{{{GPX_NS}}}name", w.get("name"))
+        _text(wpt, f"{{{GPX_NS}}}desc", w.get("desc"))
+        _text(wpt, f"{{{GPX_NS}}}sym", w.get("sym"))
+
+    for t in tracks:
+        trk = ET.SubElement(root, f"{{{GPX_NS}}}trk")
+        _text(trk, f"{{{GPX_NS}}}name", t.get("name"))
+        _text(trk, f"{{{GPX_NS}}}desc", t.get("desc"))
+        _text(trk, f"{{{GPX_NS}}}type", t.get("type"))
+        color = t.get("color")
+        if color in GPXX_COLORS:
+            ext = ET.SubElement(trk, f"{{{GPX_NS}}}extensions")
+            tx = ET.SubElement(ext, f"{{{GPXX_NS}}}TrackExtension")
+            _text(tx, f"{{{GPXX_NS}}}DisplayColor", color)
+        seg = ET.SubElement(trk, f"{{{GPX_NS}}}trkseg")
+        for c in t["coords"]:
+            pt = ET.SubElement(seg, f"{{{GPX_NS}}}trkpt", {"lat": f"{c[1]:.7f}", "lon": f"{c[0]:.7f}"})
+            if len(c) > 2 and c[2] is not None:
+                _text(pt, f"{{{GPX_NS}}}ele", f"{c[2]:.1f}")
+
+    ET.indent(root)
+    return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="utf-8")

@@ -39,6 +39,16 @@ def visible_q(user, owner_field="owner", prefix=""):
     return q
 
 
+def visible_projects_q(user):
+    """`visible_q` for Project itself: a member sees the project as its
+    owner does, just as `visible_q(prefix="project__")` lets a member see its
+    alignments."""
+    q = visible_q(user)
+    if user.is_authenticated and not user.is_superuser:
+        q |= Q(members=user)
+    return q
+
+
 def visibility_sql(user, table_alias):
     """The same rule as `visible_q`, as a SQL fragment for the MVT query.
     Returns (sql, params)."""
