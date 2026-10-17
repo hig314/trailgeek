@@ -9,6 +9,9 @@ Moves:
               by what restores its elevations, so the rest of the climb
               stays on grade (the lengthwise dependence)
   corner      a bump centred on a detected corner, both arms together
+  smooth      the offset field low-passed over a stretch: irons out kinks,
+              and can merge two turns or drop a spurious corner, so the
+              number of corners can change
   tube        the cut/fill tube half-width
 """
 import math
@@ -42,6 +45,18 @@ def _nearest_knot(prob, i):
 def _bump(c, jc, width, amp):
     k = np.arange(len(c))
     c += amp * np.exp(-0.5 * ((k - jc) / width) ** 2)
+
+
+def _smooth(c, jc, width, strength):
+    """Low-pass the controls around jc (Gaussian over `width` controls),
+    blended in with weight `strength` that fades away from jc."""
+    k = np.arange(len(c))
+    r = int(math.ceil(3 * width))
+    ker = np.exp(-0.5 * (np.arange(-r, r + 1) / width) ** 2)
+    pad = np.concatenate([np.zeros(r), c, np.zeros(r)])      # the pinned ends are 0
+    sm = np.convolve(pad, ker / ker.sum(), mode="valid")
+    wgt = strength * np.exp(-0.5 * ((k - jc) / (2 * width)) ** 2)
+    c += wgt * (sm - c)
 
 
 def _slide(prob, rng, c_old, c_new, jc, width):
@@ -83,6 +98,12 @@ def propose(prob, rng, c, t, cur, sigma):
     elif u < 0.25 and cur["corner_idx"]:
         fi = cur["corner_idx"][rng.integers(len(cur["corner_idx"]))]
         _bump(c2, _nearest_knot(prob, fi), 1.5, rng.normal(0, 1.5 * sigma))
+    elif u < 0.35:
+        if cur["corner_idx"] and rng.random() < 0.5:
+            jc = _nearest_knot(prob, cur["corner_idx"][rng.integers(len(cur["corner_idx"]))])
+        else:
+            jc = int(rng.integers(prob.nfree))
+        _smooth(c2, jc, float(rng.choice([1.5, 2.5, 4.0])), float(rng.uniform(0.3, 1.0)))
     else:
         dens = cur["density"]
         tot = float(dens.sum())
@@ -159,6 +180,7 @@ def _json_detail(prob, r, to_lonlat=None):
             "corners": len(r["corners"]),
             "corner_min_r": round(min([c["radius_m"] for c in r["corners"]], default=0), 1) if r["corners"] else None,
             "reversals": len(r["sites"]),
+            "bend_min_r": round(float(r["bend_r"].min()), 1),
         },
     }
 
@@ -180,7 +202,7 @@ def refine(legs_xy, grid, settings, progress=None, seed=None):
         if r is not None and (best_in is None or r["total"] < best_in[0]["total"]):
             best_in = (r, float(t))
     if best_in is None:
-        raise ValueError("the input line leaves the terrain data, or turns too sharply to refine")
+        raise ValueError("the selected legs run off the terrain data (or outside the corridor read for them), so they cannot be scored")
     t_in = best_in[1]
     inp = prob.score(np.zeros(prob.nfree), t_in, k, detail=True)
     prob.grade_ref = float(inp["grade"].max())

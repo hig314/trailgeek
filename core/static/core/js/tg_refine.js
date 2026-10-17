@@ -134,7 +134,7 @@ window.TgRefine = (function () {
       row.innerHTML = '<div class="rf-fhead"><strong>' + esc(m.label) + '</strong>' +
         (m.stub ? ' <span class="tg-badge" title="Deliberately primitive for now: sites are low points of the design line and ground dips; no groundwater or terrain below the trail yet">stub</span>' : '') +
         '<span class="tg-muted tg-small">' + esc(m.x) + ' (' + esc(m.unit) + ') · ' +
-        (m.per === 'metre' ? 'per metre' : m.per === 'corner' ? 'per corner' : 'once') + '</span>' +
+        (m.per === 'metre' ? 'per metre' : m.per === 'corner' ? 'per corner' : m.per === 'turn' ? 'per right angle' : 'once') + '</span>' +
         '<label class="rf-k" title="Weight of this factor; 0 ignores it">k <input type="number" min="0" max="1000" step="0.5" value="' + s.k + '"></label></div>' +
         '<div class="rf-curve"></div>';
       box.appendChild(row);
@@ -373,6 +373,7 @@ window.TgRefine = (function () {
     h += row('Tube half-width', function (d) { return d.t; }, function (v) { return n(v, 2) + ' m'; }, null);
     h += row('Corners', function (d) { return d.stats.corners; }, function (v) { return n(v); }, null);
     h += row('Tightest corner', function (d) { return d.stats.corner_min_r; }, function (v) { return v == null ? '–' : n(v, 1) + ' m'; }, false);
+    h += row('Tightest bend anywhere', function (d) { return d.stats.bend_min_r; }, function (v) { return v == null ? '–' : n(v, 1) + ' m'; }, false, 'Smallest radius over any 5 m of the line, corners included: kinks show here');
     h += row('Reversal sites (stub)', function (d) { return d.stats.reversals; }, function (v) { return n(v); }, null);
     h += '</table></div>';
     h += '<div class="tg-small tg-muted">' + terrainNote(res) + ' The input is scored with the same cut/fill tube as the candidates, so the comparison is fair.</div>';

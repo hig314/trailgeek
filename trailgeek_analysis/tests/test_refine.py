@@ -98,6 +98,38 @@ class CornerTests(unittest.TestCase):
         self.assertTrue(0.7 * R < r["corners"][0]["radius_m"] < 1.5 * R, r["corners"])
         self.assertGreater(r["costs"]["corner"], 0)
 
+    def hairpin(self, R, straight=60):
+        m = max(2, int(straight / 2))
+        return np.vstack([np.column_stack([np.linspace(0, straight, m), np.zeros(m)]),
+                          arc(straight, R, R, -math.pi / 2, math.pi / 2, n=int(math.pi * R) + 4)[1:],
+                          np.column_stack([np.linspace(straight, 0, m), np.full(m, 2 * R)])[1:]])
+
+    def test_broad_corner_through_noisy_fall_line_is_one_corner(self):
+        # A 25 m hairpin on a 30 % slope whose ground has ±0.25 m of lidar-like
+        # roughness: at the apex the trail runs down the fall line, where the
+        # roughness flips the cross slope back and forth.
+        rng = np.random.default_rng(3)
+        noise = rng.normal(0, 0.25, (241, 241))
+        rough = Grid(PLANE * np.arange(-60, 181)[:, None] + noise, -60, -60, 1.0)
+        r = self.score([self.hairpin(25)], rough)
+        self.assertEqual(len(r["corners"]), 1, r["corners"])
+        self.assertGreater(r["corners"][0]["arc_radius_m"], 15)
+
+    def test_side_change_on_a_straight_line_is_not_a_corner(self):
+        # The fall line turns from south to north under a straight traverse.
+        g = Grid.from_function(lambda X, Y: PLANE * Y * np.tanh((X - 50) / 5), -60, -60, 160, 60)
+        r = self.score([np.array([[0, 0], [100, 0]], float)], g)
+        self.assertEqual(r["corners"], [])
+
+    def test_a_kink_inside_a_broad_corner_sets_its_radius(self):
+        line = self.hairpin(20)
+        i = len(line) // 2 - 1                                          # the apex, heading north
+        kinked = line.copy()
+        kinked[i:i + 3] += [[1.0, 0], [1.8, 0], [1.0, 0]]               # a sharp outward jog across the track
+        smooth, rough = (self.score([L], plane_grid())["corners"] for L in (line, kinked))
+        self.assertEqual((len(smooth), len(rough)), (1, 1))
+        self.assertLess(rough[0]["radius_m"], 0.5 * smooth[0]["radius_m"])
+
     def test_gully_crossed_while_climbing_is_a_bend_not_a_corner(self):
         gully = Grid.from_function(lambda X, Y: PLANE * Y - 3 * np.exp(-((X - 50) ** 2) / 72), -60, -60, 160, 80)
         line = np.array([[0, 0], [50, 12], [100, 0]], float)          # a V in plan, into the gully
@@ -132,6 +164,12 @@ class RefineTests(unittest.TestCase):
     def test_seeded_runs_repeat(self):
         a, b = self.run_refine(seed=5, iterations=150), self.run_refine(seed=5, iterations=150)
         self.assertEqual([c["total"] for c in a["candidates"]], [c["total"] for c in b["candidates"]])
+
+    def test_a_hand_drawn_hairpin_vertex_is_refined_not_refused(self):
+        legs = [np.array([[0, 0], [100, 30], [0, 31]], float)]          # turns back within a metre
+        s = clean_settings({"params": {"iterations": 200, "chains": 1}})
+        r = refine(legs, plane_grid(), s, seed=2)
+        self.assertEqual(r["input"]["stats"]["corners"], 1)
 
     def test_input_off_the_terrain_is_refused(self):
         small = Grid.from_function(lambda X, Y: PLANE * Y, 0, 0, 20, 20)

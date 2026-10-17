@@ -256,3 +256,34 @@ default 1500 iterations × 4 chains.
   by crossing a spur or gully floor straight where the flip then costs
   nothing. Worth the owner's eye: if the flips are noise, raise the
   minimum side slope (a run parameter) or widen the bench.
+
+### Second pass, after the owner's first try (2026-10-17)
+
+The owner saw tight, complex curvature inside some corners: one broad,
+smooth corner read as several, because where a corner runs down the fall
+line the cross slope is near zero and lidar roughness flips its sign; the
+search then "fixed" each phantom corner and made kinks. Changes:
+
+- **A corner is a turn with a net change of downhill side.** The side comes
+  from the cross slope averaged over ~10 m (then hysteresis); flips within
+  20 m are one event and events whose turning zones touch are one zone; a
+  zone counts only if the side after it differs from the side before it and
+  the line turns at least 60° across it (a side change on a straight line
+  is crossing a crest or a valley floor). On the Tutka lines: Lagoon Bypass
+  18 phantom corners → 0, Tutka Tusk 4 → 1.
+- **A corner's radius is the tightest in its zone**, so a kink inside a
+  broad corner costs as the kink it is.
+- **Fewer corners win:** the default corner curve never drops below 0.2,
+  so every corner costs at least that (owner: prefer fewer corners, even
+  fewer than the hand-drawn line). Upper ascent A: 6 → 4.
+- **Bends are charged per right angle turned** at a radius, not per metre:
+  a kink is an event, and per metre a 3 m jog on a 750 m line cost nothing.
+  Candidates' tightest bend went from ~2 m to 4–7 m.
+- **A smoothing move** low-passes the offset field over a stretch, which
+  irons out kinks and lets two turns merge or a spurious corner go, so the
+  number of corners can change. Removing a real switchback pair is still out
+  of reach: that needs a bigger change than a 20 m corridor allows.
+- **A hand-drawn hairpin vertex is refined, not refused**: only folds a
+  candidate adds are rejected (Link option A had one).
+- The comparison shows the **tightest bend anywhere**, so kinks show in the
+  numbers as well as on the map.

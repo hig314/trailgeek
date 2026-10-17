@@ -16,7 +16,9 @@ from .profile import taut_string
 from .settings import FACTOR_META
 
 CORNER_KAPPA = 1 / 50.0     # 1/m: curvature that counts as still turning, around a flip
-CORNER_HALF_M = 25.0        # a corner's turn zone reaches at most this far from the flip
+CORNER_HALF_M = 25.0        # a corner's turn zone reaches at most this far beyond its flips
+CORNER_CLUSTER_M = 20.0     # side flips closer than this are one event
+CORNER_MIN_TURN_DEG = 60.0  # a side change with less turning than this is a crossing, not a corner
 GRADE_OVER_PER = 10.0       # %: each this much past the input's steepest 10 m adds 1 to the grade cost
 GRADE_PEAK_SHARE = 0.25     # the steepest 10 m adds this times its curve value to the grade cost
 SITE_MERGE_M = 15.0         # reversal sites closer than this are one site
@@ -170,10 +172,16 @@ class Problem:
         self.thr = float(p["min_outslope_pct"]) / 100
         self.dip = float(p["reversal_dip_m"])
         self.smooth_w = max(1, int(round(5 / self.h))) | 1
+        self.side_w = max(1, int(round(10 / self.h))) | 1
         # The input's steepest 10 m, once known (search.refine sets it): going
         # past it costs without limit, so a saturated curve cannot hide a
         # worse pitch ("consistent grade is minimising the maximum", owner).
         self.grade_ref = None
+        # A hand-drawn hairpin can turn more than a right angle within one
+        # sample. That is the input as given (rounding it is the tool's job),
+        # so only folds a candidate ADDS are refused.
+        dP = np.diff(self.P, axis=0)
+        self.input_folds = np.concatenate([(dP[1:] * dP[:-1]).sum(1) < 0])
         self.stride = max(1, int(round(5 / self.h)))
 
     def offsets(self, c):
@@ -196,7 +204,7 @@ class Problem:
         Q = self.P + o[:, None] * self.N
         dQ = np.diff(Q, axis=0)
         ds = np.hypot(dQ[:, 0], dQ[:, 1])
-        if (ds < 0.25 * h).any() or ((dQ[1:] * dQ[:-1]).sum(1) < 0).any():
+        if (ds < 0.25 * h).any() or (((dQ[1:] * dQ[:-1]).sum(1) < 0) & ~self.input_folds).any():
             return None
         d = np.concatenate([[0.0], np.cumsum(ds)])
         L = float(d[-1])
@@ -223,27 +231,61 @@ class Problem:
         theta = np.unwrap(np.arctan2(tq[:, 1], tq[:, 0]))
         kap = running_mean(np.gradient(theta, d), self.smooth_w)
 
-        # Corners: where the downhill side flips (a gully crossed while
-        # climbing keeps its side and is not one). Radius = arc through the
-        # turn zone / heading change across it.
-        sgn = side_of_downhill(cross, self.thr)
-        flips = np.flatnonzero((sgn[1:] != sgn[:-1]) & (sgn[1:] != 0) & (sgn[:-1] != 0)) + 1
+        # Corners (owner's definition: the downhill side changes; a gully
+        # crossed while climbing is not one), read so that a broad corner
+        # through a fall-line stretch is ONE corner (owner, 2026-10-17: noise
+        # there flipped the side back and forth and one smooth corner read as
+        # several, which the search then "fixed" with tight kinks):
+        #   1. the side comes from the cross slope averaged over ~10 m, with
+        #      hysteresis;
+        #   2. flips closer than CORNER_CLUSTER_M are one event, and events
+        #      whose turning zones touch are one zone;
+        #   3. a zone is a corner only if the side AFTER it differs from the
+        #      side BEFORE it (out and back is noise) and the line turns by at
+        #      least CORNER_MIN_TURN_DEG across it (a side change on a
+        #      straight line is crossing a crest or a valley floor, not a turn);
+        #   4. its radius is the TIGHTEST local radius in the zone, so a kink
+        #      inside a broad corner costs as the kink it is.
+        cross_s = running_mean(cross, self.side_w)
+        sgn = side_of_downhill(cross_s, self.thr)
+        flips = (np.flatnonzero((sgn[1:] != sgn[:-1]) & (sgn[1:] != 0) & (sgn[:-1] != 0)) + 1).tolist()
+        akap = np.abs(kap)
+        turning = akap > CORNER_KAPPA
+        zones = []
+        k_ = 0
+        while k_ < len(flips):
+            f0 = f1 = flips[k_]
+            while k_ + 1 < len(flips) and d[flips[k_ + 1]] - d[f1] <= CORNER_CLUSTER_M:
+                k_ += 1
+                f1 = flips[k_]
+            k_ += 1
+            a = f0
+            while a > 0 and turning[a - 1] and d[f0] - d[a - 1] <= CORNER_HALF_M:
+                a -= 1
+            b = f1
+            while b < n - 1 and turning[b + 1] and d[b + 1] - d[f1] <= CORNER_HALF_M:
+                b += 1
+            a, b = max(0, min(a, f0 - 1)), min(n - 1, max(b, f1))
+            if zones and a <= zones[-1][1] + 1:
+                zones[-1] = (zones[-1][0], max(b, zones[-1][1]), zones[-1][2] + [f0, f1])
+            else:
+                zones.append((a, b, [f0, f1]))
         zone = np.zeros(n, bool)
         corners = []
-        akap = np.abs(kap)
-        for fi in flips.tolist():
-            if zone[fi]:
+        wn = self.side_w
+        for a, b, fl in zones:
+            before = cross_s[max(0, a - wn):a].mean() if a > 0 else cross_s[0]
+            after = cross_s[b + 1:b + 1 + wn].mean() if b < n - 1 else cross_s[-1]
+            if not (abs(before) > self.thr / 2 and abs(after) > self.thr / 2 and np.sign(before) != np.sign(after)):
                 continue
-            a = fi
-            while a > 0 and akap[a - 1] > CORNER_KAPPA and d[fi] - d[a - 1] <= CORNER_HALF_M:
-                a -= 1
-            b = fi
-            while b < n - 1 and akap[b + 1] > CORNER_KAPPA and d[b + 1] - d[fi] <= CORNER_HALF_M:
-                b += 1
-            a, b = max(0, min(a, fi - 1)), min(n - 1, max(b, fi + 1))
             dth = abs(theta[b] - theta[a])
-            r = min(1000.0, (d[b] - d[a]) / max(dth, 1e-3))
-            corners.append((fi, a, b, r, float(side[a:b + 1].mean()), math.degrees(dth)))
+            if math.degrees(dth) < CORNER_MIN_TURN_DEG:
+                continue
+            r_arc = (d[b] - d[a]) / max(dth, 1e-3)
+            r_tight = 1 / max(float(akap[a:b + 1].max()), 1e-4)
+            r = min(1000.0, r_arc, r_tight)
+            mid = (a + b) // 2
+            corners.append((mid, a, b, r, float(side[a:b + 1].mean()), math.degrees(dth), min(1000.0, r_arc)))
             zone[a:b + 1] = True
         bend_r = 1 / np.maximum(akap, 1e-4)
 
@@ -265,8 +307,14 @@ class Problem:
         f = self.f
         per = {"grade": grade, "slope": side, "cutfill": cut, "offset": off, "drainage": run}
         vals = {name: f[name](x) for name, x in per.items()}
-        vals["bend"] = f["bend"](bend_r) * ~zone
-        costs = {name: float((v * w).sum() / self.L_in) for name, v in vals.items()}
+        # Bends are charged per right angle TURNED, weighted by the curve at
+        # the radius it was turned at, not per metre: a kink is an event, and
+        # per metre a 3 m jog on a 750 m line cost nothing (2026-10-17).
+        # Corners are left to the corner factor.
+        bend_v = f["bend"](bend_r) * ~zone
+        vals["bend"] = bend_v
+        costs = {name: float((v * w).sum() / self.L_in) for name, v in vals.items() if name != "bend"}
+        costs["bend"] = float((bend_v * akap * w).sum() / (math.pi / 2))
         # "Consistent grade is minimising the maximum grade" (owner): a short
         # steep pitch is cheap per metre, so the peak is charged as well.
         gmax = float(grade.max())
@@ -280,8 +328,9 @@ class Problem:
         costs["length"] = float(f["length"](L / self.L_in))
         total = sum(k.get(name, 0) * v for name, v in costs.items())
 
-        density = sum(k.get(name, 0) * v for name, v in vals.items())
-        for (fi, a, b, r, land, _), x1, x2 in zip(corners, cr, cl):
+        density = sum(k.get(name, 0) * v for name, v in vals.items() if name != "bend")
+        density = density + k.get("bend", 0) * bend_v * akap * self.L_in / (math.pi / 2)
+        for (fi, a, b, r, land, _, _r), x1, x2 in zip(corners, cr, cl):
             density[a:b + 1] += (k.get("corner", 0) * x1 + k.get("landing", 0) * x2) / (b - a + 1)
         out = {"total": float(total), "costs": costs, "density": density,
                "corner_idx": [c_[0] for c_ in corners], "length_m": L}
@@ -290,7 +339,8 @@ class Problem:
                 "Q": Q, "d": d, "ground": g, "design": zd, "cut": cut, "grade": grade, "side": side,
                 "offset": o, "bend_r": bend_r, "zone": zone, "run": run, "sites": sites,
                 "corners": [{"i": c_[0], "d": float(d[c_[0]]), "radius_m": float(c_[3]),
-                             "landing_pct": c_[4], "turn_deg": c_[5]} for c_ in corners],
+                             "arc_radius_m": float(c_[6]), "landing_pct": c_[4], "turn_deg": c_[5]}
+                            for c_ in corners],
                 "w": w, "t": float(t),
                 "contrib": {name: k.get(name, 0) * v for name, v in costs.items()},
             })

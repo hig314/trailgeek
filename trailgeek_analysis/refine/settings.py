@@ -19,11 +19,11 @@ MAX_NODES = 9          # 8 segments
 FACTOR_META = {
     "grade": {"label": "Grade", "x": "design |grade| over 10 m (per metre, plus a quarter for the steepest 10 m)", "unit": "%", "per": "metre",
               "xmin": 0, "xmax": 60, "snap": 0.5},
-    "corner": {"label": "Corner radius", "x": "turn radius where the downhill side flips", "unit": "m",
+    "corner": {"label": "Corners", "x": "tightest radius of a turn in which the downhill side changes; the curve's floor is what every corner costs, so fewer corners win", "unit": "m",
                "per": "corner", "xmin": 0, "xmax": 30, "snap": 0.5},
     "landing": {"label": "Corner landing", "x": "side slope through a corner", "unit": "%", "per": "corner",
                 "xmin": 0, "xmax": 80, "snap": 1},
-    "bend": {"label": "Bend radius", "x": "radius of any other bend", "unit": "m", "per": "metre",
+    "bend": {"label": "Bends", "x": "radius of any other bend, charged per right angle turned at it", "unit": "m", "per": "turn",
              "xmin": 0, "xmax": 40, "snap": 0.5},
     "slope": {"label": "Terrain slope", "x": "side slope at bench scale", "unit": "%", "per": "metre",
               "xmin": 0, "xmax": 150, "snap": 1},
@@ -43,7 +43,9 @@ DEFAULT_SETTINGS = {
         # Keeps rising to 55 %: a curve that tops out early gives no pressure on
         # a steep route (every metre past the last node costs the same).
         "grade": {"k": 10, "curve": [[0, 0], [8, 0], [12, 0.1], [18, 0.35], [25, 0.6], [40, 0.9], [55, 1]]},
-        "corner": {"k": 5, "curve": [[0, 1], [3, 1], [6, 0.4], [10, 0.1], [15, 0]]},
+        # Never 0: every corner costs at least 0.2, so of two otherwise equal
+        # lines the one with fewer corners wins (owner, 2026-10-17).
+        "corner": {"k": 5, "curve": [[0, 1], [3, 1], [6, 0.5], [10, 0.3], [15, 0.2]]},
         "landing": {"k": 2, "curve": [[0, 0], [15, 0], [30, 0.5], [45, 1]]},
         "bend": {"k": 1, "curve": [[0, 1], [5, 1], [10, 0.3], [20, 0]]},
         "slope": {"k": 3, "curve": [[0, 0], [60, 0], [80, 0.3], [100, 1]]},

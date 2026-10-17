@@ -138,6 +138,13 @@ server and Django reasoning rather than assume it.
   landslidescience commit is on a branch, not shipped there yet**: it
   follows landslidescience's own test-then-push rule. Once it is on its
   `main`, re-pin `tools/shared.json` to that commit (same content).
+  - **View links and navigation links** (owner, 2026-10-17): a hash with
+    `map=` is a view and says everything; one without (`#project=…`,
+    `#align=…`, the panels' links) is navigation and changes only the
+    selection, keeping the viewer's basemap, shading, opacity, 3D and
+    exaggeration (in the page: as they are; on a cold load: as this
+    browser last had them, localStorage `tg_view_prefs`, per viewer only).
+    The Layers panel's survey picker is labelled **DEM**: it is not all lidar.
   - **Hash keys trailgeek owns**, through the shared grammar's extras
     pass-through: `t3d` `ve` `sh` `op` `trail` `track` `align` `project`.
     landslidescience's own extras are listed in ls_hash.js's header
