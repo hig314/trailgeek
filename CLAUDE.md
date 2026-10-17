@@ -22,8 +22,8 @@ server and Django reasoning rather than assume it.
   shading / 3D through demshade, and the D3 profile.
 - **Trail design is merged and deployed** (hig314/trailgeek#2, merged and
   deployed from the Mac 2026-09-27; migration 0003 applied in production).
-  **The owner's trails and scouting plans are loaded in local dev only,
-  not in production** (see Open). The 3D views, the /lidar/ seam fixes
+  **The owner's trails, scouting plans and the Tutka Tusk project are
+  loaded in production** (2026-10-16, see Open). The 3D views, the /lidar/ seam fixes
   and the code sharing below **landed on main through hig314/trailgeek#4**
   (merge 9aa2b6c, deployed from the Mac 2026-10-16); PR #3 is redundant
   and can be closed.
@@ -108,7 +108,7 @@ server and Django reasoning rather than assume it.
     Django's views, templates in `templates/registration/`). Email settings
     come from env vars; with no `EMAIL_HOST` the link is printed to the web
     log. **Production has no SMTP yet** (docs/OPERATIONS.md).
-  - **Dev data (local only):** `backdoor-trail` programme project (private,
+  - **Dev data (now also in production, see Open):** `backdoor-trail` programme project (private,
     its description lists the Backdoor Trail in order) with `tutka-tusk` as
     a child (**public**, owner's decision 2026-10-16; a public child never
     names a private parent): the 8 lines of `Tutka_Tusk_sections.gpkg` as 8 single-leg
@@ -125,11 +125,16 @@ server and Django reasoning rather than assume it.
   9381e78d; hig314/landslidescience#3 brings `main` in line and awaits
   approval). The bucket list lacks `www.landslidescience.org`, which the
   Worker list has.
-  **Production data is not loaded:** the owner's 443 trails and 71
-  alignments are only in local dev. Loading them in production publishes
-  380 trails as public (63 gated, project KBSP gated, as in the dev import),
-  so it waits for the owner. `260927_Trails.zip` is not on the Mac's disks
-  that the local session searched; `250924_Scouting_plans.gpkg` is on the
+  **Production data loaded 2026-10-16** with the owner's explicit
+  permission: the dev database's 443 trails (380 public, 63 gated), the
+  gated KBSP project (71 alignments), the private `backdoor-trail`
+  programme and the public `tutka-tusk` project (8 alignments, evaluated),
+  moved by `dumpdata --natural-foreign` from dev and `loaddata` in the
+  production web container, then `tiles.bump()`. Dev and production now
+  hold the same rows; alignment pks match (Tutka Tusk is 72–79). The one
+  dev track (Stan's Alpine Ridge scout) was not moved, since its original
+  file is in dev media. `260927_Trails.zip` is not on the Mac's disks that
+  the local session searched; `250924_Scouting_plans.gpkg` is on the
   Nunatak drive under `Trail_science/Graduation_Peak`.
   Until lidar reaches the evaluator, evaluations use the baked 3DEP
   (~10 m) or Terrarium (~60 m data in Alaska) and say so. No backups yet,
