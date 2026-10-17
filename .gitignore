@@ -6,3 +6,6 @@ __pycache__/
 .DS_Store
 .venv/
 node_modules/
+
+# Claude Code per-machine settings (deploy permissions live here)
+.claude/settings.local.json

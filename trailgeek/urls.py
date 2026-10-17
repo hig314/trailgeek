@@ -3,6 +3,7 @@ from django.contrib.auth import views as auth_views
 from django.urls import include, path
 
 from core import design_views as design
+from core import exports as core_exports
 from core import tiles as core_tiles
 from core import views as core_views
 
@@ -12,6 +13,13 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/login/", auth_views.LoginView.as_view(), name="login"),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
+    # Password reset by email (templates/registration/password_reset_*.html).
+    path("accounts/password_reset/", auth_views.PasswordResetView.as_view(
+        email_template_name="registration/password_reset_email.txt",
+        subject_template_name="registration/password_reset_subject.txt"), name="password_reset"),
+    path("accounts/password_reset/done/", auth_views.PasswordResetDoneView.as_view(), name="password_reset_done"),
+    path("accounts/reset/<uidb64>/<token>/", auth_views.PasswordResetConfirmView.as_view(), name="password_reset_confirm"),
+    path("accounts/reset/done/", auth_views.PasswordResetCompleteView.as_view(), name="password_reset_complete"),
     # Map data. Vector tiles are live from PostGIS; the GeoJSON endpoints
     # give one feature with its full (3D) geometry for the detail panel.
     path("tiles/trails/<int:z>/<int:x>/<int:y>.mvt", core_tiles.trails_mvt, name="trails_mvt"),
@@ -30,6 +38,11 @@ urlpatterns = [
     path("api/route/trails", design.api_trail_route, name="api_trail_route"),
     path("api/projects/", design.api_projects, name="api_projects"),
     path("api/projects/<slug:slug>.json", design.api_project, name="api_project"),
+    # Field exports: GPX for GaiaGPS / phones, GeoJSON of the legs for offline map products.
+    path("api/alignments/<int:pk>.gpx", core_exports.api_alignment_gpx, name="api_alignment_gpx"),
+    path("api/projects/<slug:slug>.gpx", core_exports.api_project_gpx, name="api_project_gpx"),
+    path("api/projects/<slug:slug>.zip", core_exports.api_project_zip, name="api_project_zip"),
+    path("api/projects/<slug:slug>.geojson", core_exports.api_project_geojson, name="api_project_geojson"),
     path("import/", design.import_lines, name="import_lines"),
     path("tracks/upload/", core_views.track_upload, name="track_upload"),
     path("tracks/<int:pk>/download/", core_views.track_download, name="track_download"),

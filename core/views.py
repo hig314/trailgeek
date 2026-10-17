@@ -84,6 +84,7 @@ def api_track(request, pk):
         "name": t.name, "description": t.description, "device": t.device,
         "taken_at": t.taken_at.isoformat() if t.taken_at else None,
         "trail": {"slug": t.trail.slug, "name": t.trail.name} if t.trail else None,
+        "project": {"slug": t.project.slug, "name": t.project.name} if t.project else None,
         "visibility": t.visibility, "has_elevation": t.has_elevation, "times": t.times,
         "length_m": t.length_m, "climb_m": t.climb_m, "descent_m": t.descent_m,
         "point_count": t.point_count, "original": bool(t.original),
@@ -108,6 +109,7 @@ def track_upload(request):
                 owner=request.user,
                 name=form.cleaned_data["name"],
                 trail=form.cleaned_data["trail"],
+                project=form.cleaned_data["project"],
                 visibility=form.cleaned_data["visibility"],
                 description=form.cleaned_data["description"],
             )

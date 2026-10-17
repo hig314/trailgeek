@@ -10,8 +10,10 @@ already needs, so there is no second GDAL copy in the image:
     /vsicurl/ and read in windows (GDAL fetches only the byte ranges it
     needs). A `cog_url` that is a local path or file:// URL is read from
     disk, for dev with archives on an external drive.
-  - context: AWS Terrain Tiles (Terrarium PNG, z14), decoded with GDAL's
-    PNG driver, cached in the worker process.
+  - context: the baked USGS 3DEP context (`ctx_3dep`, Mapbox terrain-RGB
+    PNG tiles, z13, through landslidescience's tile Worker) where the
+    catalogue has it, then AWS Terrain Tiles (Terrarium PNG, z14); decoded
+    with GDAL's PNG driver, cached in the worker process.
 
 Gradient: central differences between four probe points h metres either
 side of the sample, along the axes of the *evaluation* CRS (the route's
@@ -169,39 +171,73 @@ class CogSource:
         return z
 
 
-def decode_terrarium(png_bytes):
-    """Heights from a Terrarium PNG: h = R*256 + G + B/256 - 32768 (the same
-    decode as landslidescience's dem_fill.js). GeoDjango opens an in-memory
+def _png_bands(png_bytes):
+    """The bands of a PNG tile as float arrays. GeoDjango opens an in-memory
     raster in write mode, which the PNG driver refuses, so the tile goes
     through a temporary file opened read-only."""
     with tempfile.NamedTemporaryFile(suffix=".png") as fh:
         fh.write(png_bytes)
         fh.flush()
         rast = GDALRaster(fh.name)
-        rgb = [np.asarray(rast.bands[i].data(), dtype=float).reshape(rast.height, rast.width) for i in range(3)]
+        bands = [np.asarray(rast.bands[i].data(), dtype=float).reshape(rast.height, rast.width)
+                 for i in range(len(rast.bands))]
         del rast
+    return bands
+
+
+def decode_terrarium(png_bytes):
+    """Heights from a Terrarium PNG: h = R*256 + G + B/256 - 32768 (the same
+    decode as landslidescience's dem_fill.js)."""
+    rgb = _png_bands(png_bytes)
     return (rgb[0] * 256.0 + rgb[1] + rgb[2] / 256.0 - 32768.0).astype(np.float32)
 
 
-class TerrariumSource:
-    """AWS Terrain Tiles (Mapzen Terrarium encoding), z14. In Alaska the data
-    underneath is the USGS 2 arc-second NED (roughly 60 m), so this is a
-    regional context surface: fine for a long route's climb, coarse for
-    grade and TSA at trail scale. Results say which samples came from it."""
+def decode_mapbox(png_bytes):
+    """Heights from a Mapbox terrain-RGB PNG: h = -10000 + (R*65536 + G*256
+    + B) * 0.1. Transparent pixels, and the all-zero -10000 m code, are no
+    data (NaN), as demshade reads them."""
+    b = _png_bands(png_bytes)
+    h = -10000.0 + (b[0] * 65536.0 + b[1] * 256.0 + b[2]) * 0.1
+    nodata = h <= -9999.0
+    if len(b) > 3:
+        nodata |= b[3] == 0
+    h[nodata] = np.nan
+    return h.astype(np.float32)
+
+
+class TileSource:
+    """A DEM served as XYZ PNG tiles, read at one zoom with bilinear
+    interpolation. Two kinds are in use, both regional context under the
+    lidar:
+
+      - the baked USGS 3DEP 1/3 arc-second context (`ctx_3dep`, Mapbox
+        terrain-RGB, z13, ~10 m; through landslidescience's tile Worker),
+        what /lidar/ composites every survey over;
+      - AWS Terrain Tiles (Terrarium, z14), which in Alaska is the USGS
+        2 arc-second NED (~60 m): fine for a long route's climb, coarse for
+        grade and TSA at trail scale.
+
+    Results say which samples came from which source."""
 
     kind = "context"
-    _cache = OrderedDict()           # (z, x, y) -> Float32Array heights, shared per process
+    _cache = OrderedDict()           # (key, z, x, y) -> heights, shared per process
     _cache_lock = threading.Lock()
     CACHE_MAX = 300
+    decode = staticmethod(decode_terrarium)
 
-    def __init__(self, key="terrarium", title="AWS Terrain Tiles", url=TERRARIUM_URL, z=TERRARIUM_Z):
+    def __init__(self, key, title, url, z, data_res=None, encoding="terrarium"):
         self.key, self.title, self.url, self.z = key, title, url, z
         self.bounds = None
+        self.data_res = data_res
+        if encoding == "mapbox":
+            self.decode = decode_mapbox
 
     @property
     def res(self):
-        # Ground size of a z14 pixel at 60 degrees N is ~4.8 m, but the data is
-        # far coarser; probe at two pixels so the gradient spans real relief.
+        # The probe spacing for the gradient: the data's own resolution when
+        # it is known, else one z pixel at 60 degrees N.
+        if self.data_res:
+            return self.data_res
         return 2 * _WEB_MERC_M / (256 * 2 ** self.z) * 0.5
 
     def fetch_tile(self, z, x, y):
@@ -211,15 +247,17 @@ class TerrariumSource:
         req = urllib.request.Request(url, headers={"User-Agent": "trailgeek.org evaluator"})
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
+                if r.status == 204:          # the tile Worker's "no tile here"
+                    return None
                 data = r.read()
         except urllib.error.HTTPError as e:
             if e.code in (403, 404):
                 return None
             raise
-        return decode_terrarium(data)
+        return self.decode(data) if data else None
 
     def _tile(self, z, x, y):
-        key = (z, x, y)
+        key = (self.key, z, x, y)
         with self._cache_lock:
             if key in self._cache:
                 self._cache.move_to_end(key)
@@ -257,6 +295,14 @@ class TerrariumSource:
             out[k] = vals
         z = (out[0] * (1 - tx) + out[1] * tx) * (1 - ty) + (out[2] * (1 - tx) + out[3] * tx) * ty
         return z
+
+
+class TerrariumSource(TileSource):
+    """AWS Terrain Tiles, the context of last resort: global, no key."""
+
+    def __init__(self, key="terrarium", title="AWS Terrain Tiles", url=TERRARIUM_URL, z=TERRARIUM_Z):
+        super().__init__(key, title, url, z)
+
 
 
 # ---------------------------------------------------------------------------

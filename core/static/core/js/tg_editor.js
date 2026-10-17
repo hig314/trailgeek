@@ -167,18 +167,23 @@ window.TgEditor = (function () {
                    'line-dasharray': ['match', ['get', 'kind'], 'reroute', ['literal', [2, 1]], 'restore', ['literal', [3, 1, 0.5, 1]], ['literal', [1, 0]]] } },
         { id: 'ed-rubber', type: 'line', source: 'ed-rubber', paint: { 'line-color': LEG_COLORS['new'], 'line-width': 2, 'line-dasharray': [2, 2] } },
         { id: 'ed-mids', type: 'circle', source: 'ed-mids', minzoom: MID_MINZOOM,
-          paint: { 'circle-radius': 3, 'circle-color': '#ffffff', 'circle-opacity': 0.85, 'circle-stroke-color': '#555', 'circle-stroke-width': 1 } },
+          paint: { 'circle-radius': 3, 'circle-color': '#ffffff', 'circle-opacity': 0.85, 'circle-stroke-color': '#555', 'circle-stroke-width': 1,
+                   'circle-pitch-scale': 'viewport' } },
         { id: 'ed-verts-plain', type: 'circle', source: 'ed-verts', minzoom: PLAIN_MINZOOM,
           filter: ['all', ['==', ['get', 'joint'], 0], ['==', ['get', 'end'], 0]],
-          paint: { 'circle-radius': 4, 'circle-color': '#ffffff', 'circle-stroke-color': '#1f2a1f', 'circle-stroke-width': 1.3 } },
+          paint: { 'circle-radius': 4, 'circle-color': '#ffffff', 'circle-stroke-color': '#1f2a1f', 'circle-stroke-width': 1.3,
+                   'circle-pitch-scale': 'viewport' } },
         { id: 'ed-verts', type: 'circle', source: 'ed-verts',
           filter: ['any', ['==', ['get', 'joint'], 1], ['==', ['get', 'end'], 1]],
           paint: { 'circle-radius': 7, 'circle-color': ['case', ['==', ['get', 'joint'], 1], '#ffd400', '#1f2a1f'],
-                   'circle-stroke-color': ['case', ['==', ['get', 'joint'], 1], '#1f2a1f', '#ffffff'], 'circle-stroke-width': 2 } },
+                   'circle-stroke-color': ['case', ['==', ['get', 'joint'], 1], '#1f2a1f', '#ffffff'], 'circle-stroke-width': 2,
+                   'circle-pitch-scale': 'viewport' } },
         { id: 'ed-snap', type: 'circle', source: 'ed-snap',
-          paint: { 'circle-radius': 9, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#2a7f2a', 'circle-stroke-width': 2.5 } }
+          paint: { 'circle-radius': 9, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#2a7f2a', 'circle-stroke-width': 2.5,
+                   'circle-pitch-scale': 'viewport' } }
       ];
       layers.forEach(function (L) { if (!map.getLayer(L.id)) map.addLayer(L, before); });
+      if (opts.onLayers) opts.onLayers();     // lets the map rescale line widths under pitch
     }
     function removeLayers() {
       ['ed-snap', 'ed-verts', 'ed-verts-plain', 'ed-mids', 'ed-rubber', 'ed-legs-line', 'ed-legs-casing'].forEach(function (id) { if (map.getLayer(id)) map.removeLayer(id); });

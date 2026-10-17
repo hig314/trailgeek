@@ -11,7 +11,12 @@ updates URLs and footprints in place. Rows for surveys that have left the
 catalogue are disabled, not deleted, because a Project may reference them.
 
 The two regional context DEMs (AWS Terrarium, USGS 3DEP) are ensured on
-every run; they cover the ground outside every survey footprint.
+every run; they cover the ground outside every survey footprint. The
+catalogue's top-level `context` member, when there is one, is the baked
+3DEP context /lidar/ composites every survey over (`ctx_3dep`: 3DEP
+1/3 arc-second, Mapbox terrain-RGB PMTiles on R2, z5-z13); it is upserted
+as a context row too, and the map and the evaluator put it between the
+lidar and Terrarium.
 """
 import json
 import urllib.request
@@ -108,6 +113,35 @@ def upsert_feature(feature, now):
     return obj, created
 
 
+def upsert_baked_context(ctx, now):
+    """Create or update the context row for the catalogue's `context`
+    member. Returns (obj, created), or (None, False) if there is none."""
+    if not ctx or not ctx.get("id") or not ctx.get("pmtiles_url"):
+        return None, False
+    fields = {
+        "title": ctx.get("title") or ctx["id"],
+        "kind": DemSource.Kind.CONTEXT,
+        "encoding": DemSource.Encoding.MAPBOX,
+        "pmtiles_url": ctx["pmtiles_url"],
+        "tiles_url": ctx.get("tiles_url") or "",
+        "min_zoom": ctx.get("min_zoom") or 0,
+        "max_zoom": ctx.get("max_zoom") or 13,
+        # 1/3 arc-second: ~10 m, the z13 pixel is ~9.5 m at 60 N.
+        "native_res_m": ctx.get("native_res_m") or 10.0,
+        "region": "Around every hosted survey",
+        "product": "Regional DEM (USGS 3DEP 1/3 arc-second, baked)",
+        "source": "USGS 3D Elevation Program, baked by landslidescience (bake_context.py)",
+        "source_url": "https://www.usgs.gov/3d-elevation-program",
+        "imported_at": now,
+    }
+    obj, created = DemSource.objects.get_or_create(slug=ctx["id"], defaults={**fields, "enabled": True})
+    if not created:
+        for k, v in fields.items():
+            setattr(obj, k, v)
+        obj.save()
+    return obj, created
+
+
 def ensure_context_rows():
     made = 0
     for row in CONTEXT_ROWS:
@@ -127,12 +161,14 @@ def import_catalog(fc, disable_missing=True):
         if obj is not None:
             seen.append(obj.slug)
             created += was_created
+    baked, _ = upsert_baked_context(fc.get("context"), now)
     disabled = 0
     if disable_missing and seen:
         disabled = DemSource.objects.filter(kind=DemSource.Kind.LIDAR, enabled=True).exclude(
             slug__in=seen
         ).update(enabled=False)
-    return {"seen": len(seen), "created": created, "updated": len(seen) - created, "disabled": disabled}
+    return {"seen": len(seen), "created": created, "updated": len(seen) - created, "disabled": disabled,
+            "context": baked.slug if baked else None}
 
 
 class Command(BaseCommand):
@@ -168,5 +204,6 @@ class Command(BaseCommand):
         summary = import_catalog(fc, disable_missing=not opts["keep_missing"])
         self.stdout.write(
             f"lidar: {summary['created']} created, {summary['updated']} updated, "
-            f"{summary['disabled']} disabled; context rows added: {n_ctx}"
+            f"{summary['disabled']} disabled; context rows added: {n_ctx}; "
+            f"baked context: {summary['context'] or 'none in this catalogue'}"
         )

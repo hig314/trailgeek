@@ -31,10 +31,18 @@ randomly drops real logins.
 ops/deploy.sh          # from a machine with the SSH key: pulls main, builds, up -d, check --deploy
 ```
 
+The owner's Mac has the droplet's host key under its IP, not its name, so
+the default `root@trailgeek.org` fails there with "Host key verification
+failed". Deploy with `TRAILGEEK_HOST=root@137.184.246.228 ops/deploy.sh`
+(or accept the key once with an interactive `ssh root@trailgeek.org`). The
+local Claude session's permission rules for this live in
+`.claude/settings.local.json`, which is gitignored.
+
 Post-deploy steps by change (run on the droplet, `$C` as below):
 
 | Change | Command |
 |---|---|
+| /lidar/ seam fixes, baked 3DEP context (same PR) | `$C exec web python manage.py import_dem_catalog` **before** loading the data below, so the new `ctx_3dep` context row exists; the command's last line names it ("baked context: ctx_3dep", or "none in this catalogue" if landslidescience's catalogue was published without it). The map uses it from its PMTiles archive; the evaluator only when the catalogue also gives it a tile-Worker `tiles_url`, and otherwise stays on Terrarium. |
 | Trail design (legs, evaluator, import) | Migration 0003 runs on web start and gives every existing alignment one leg. **Restart the worker too** (`$C up -d` does): it now runs the evaluations. Then load the owner's data, either at https://trailgeek.org/import/ (trail editors; simplest from the Mac) or by copying the files to the droplet and running `$C exec web python manage.py import_lines /app/data/260927_Trails.zip --as trails --owner hig` and `$C exec web python manage.py import_lines /app/data/250924_Scouting_plans.gpkg --as alignments --project-name "Scouting plans 2025-09" --owner hig` (the compose stack mounts `./data` at `/app/data`). Each imported alignment queues an evaluation; the 88 km lines take ~30 s each on Terrarium. |
 | Phase 1 (first deploy of the trail models) | `$C exec web python manage.py import_dem_catalog` to seed the DEM catalogue from landslidescience. Re-run whenever that catalogue is rebuilt. Then give yourself `trail_editors` in /admin/ to upload tracks. |
 
@@ -52,6 +60,8 @@ $C ps
 $C logs -f web            # or worker, caddy, db
 $C exec web python manage.py shell
 $C exec web python manage.py createsuperuser
+$C exec web python manage.py changepassword hig   # forgotten admin password
+$C exec web python manage.py shell -c "from django.contrib.auth.models import User; print(list(User.objects.filter(is_superuser=True).values_list('username', flat=True)))"   # which admin accounts exist
 $C restart caddy          # retries certificate issuance
 ```
 
@@ -133,9 +143,37 @@ open http://localhost:8002
 - The override file bind-mounts the source and runs `runserver`, so code
   changes reload without a rebuild. A change to `requirements.txt` or the
   `Dockerfile` needs `docker compose build`.
+- **Docker Desktop's file sharing can lag or lose an edited file** (seen
+  2026-10-16: after edits on the Mac the container served a truncated
+  `map.js`, then reported `tg_design.js` missing, and the map's startup
+  threw, so no overlays and dead controls). Check with
+  `docker compose exec web md5sum /app/<path>` against `md5 -q <path>`; if
+  they differ after a few seconds, `docker compose restart web worker`
+  resyncs the mount. The browser may also have cached the bad copy:
+  reload with the cache bypassed.
 - Only the web container migrates; the worker sets `SKIP_MIGRATE=1`.
 - The owner's Mac is short of disk space. Docker Desktop crashed on
   2026-09-25 when the disk filled.
+
+## Password resets and email
+
+The sign-in page links to `/accounts/password_reset/` (Django's built-in
+flow, templates in `templates/registration/`). It needs to send one email.
+
+- **Local dev:** `.env` has no `EMAIL_HOST`, so the console backend prints
+  the message, reset link included, to the web container's log:
+  `docker compose logs web | grep -A3 accounts/reset`. Open the link in the
+  browser. The quicker way to fix a forgotten dev password is
+  `docker compose exec web python manage.py changepassword hig`.
+- **Production:** no SMTP is configured yet (open item). Until it is, the
+  reset form says the message was sent, but it only goes to the web
+  container's log (`docker compose -f docker-compose.yml -f
+  docker-compose.prod.yml logs web` on the droplet). To make it work, set
+  `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`,
+  `EMAIL_USE_TLS` and `DEFAULT_FROM_EMAIL` in the droplet's `.env` (any
+  SMTP relay works; the From domain should match a domain the relay is
+  allowed to send for) and restart the web container. Reset links use the
+  request's host, so `DJANGO_ALLOWED_HOSTS` already covers them.
 
 ## Testing without Docker (cloud sessions, CI)
 

@@ -13,16 +13,19 @@ server and Django reasoning rather than assume it.
 | [docs/SISTER_PROJECTS.md](docs/SISTER_PROJECTS.md) | What to reuse from landslidescience, GTA, demshade, and the public lidar catalogue |
 | [docs/TRAIL_ANALYSIS.md](docs/TRAIL_ANALYSIS.md) | Spec of the evaluator, profile and router algorithms to port, with their known bugs |
 
-## State of play (2026-09-27): the one dated section; update it, don't work around it
+## State of play (2026-10-16): the one dated section; update it, don't work around it
 
 - **Phase 0 and Phase 1 are merged** (hig314/trailgeek#1, 2026-09-27; the
   owner reports it running). Phase 1 gave `DemSource` (seeded by
   `import_dem_catalog` from landslidescience's lidar catalogue), `Trail`,
   `Track`, `Project`, GPX upload, live MVT tiles, the home map with lidar
-  shading / 3D through demshade, and the D3 profile. Basemaps, the hash
-  grammar and the demshade bridge are copied verbatim from landslidescience.
-- **Trail design (this branch, `claude/trailgeek-project-b53hqm`, PR open,
-  awaiting the owner's local test and approval):**
+  shading / 3D through demshade, and the D3 profile.
+- **Trail design is merged and deployed** (hig314/trailgeek#2, merged and
+  deployed from the Mac 2026-09-27; migration 0003 applied in production).
+  **The owner's trails and scouting plans are loaded in local dev only,
+  not in production** (see Open). The 3D
+  views, the /lidar/ seam fixes and the code sharing below are on
+  `claude/trailgeek-project-b53hqm` in a new PR, awaiting approval.
   - An **Alignment is a continuous line of ordered Legs**. Each leg is
     existing trail to follow, or a build effort (new construction, reroute,
     restoration) with an effort factor. `Alignment.geom` is derived from the
@@ -32,7 +35,9 @@ server and Django reasoning rather than assume it.
     geometric TSA, side-slope, null-aware running means, bands with correct
     longest runs, the construction / maintenance rubric per leg kind).
     Terrain sampling is `core/dem.py`: lidar COGs on R2 via GDAL /vsicurl/
-    (GeoDjango's GDAL, no rasterio), then Terrarium where there is no lidar.
+    (GeoDjango's GDAL, no rasterio), then the baked 3DEP context (`ctx_3dep`,
+    through the tile Worker's URLs when the catalogue has them), then
+    Terrarium.
     Always in the Huey worker (`core/tasks.py`), for live edits and saved
     alignments alike.
   - **Editor** (`core/static/core/js/tg_editor.js`, `tg_design.js`): drag,
@@ -41,19 +46,93 @@ server and Django reasoning rather than assume it.
     split legs, change kinds, undo; a live evaluation of every change shows
     as Saved / Now / Change tradeoffs and a profile with the saved version in
     grey. Project view is a sortable compare table.
+  - **3D views** (map.js): pitch goes to 90; Top / Oblique / Side buttons
+    and a "Side view" link per trail or alignment place the camera
+    side-on, just clearing the terrain (MapLibre calculateCameraOptionsFromTo).
+    Above 80 degrees the centre re-solving (MapLibre clamping and the
+    terrain-centre tracker, a fixed copy of demshade's in `dem_stack.js`;
+    see VENDOR.md) is switched off, and line widths are rescaled under
+    pitch: that was the "trails go fat near horizontal" bug.
+  - **/lidar/'s 3DEP seam fixes** (landslidescience 9a99a0f, 2026-09-28):
+    lidar composites over the baked 3DEP context (`ctx_3dep`, imported by
+    `import_dem_catalog` from the catalogue's `context` member) with
+    `fillMode 'outside'` and the survey's footprint, so the context runs
+    right up to the survey boundary instead of a 0 m shelf at tile edges;
+    Terrarium beyond the bake; the 512 px terrain mesh; a camera-height
+    re-solve threshold; sky set only on a change.
+  - **Code sharing with landslidescience** (docs/SISTER_PROJECTS.md): the
+    shared files are synced by `tools/sync_shared.py`, pinned in
+    `tools/shared.json`, and CI fails if one is edited here. The DEM-stack
+    logic that /lidar/ keeps inline is now one DOM-free module,
+    `core/static/core/js/dem_stack.js`, proposed for landslidescience; the
+    local session moves it there (handoff steps in SISTER_PROJECTS.md).
   - **Import** (`core/importers.py`): `manage.py import_lines FILE --as
     trails|alignments` and the `/import/` page for trail editors. The
     owner's `260927_Trails.zip` (443 trails) and `250924_Scouting_plans.gpkg`
     (71 alignments) import cleanly in the sandbox; **they are not in the
     repo** (the repo is public and scouting lines can cross private land):
     load them with the command or the page after deploying.
-- **Open:** the R2 CORS change for trailgeek.org (bucket done by the owner;
-  the lidar-tiles Worker origin change in landslidescience still to do). Until
-  lidar reaches the worker, evaluations use Terrarium (~60 m data in Alaska)
-  and say so. No backups yet, and uploads now exist.
-- **Next up:** check evaluations against real lidar once deployed; revive
-  switchback / curvature detection; a routing tool (PLAN.md Phase 5) can
-  reuse the leg model and the evaluator; the profile's 10×/1:1 panels.
+- **Field support for the Tutka Tusk scouting season** (branch
+  `field-support-projects-gpx`, built on the Mac 2026-10-16 on top of PR #3,
+  in a PR awaiting approval; migration 0004):
+  - **Projects nest** (`Project.parent`) and **tracks attach to projects**
+    (`Track.project`, on the upload form, the track API and the project
+    panel as "Scouting tracks"). PLAN.md §0 (2026-10-16) has the reasoning:
+    segment (Trail), route (not built), project (tree).
+  - **Field exports** (`core/exports.py`): `/api/alignments/<id>.gpx`,
+    `/api/projects/<slug>.gpx` (a GPX track per leg, named for GaiaGPS,
+    waypoints at joints and ends, priority colours),
+    `/api/projects/<slug>.zip` (one GPX per alignment plus the combined
+    file) and
+    `/api/projects/<slug>.geojson` (legs, for MapApp vector MBTiles; the
+    recipe is in docs/SISTER_PROJECTS.md). Links are in the alignment and
+    project panels. The GPX writer lives in `core/gpx.py`.
+  - **Importer** reads Class → priority (Preferred 1 / Alternate 2 / Future
+    3) and Notes → notes. Project members now see their projects everywhere
+    (`access.visible_projects_q`), not only their alignments.
+  - **Shading selector** in the Layers panel: Hillshade, Hillshade + slope
+    ramp, or **Preset** (mod 5 m bands + slope ramp, hillshade in hard
+    light), the same numbers as landslidescience's `LIDAR_PRESETS.preset`
+    so the word means the same view on both sites; kept in the URL hash as
+    the `p` lidar code. Replaced the slope checkbox. Also: basemap changes
+    keep the overlays (listen before `setStyle`), the shade sits under the
+    trail layers, sliders show their values, exaggeration defaults to 1.0×.
+  - **Password reset** on the sign-in page (`/accounts/password_reset/`,
+    Django's views, templates in `templates/registration/`). Email settings
+    come from env vars; with no `EMAIL_HOST` the link is printed to the web
+    log. **Production has no SMTP yet** (docs/OPERATIONS.md).
+  - **Dev data (local only):** `backdoor-trail` programme project (private,
+    its description lists the Backdoor Trail in order) with `tutka-tusk` as
+    a child (**public**, owner's decision 2026-10-16; a public child never
+    names a private parent): the 8 lines of `Tutka_Tusk_sections.gpkg` as 8 single-leg
+    alignments, evaluated 100 % on the `kbay_2023` lidar. The first field
+    files were exported from it (`261016_Tutka_Tusk_plan.gpx`,
+    `261016_Tutka_Tusk_legs.geojson`, in the owner's Tutka GIS data
+    folder). Still to do by hand: stitch the preferred pieces (Lagoon
+    Bypass, Link A, the two Tutka Tusk pieces, Upper ascent A) into one
+    alignment of legs in the editor, with Link B and Upper B as variants.
+- **Open:** R2 CORS for trailgeek.org is **done on both hosts**, verified
+  from the Mac 2026-09-27 with an Origin header: the `landslidescience-lidar`
+  bucket (owner) and the lidar-tiles Worker on `tiles.landslidescience.org`
+  (deployed from branch `lidar-tiles-cors-trailgeek`, Worker version
+  9381e78d; hig314/landslidescience#3 brings `main` in line and awaits
+  approval). The bucket list lacks `www.landslidescience.org`, which the
+  Worker list has.
+  **Production data is not loaded:** the owner's 443 trails and 71
+  alignments are only in local dev. Loading them in production publishes
+  380 trails as public (63 gated, project KBSP gated, as in the dev import),
+  so it waits for the owner. `260927_Trails.zip` is not on the Mac's disks
+  that the local session searched; `250924_Scouting_plans.gpkg` is on the
+  Nunatak drive under `Trail_science/Graduation_Peak`.
+  Until lidar reaches the evaluator, evaluations use the baked 3DEP
+  (~10 m) or Terrarium (~60 m data in Alaska) and say so. No backups yet,
+  and uploads now exist. Local session: adopt `dem_stack.js` in /lidar/
+  and fix the three demshade issues in VENDOR.md.
+- **Next up:** the `Route` model (an ordered chain of Trail segments; seed
+  it with the Backdoor Trail from PLAN.md §0); check evaluations against
+  real lidar once deployed; revive switchback / curvature detection; a
+  routing tool (PLAN.md Phase 5) can reuse the leg model and the evaluator;
+  the profile's 10×/1:1 panels.
 - **Deliberately deferred:** extracting landslidescience's shared JS into
   `hig-maplibre-kit` (a separate reviewed change). Uptime check and
   analytics are open items in OPERATIONS.md.
@@ -124,13 +203,16 @@ keep commits small so the other side can rebase without conflict.
 - Frontend: **MapLibre GL JS 5.24** from unpkg, vanilla JS in IIFEs, **no
   build step** for the site. D3 v7 for charts. Tool bundles (Phase 3) may use
   Vite + TypeScript.
-- **demshade is vendored** in `core/static/core/vendor/`. Its source repo is
-  on the owner's Mac only, so a cloud session can't rebuild it (see
-  `VENDOR.md`). The source map must stay next to the `.js`, or
+- **demshade is vendored** in `core/static/core/vendor/`, synced from
+  landslidescience's vendored copy. Its source repo is on the owner's Mac
+  only, so a cloud session can't rebuild it (see `VENDOR.md`). The source map must stay next to the `.js`, or
   `collectstatic` fails under WhiteNoise's manifest storage.
 - **One copy of every shared thing.** Before writing a map helper, check
-  landslidescience (public repo) per docs/SISTER_PROJECTS.md. When copying,
-  add a header comment naming the source file.
+  landslidescience (public repo) per docs/SISTER_PROJECTS.md. Files taken
+  from there are listed in `tools/shared.json` and brought in with
+  `python tools/sync_shared.py sync --repo PATH` (or `--github`), never
+  edited here: CI's `sync_shared.py check` fails on a local edit. To change
+  one, change it in landslidescience first.
 - Role groups live in `core/roles.py`; `init_groups` runs on every web
   container start. Only the web container migrates (`SKIP_MIGRATE=1` on the
   worker).
@@ -157,5 +239,6 @@ keep commits small so the other side can rebase without conflict.
 | `pages/` | `Page` model (Markdown), served at `/<slug>/` (catch-all, so it is routed last) |
 | `templates/` | `base.html`, login |
 | `ops/` | `provision.sh` (droplet setup, idempotent), `deploy.sh` |
+| `tools/` | `sync_shared.py` + `shared.json`: the files shared with landslidescience, pinned and checked in CI |
 | `docs/` | operations, sister projects, algorithm spec |
 | `Caddyfile`, `docker-compose*.yml`, `Dockerfile`, `entrypoint.sh` | the stack |

@@ -16,7 +16,11 @@ Changes from the original plan, decided during Phase 0:
 - **`hig-maplibre-kit` is deferred.** Moving the shared JS out of
   landslidescience edits that repo, which has parallel work streams and its
   own test-before-ship rule. It will be a separate, reviewed change. Until
-  then, copy modules with a header naming the source.
+  then, shared files are synced from landslidescience by
+  `tools/sync_shared.py` against a pin in `tools/shared.json`, and CI fails
+  on a local edit (2026-09-28). The DEM-stack logic /lidar/ kept inline is
+  factored into `dem_stack.js`, proposed for landslidescience
+  (docs/SISTER_PROJECTS.md).
 - **Ubuntu 24.04 with Docker from Docker's apt repo**, set up by
   `ops/provision.sh`, instead of DigitalOcean's Docker image, so the droplet
   can be rebuilt from the repo.
@@ -25,6 +29,51 @@ Changes from the original plan, decided during Phase 0:
   (docs/OPERATIONS.md).
 - Details that used to live only on the owner's Mac are now in
   `docs/`, especially the algorithm spec in docs/TRAIL_ANALYSIS.md.
+
+Decided for the Tutka Tusk scouting season (2026-10-16):
+- **Three concepts, not one hierarchy.** A *segment* is the Trail model as
+  it stands (one line with a status, class and builder; "Sentinel Ridge").
+  A *route* is a named, ordered chain of segments ("Backdoor Trail", Taylor
+  Bay to Seldovia); it is the as-built twin of Alignment-of-Legs and is
+  **not built yet**: a `Route` model with an ordered through-table to Trail
+  comes when the whole Backdoor needs showing or evaluating as one line.
+  Trail gets no parent tree, because a segment can belong to several named
+  routes. A *project* is a work effort (alignments, variants, scouting
+  tracks, a field map; "Tutka Tusk", "Rosanna Meadow stone steps"), and
+  projects do form a tree, so `Project.parent` nests them: Backdoor Trail
+  programme → Tutka Tusk → a job inside it.
+- **The Backdoor Trail, in order** (owner, 2026-10-16): Tutka Backdoor
+  Trail; Sentinel Ridge and Tutka Lake Trail; Lagoon Bypass (proposed);
+  Jakolof-Tutka Trail (also called the Tutka Lagoon Trail); Red Mt. Road (a
+  trail in practice); Graduation Peak Trail (the Mars Lake section first,
+  middle portion unbuilt); Rocky Ridge Trail. This is the first Route to
+  seed when the model exists; until then it is the description of the
+  `backdoor-trail` project.
+- **Scouting tracks attach to projects** (`Track.project`), so a recorded
+  walk sits beside the alignments it tested and is listed on the project.
+- **Field files come from the database, not from QGIS exports**
+  (`core/exports.py`): `/api/alignments/<id>.gpx`, `/api/projects/<slug>.gpx`
+  (one GPX track per leg, named "<alignment> <n> <leg>", with waypoints at
+  leg joints and ends, Garmin DisplayColor red / blue / grey for preferred /
+  alternate / future, which GaiaGPS honours) and
+  `/api/projects/<slug>.geojson` (one feature per leg, the input for MapApp's
+  vector MBTiles overlays, docs/SISTER_PROJECTS.md). The GPX writer is in
+  `core/gpx.py` beside the reader, standard library only.
+- **Import reads Class and Notes**: Preferred / Alternate / Future (or a
+  number) becomes `Alignment.priority` 1 / 2 / 3, Notes become
+  `Alignment.notes`. The Tutka_Tusk_sections GeoPackage (8 lines) imports
+  as 8 single-leg alignments; stitching the preferred pieces into one
+  alignment of legs is an editor job, not an importer guess.
+
+Decided for near-horizontal 3D views (2026-09-28):
+- MapLibre sizes draped lines from the scale at the map centre, and with
+  terrain both its clamping and demshade's centre tracker re-derive zoom from
+  height / cos(pitch). Near 90 degrees that sent the centre to the horizon
+  and made trails ~40 m wide stripes. map.js now switches the re-solving off
+  above 80 degrees, rescales line widths by the square root of near-to-centre
+  ground scale when pitched, and places side views explicitly. Draped lines
+  are still ground stripes, so very distant ones thin out and can break up at
+  grazing angles; true 3D lines would need a custom or deck.gl layer.
 
 Decided while building trail design (2026-09-27):
 - **Alignment = ordered Legs** (`core.models.Leg`): each leg is existing
@@ -125,9 +174,13 @@ build && up -d`, and **dev → owner tests → explicit approval → push + depl
   `source`, `visibility` (public / gated / private), owner.
 - **`Track`** — an uploaded GPS trackline (GPX / KML / GeoJSON / CSV).
   `geom` LineStringZM (time in M), device, `taken_at`, optional `trail`,
-  owner, visibility. Original file kept in R2, never re-encoded.
+  optional `project` (a scouting walk), owner, visibility. Original file
+  kept in R2, never re-encoded.
 - **`Project`** — a trail design study: name, AOI polygon, chosen
-  `DemSource`, collaborators, settings (sample spacing, thresholds, rubric).
+  `DemSource`, collaborators, settings (sample spacing, thresholds, rubric),
+  `parent` (projects nest: programme → trail → job).
+- **`Route`** (not built) — a named, ordered chain of Trail segments, the
+  as-built twin of Alignment-of-Legs; see the 2026-10-16 decisions in §0.
 - **`Alignment`** — one candidate line within a Project: name, priority,
   trailhead, `geom`, plus the uphill-direction flag (the evaluator
   normalizes direction into a *derived* geometry; it never rewrites the

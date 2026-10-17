@@ -168,6 +168,10 @@ class Track(OwnedMixin):
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     trail = models.ForeignKey(Trail, null=True, blank=True, on_delete=models.SET_NULL, related_name="tracks")
+    project = models.ForeignKey(
+        "Project", null=True, blank=True, on_delete=models.SET_NULL, related_name="tracks",
+        help_text="The design project this track was recorded for, e.g. a scouting walk of a proposed alignment.",
+    )
     device = models.CharField(max_length=100, blank=True, help_text="GPX creator string.")
     taken_at = models.DateTimeField(null=True, blank=True)
     geom = models.LineStringField(srid=4326, dim=3)
@@ -226,11 +230,23 @@ DEFAULT_PROJECT_SETTINGS = {
 
 
 class Project(OwnedMixin):
-    """A trail design study: an area, a DEM, and a set of candidate alignments."""
+    """A trail design study: an area, a DEM, a set of candidate alignments,
+    and the scouting tracks recorded for them.
+
+    Projects nest through `parent`, because work efforts form a tree: a
+    programme (the Backdoor Trail, Taylor Bay to Seldovia), a trail inside it
+    (Tutka Tusk), a job inside that (a run of stone steps). Named trails
+    themselves are not a tree, since a segment can belong to several named
+    routes, so that chain is a separate concept (PLAN.md, "Route") and is
+    not modelled on Trail."""
 
     slug = models.SlugField(unique=True)
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True, help_text="Markdown.")
+    parent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="children",
+        help_text="The programme or larger project this one is part of, e.g. Tutka Tusk within the Backdoor Trail.",
+    )
     aoi = models.PolygonField(srid=4326, null=True, blank=True, help_text="Area of interest.")
     dem = models.ForeignKey(DemSource, null=True, blank=True, on_delete=models.SET_NULL, related_name="projects")
     members = models.ManyToManyField(settings.AUTH_USER_MODEL, blank=True, related_name="trail_projects")
@@ -244,6 +260,15 @@ class Project(OwnedMixin):
 
     def effective_settings(self):
         return {**DEFAULT_PROJECT_SETTINGS, **(self.settings or {})}
+
+    def ancestors(self):
+        """Parent, grandparent, ... (nearest first). Stops on a cycle."""
+        out, seen, p = [], {self.pk}, self.parent
+        while p is not None and p.pk not in seen:
+            out.append(p)
+            seen.add(p.pk)
+            p = p.parent
+        return out
 
 
 class Alignment(models.Model):
@@ -264,9 +289,17 @@ class Alignment(models.Model):
         DONE = "done", "Done"
         FAILED = "failed", "Failed"
 
+    # What a priority number means in exports and imports (the scouting
+    # files say Preferred / Alternate / Future). Higher numbers stay "future".
+    PRIORITY_LABELS = {1: "preferred", 2: "alternate", 3: "future"}
+
+    @property
+    def priority_label(self):
+        return self.PRIORITY_LABELS.get(self.priority, "future" if self.priority > 3 else "preferred")
+
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="alignments")
     name = models.CharField(max_length=200)
-    priority = models.IntegerField(default=1, help_text="1 = primary candidate.")
+    priority = models.IntegerField(default=1, help_text="1 = preferred, 2 = alternate, 3 = future.")
     trailhead = models.CharField(max_length=200, blank=True)
     notes = models.TextField(blank=True)
     parent = models.ForeignKey(

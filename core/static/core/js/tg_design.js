@@ -131,7 +131,9 @@ window.TgDesign = (function () {
     if (p.evaluation) h += sourcesNote(p.evaluation) + bandsHtml(p.evaluation);
     if (p.notes) h += '<p class="tg-desc tg-small">' + esc(p.notes) + '</p>';
     h += compareHtml(p);
-    h += '<div class="tg-links"><a href="#" id="zoomto">Zoom to</a> · <a href="/api/alignments/' + p.id + '.geojson" download="alignment-' + p.id + '.geojson">GeoJSON</a></div>';
+    h += '<div class="tg-links"><a href="#" id="zoomto">Zoom to</a> · <a href="#" id="sideview" title="Look at it (nearly) horizontally, from the side, to see how steady the climb is">Side view</a> · ' +
+         '<a href="/api/alignments/' + p.id + '.gpx" title="One track per leg, with waypoints where legs join; opens in GaiaGPS and the field map app">GPX</a> · ' +
+         '<a href="/api/alignments/' + p.id + '.geojson" download="alignment-' + p.id + '.geojson">GeoJSON</a></div>';
     h += '<div class="tg-sub">Profile <span id="profsrc" class="tg-muted"></span></div>';
     $('detail').innerHTML = h;
     $('profstats').innerHTML = p.evaluation ? '<div class="tg-keys">' + app.profile.legend(true) + '</div>' : '';
@@ -205,6 +207,7 @@ window.TgDesign = (function () {
   function wireView(f) {
     var p = f.properties;
     var z = $('zoomto'); if (z) z.addEventListener('click', function (e) { e.preventDefault(); app.fitTo(f.geometry); });
+    var sv = $('sideview'); if (sv && f.geometry) sv.addEventListener('click', function (e) { e.preventDefault(); app.sideView(f.geometry); });
     Array.prototype.forEach.call(document.querySelectorAll('.tg-legs tr[data-leg]'), function (tr) {
       tr.addEventListener('mouseenter', function () { app.highlight(legFeature(p.legs[+tr.dataset.leg])); });
       tr.addEventListener('mouseleave', function () { app.highlight(null); });
@@ -252,13 +255,29 @@ window.TgDesign = (function () {
     var p = data.project, h = '';
     h += '<div class="tg-kind">Design project' + (p.visibility !== 'public' ? ' · <span class="tg-badge">' + esc(p.visibility) + '</span>' : '') + '</div>';
     h += '<h2>' + esc(p.name) + '</h2>';
+    if (p.parents && p.parents.length) {
+      h += '<div class="tg-muted">Part of ' + p.parents.map(function (q) { return '<a href="#project=' + esc(q.slug) + '">' + esc(q.name) + '</a>'; }).join(' › ') + '</div>';
+    }
     if (p.description) h += '<p class="tg-desc tg-small">' + esc(p.description) + '</p>';
     if (p.can_edit) h += '<div class="tg-actions"><button id="d-new" class="tg-btn tg-primary">New alignment</button></div>';
+    if (p.children && p.children.length) {
+      h += '<div class="tg-sub">Projects within this one</div><ul class="tg-list">' +
+           p.children.map(function (q) { return '<li><a href="#project=' + esc(q.slug) + '">' + esc(q.name) + '</a></li>'; }).join('') + '</ul>';
+    }
     var cols = [['name', 'Alignment'], ['length_m', 'km'], ['build_m', 'New km'], ['climb_m', 'Climb m'], ['grade_p95', 'p95 grade %'],
                 ['steep_pct', '> 18 %'], ['fall_line_pct', 'TSA < 45° %'], ['construct_days', 'Build days'], ['lidar_pct', 'Lidar %']];
     h += '<div class="tg-small tg-muted">' + data.alignments.length + ' alignments. Click a column to sort; hover a row to find it on the map.</div>';
     h += '<div class="tg-scroll"><table class="tg-compare" id="proj-table"><thead><tr>' +
          cols.map(function (c) { return '<th data-k="' + c[0] + '">' + c[1] + '</th>'; }).join('') + '</tr></thead><tbody></tbody></table></div>';
+    if (data.tracks && data.tracks.length) {
+      h += '<div class="tg-sub">Scouting tracks</div><ul class="tg-list">' + data.tracks.map(function (t) {
+        return '<li><a href="#track=' + t.id + '">' + esc(t.name) + '</a>' + (t.taken_at ? ' <span class="tg-muted">' + esc(t.taken_at.slice(0, 10)) + '</span>' : '') +
+               ' <span class="tg-muted">' + kmn(t.length_m) + ' km</span></li>';
+      }).join('') + '</ul>';
+    }
+    h += '<div class="tg-links"><a href="' + esc(p.gpx_url) + '" title="Every alignment as GPX tracks (preferred red, alternates blue, future grey), with waypoints at leg joints; for GaiaGPS or the field map app">GPX for the field</a> · ' +
+         '<a href="' + esc(p.zip_url) + '" title="A zip with one GPX file per alignment, numbered in priority order, plus the combined file">GPX zip</a> · ' +
+         '<a href="' + esc(p.geojson_url) + '" title="One feature per leg; the input for an offline map product (ogr2ogr -f MBTILES)">GeoJSON of legs</a></div>';
     $('detail').innerHTML = h;
     $('profstats').innerHTML = '';
     app.profile.clear();
@@ -334,7 +353,8 @@ window.TgDesign = (function () {
       onChange: function () { dirty = true; renderEditPanel(); scheduleEval(); },
       onMode: function () { renderToolbar(); },
       onSelectLeg: function (j) { highlightLegRow(j); },
-      onMessage: function (t, err) { var m = $('ed-msg'); if (m) { m.textContent = t; m.className = 'tg-small ' + (err ? 'tg-error' : 'tg-muted'); } }
+      onMessage: function (t, err) { var m = $('ed-msg'); if (m) { m.textContent = t; m.className = 'tg-small ' + (err ? 'tg-error' : 'tg-muted'); } },
+      onLayers: function () { app.rescaleLines(); }
     });
     renderEditShell();
     ed.start(f.properties.legs);

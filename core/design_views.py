@@ -228,7 +228,7 @@ def api_alignment_create(request):
     if body is None:
         return _bad("body is not JSON")
     if body.get("project_id"):
-        project = Project.objects.filter(access.visible_q(request.user)).filter(pk=body["project_id"]).first()
+        project = Project.objects.filter(access.visible_projects_q(request.user)).filter(pk=body["project_id"]).first()
         if project is None:
             return _bad("no such project", 404)
         if not access.can_edit_project(request.user, project):
@@ -380,7 +380,7 @@ def api_trail_route(request):
 @require_GET
 def api_projects(request):
     """Projects the user may add alignments to (for the "new alignment" form)."""
-    qs = Project.objects.filter(access.visible_q(request.user)).distinct().order_by("name")
+    qs = Project.objects.filter(access.visible_projects_q(request.user)).distinct().order_by("name")
     return JsonResponse({"projects": [{"id": p.pk, "slug": p.slug, "name": p.name, "visibility": p.visibility}
                                       for p in qs if access.can_edit_project(request.user, p)],
                          "can_create": access.is_trail_editor(request.user)})
@@ -388,16 +388,25 @@ def api_projects(request):
 
 @require_GET
 def api_project(request, slug):
-    p = get_object_or_404(Project.objects.filter(access.visible_q(request.user)).distinct(), slug=slug)
+    p = get_object_or_404(Project.objects.filter(access.visible_projects_q(request.user)).distinct(), slug=slug)
     als = list(p.alignments.defer("evaluation").order_by("priority", "name"))
     ext = p.alignments.exclude(geom=None).aggregate(e=Extent("geom"))["e"]
+    children = p.children.filter(access.visible_projects_q(request.user)).distinct().order_by("name")
+    tracks = p.tracks.filter(access.visible_q(request.user)).distinct().order_by("-taken_at", "name")
     return JsonResponse({
         "project": {"id": p.pk, "slug": p.slug, "name": p.name, "description": p.description,
                     "visibility": p.visibility, "dem": p.dem.slug if p.dem_id else None,
-                    "can_edit": access.can_edit_project(request.user, p), "bbox": ext},
+                    "can_edit": access.can_edit_project(request.user, p), "bbox": ext,
+                    "parents": [{"slug": q.slug, "name": q.name} for q in p.ancestors()
+                                if Project.objects.filter(access.visible_projects_q(request.user), pk=q.pk).exists()],
+                    "children": [{"slug": q.slug, "name": q.name} for q in children],
+                    "gpx_url": f"/api/projects/{p.slug}.gpx", "zip_url": f"/api/projects/{p.slug}.zip",
+                    "geojson_url": f"/api/projects/{p.slug}.geojson"},
         "alignments": [{"id": a.pk, "name": a.name, "priority": a.priority, "parent_id": a.parent_id,
                         "length_m": round(a.length_m, 1), "evaluation_status": a.evaluation_status,
                         "legs": a.legs.count(), "headline": a.headline} for a in als],
+        "tracks": [{"id": t.pk, "name": t.name, "taken_at": t.taken_at.isoformat() if t.taken_at else None,
+                    "length_m": round(t.length_m, 1), "climb_m": round(t.climb_m)} for t in tracks],
     })
 
 
