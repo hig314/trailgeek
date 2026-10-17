@@ -90,6 +90,13 @@ server and Django reasoning rather than assume it.
   - **Importer** reads Class → priority (Preferred 1 / Alternate 2 / Future
     3) and Notes → notes. Project members now see their projects everywhere
     (`access.visible_projects_q`), not only their alignments.
+  - **Shading selector** in the Layers panel: Hillshade, Hillshade + slope
+    ramp, or **Preset** (mod 5 m bands + slope ramp, hillshade in hard
+    light), the same numbers as landslidescience's `LIDAR_PRESETS.preset`
+    so the word means the same view on both sites; kept in the URL hash as
+    the `p` lidar code. Replaced the slope checkbox. Also: basemap changes
+    keep the overlays (listen before `setStyle`), the shade sits under the
+    trail layers, sliders show their values, exaggeration defaults to 1.0×.
   - **Password reset** on the sign-in page (`/accounts/password_reset/`,
     Django's views, templates in `templates/registration/`). Email settings
     come from env vars; with no `EMAIL_HOST` the link is printed to the web

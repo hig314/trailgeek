@@ -21,6 +21,11 @@
   var HOME = { lon: -151.19, lat: 59.62, zoom: 11 };   // Grewingk / Kachemak Bay
   var DEFAULT_BASE = 'usgs-topo';
   var SHADE = { az: 315, alt: 45, hs: 0.8, bl: 3, sl: 0, ve: 1 };   // bl 3 = multiply
+  // The view the lidar viewers call "Preset" (landslidescience map.js
+  // LIDAR_PRESETS, converged 2026-09-20): mod-5 m elevation bands at full
+  // strength, the slope ramp at 0.6, hillshade over the top in hard light
+  // (bl 2). Same numbers here so the word means the same thing on both sites.
+  var PRESET = { az: 315, alt: 45, hs: 1, bl: 2, sl: 0.6, md: 1, as: 0, ve: 1 };
   var $ = function (id) { return document.getElementById(id); };
 
   // ---- state from the URL --------------------------------------------------
@@ -53,6 +58,7 @@
   var activeDem = null;     // id of the survey feeding shade + terrain, or null for context only
   var explicitDem = state.li ? Object.keys(state.li)[0] : null;
   var shadeOpacity = state.li && explicitDem ? (state.li[explicitDem].opLeft != null ? state.li[explicitDem].opLeft : 0.6) : 0.6;
+  var shadingAtLoad = state.li && explicitDem && state.li[explicitDem].preset === 'preset' ? 'preset' : 'hillshade';
   // The context under the lidar, as on /lidar/: the baked USGS 3DEP 1/3"
   // context (the catalogue's `ctx_3dep`, z5-z13, over-zoomed above) where
   // its archive is readable from here, and AWS Terrarium beyond it (in place
@@ -205,8 +211,12 @@
   }
   function shadeSourceId() { return activeDem || ctxFill; }
   function shadeUrl() {
-    var o = { az: SHADE.az, alt: SHADE.alt, hs: SHADE.hs, bl: SHADE.bl, ve: SHADE.ve };
-    if ($('slope').checked) o.sl = 0.6;
+    var mode = $('shading').value, o;
+    if (mode === 'preset') o = Object.assign({}, PRESET);
+    else {
+      o = { az: SHADE.az, alt: SHADE.alt, hs: SHADE.hs, bl: SHADE.bl, ve: SHADE.ve };
+      if (mode === 'slope') o.sl = 0.6;
+    }
     return DemShade.url(shadeSourceId(), o);
   }
   // Zoom range of what feeds shade and terrain. The context is asked for up
@@ -746,7 +756,7 @@
   function syncHash() {
     var c = map.getCenter();
     var o = { zoom: map.getZoom(), lat: c.lat, lon: c.lng, base: baseId !== DEFAULT_BASE ? baseId : null, extras: {} };
-    if (explicitDem) { o.li = {}; o.li[explicitDem] = { preset: 'hillshade', left: true, opLeft: shadeOpacity }; }
+    if (explicitDem) { o.li = {}; o.li[explicitDem] = { preset: $('shading').value === 'preset' ? 'preset' : 'hillshade', left: true, opLeft: shadeOpacity }; }
     if ($('t3d').checked) o.extras.t3d = '1';
     if (selected) o.extras[selected.kind] = selected.key;
     hashLock = true;
@@ -772,7 +782,8 @@
     if (map.getLayer('shade')) map.setPaintProperty('shade', 'raster-opacity', shadeOpacity);
     syncHash();
   });
-  $('slope').addEventListener('change', function () { rebuildShade(); });
+  $('shading').value = shadingAtLoad;
+  $('shading').addEventListener('change', function () { if (map.getLayer('shade')) rebuildShade(); syncHash(); });
   $('t3d').checked = state.extras.t3d === '1';
   $('t3d').addEventListener('change', function () { $('exag').disabled = !$('t3d').checked; rebuildTerrain(); });
   $('exag').disabled = !$('t3d').checked;
