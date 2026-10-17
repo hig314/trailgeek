@@ -23,9 +23,10 @@ server and Django reasoning rather than assume it.
 - **Trail design is merged and deployed** (hig314/trailgeek#2, merged and
   deployed from the Mac 2026-09-27; migration 0003 applied in production).
   **The owner's trails and scouting plans are loaded in local dev only,
-  not in production** (see Open). The 3D
-  views, the /lidar/ seam fixes and the code sharing below are on
-  `claude/trailgeek-project-b53hqm` in a new PR, awaiting approval.
+  not in production** (see Open). The 3D views, the /lidar/ seam fixes
+  and the code sharing below **landed on main through hig314/trailgeek#4**
+  (merge 9aa2b6c, deployed from the Mac 2026-10-16); PR #3 is redundant
+  and can be closed.
   - An **Alignment is a continuous line of ordered Legs**. Each leg is
     existing trail to follow, or a build effort (new construction, reroute,
     restoration) with an effort factor. `Alignment.geom` is derived from the
@@ -72,9 +73,9 @@ server and Django reasoning rather than assume it.
     (71 alignments) import cleanly in the sandbox; **they are not in the
     repo** (the repo is public and scouting lines can cross private land):
     load them with the command or the page after deploying.
-- **Field support for the Tutka Tusk scouting season** (branch
-  `field-support-projects-gpx`, built on the Mac 2026-10-16 on top of PR #3,
-  in a PR awaiting approval; migration 0004):
+- **Field support for the Tutka Tusk scouting season** (hig314/trailgeek#4,
+  built on the Mac 2026-10-16, **merged and deployed the same day**;
+  migration 0004 applied in production):
   - **Projects nest** (`Project.parent`) and **tracks attach to projects**
     (`Track.project`, on the upload form, the track API and the project
     panel as "Scouting tracks"). PLAN.md §0 (2026-10-16) has the reasoning:
@@ -90,6 +91,12 @@ server and Django reasoning rather than assume it.
   - **Importer** reads Class → priority (Preferred 1 / Alternate 2 / Future
     3) and Notes → notes. Project members now see their projects everywhere
     (`access.visible_projects_q`), not only their alignments.
+  - **Public projects are shareable and findable** (hig314/trailgeek#6): the
+    Layers panel has a Project picker listing every project the visitor may
+    see (`/api/projects/` now returns all visible projects with `can_edit`
+    each; a private parent's slug is withheld), a public project opens
+    read-only for anyone with view, GPX, zip and GeoJSON, and the panel says
+    so; editing still needs sign-in, the trail_editors role and membership.
   - **Shading selector** in the Layers panel: Hillshade, Hillshade + slope
     ramp, or **Preset** (mod 5 m bands + slope ramp, hillshade in hard
     light), the same numbers as landslidescience's `LIDAR_PRESETS.preset`
