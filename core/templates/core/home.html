@@ -16,10 +16,10 @@
     <label>Basemap <select id="base"></select></label>
     <label>Lidar <select id="dem"></select></label>
     <div id="demstatus" class="tg-muted tg-small"></div>
-    <label>Hillshade opacity <input id="shade-op" type="range" min="0" max="100" value="60"></label>
+    <label>Hillshade opacity <input id="shade-op" type="range" min="0" max="100" value="60"> <output id="shade-op-val" for="shade-op">60 %</output></label>
     <label class="tg-check"><input id="slope" type="checkbox"> Slope shading</label>
     <label class="tg-check"><input id="t3d" type="checkbox"> 3D terrain</label>
-    <label>Exaggeration <input id="exag" type="range" min="5" max="30" value="12"></label>
+    <label>Exaggeration <input id="exag" type="range" min="5" max="30" value="12"> <output id="exag-val" for="exag" title="Vertical exaggeration of the 3D terrain; 1.0× is true scale">1.2×</output></label>
     <div class="tg-views">View:
       <button type="button" class="tg-btn" data-view="top" title="Straight down">Top</button>
       <button type="button" class="tg-btn" data-view="oblique" title="Tilted 60°, turns 3D terrain on">Oblique</button>

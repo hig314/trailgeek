@@ -249,7 +249,23 @@
                              attribution: 'Terrain: USGS 3DEP, AWS Terrain Tiles; lidar via landslidescience.org' });
     map.addLayer({ id: 'shade', type: 'raster', source: 'shade', paint: {
       'raster-opacity': shadeOpacity, 'raster-fade-duration': 0, 'raster-opacity-transition': { duration: 0, delay: 0 }
-    } }, map.getLayer('selected-halo') ? 'selected-halo' : firstSymbolLayer());
+    } }, shadeBelow());
+  }
+  // The shade sits directly on the basemap imagery: under the basemap's own
+  // label tiles (ESRI imagery has them), under every trail and track
+  // layer, and under any symbol layer a vector style may have. Anchoring it
+  // to the first of those that exists keeps the order the same whether the
+  // shade is built before the trails (first load) or after them (a basemap
+  // change rebuilds the style, adds the trails, then the shade). Inserting
+  // it above the trails, as before, dimmed them by the shade's opacity
+  // and hid them entirely at 100 %.
+  var SHADE_ABOVE = { labels: 1, 'legs-casing': 1, 'legs-line': 1, tracks: 1, 'trails-casing': 1, 'trails-line': 1, 'selected-halo': 1 };
+  function shadeBelow() {
+    // The lowest of those layers in the style's current order (the legs
+    // layers get moved to the top, so a fixed list would not do).
+    var layers = map.getStyle().layers;
+    for (var i = 0; i < layers.length; i++) if (SHADE_ABOVE[layers[i].id] || layers[i].type === 'symbol') return layers[i].id;
+    return undefined;
   }
   function firstSymbolLayer() {
     var layers = map.getStyle().layers;
@@ -546,13 +562,18 @@
   function setBasemap(id) {
     baseId = id;
     var terrainOn = $('t3d').checked;
-    map.setStyle(LSBasemaps.styleFor(baseOf(id)));
+    // Listen before setStyle: the basemap styles are inline objects, and
+    // MapLibre fires style.load for those synchronously inside setStyle. A
+    // listener registered after the call missed it, so the trails, shade
+    // and selection only came back one basemap change late (when the stale
+    // listener caught the next style load).
     map.once('style.load', function () {
       baseWidth = {};                         // the layers come back unscaled
       setSky(false);                          // a new style has no sky, whatever the switch last set
       addOverlays(); if (terrainOn) rebuildTerrain(); if (window.TgDesign) TgDesign.onStyleReload();
       rescaleLines(true);
     });
+    map.setStyle(LSBasemaps.styleFor(baseOf(id)));
     syncHash();
   }
   function addOverlays() {
@@ -747,6 +768,7 @@
   $('shade-op').value = Math.round(shadeOpacity * 100);
   $('shade-op').addEventListener('input', function () {
     shadeOpacity = +$('shade-op').value / 100;
+    showShadeOp();
     if (map.getLayer('shade')) map.setPaintProperty('shade', 'raster-opacity', shadeOpacity);
     syncHash();
   });
@@ -754,7 +776,13 @@
   $('t3d').checked = state.extras.t3d === '1';
   $('t3d').addEventListener('change', function () { $('exag').disabled = !$('t3d').checked; rebuildTerrain(); });
   $('exag').disabled = !$('t3d').checked;
+  // The sliders show their value, so "is it stretched?" has an answer:
+  // 1.0× is true vertical scale.
+  function showExag() { $('exag-val').textContent = (+$('exag').value / 10).toFixed(1) + '×'; }
+  function showShadeOp() { $('shade-op-val').textContent = $('shade-op').value + ' %'; }
+  showExag(); showShadeOp();
   $('exag').addEventListener('input', function () {
+    showExag();
     if (map.getTerrain()) map.setTerrain({ source: 'dem', exaggeration: +$('exag').value / 10 });
   });
   $('layers-toggle').addEventListener('click', function () { $('layers').classList.toggle('open'); });
