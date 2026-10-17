@@ -276,6 +276,7 @@ window.TgDesign = (function () {
       }).join('') + '</ul>';
     }
     h += '<div class="tg-links"><a href="' + esc(p.gpx_url) + '" title="Every alignment as GPX tracks (preferred red, alternates blue, future grey), with waypoints at leg joints; for GaiaGPS or the field map app">GPX for the field</a> · ' +
+         '<a href="' + esc(p.zip_url) + '" title="A zip with one GPX file per alignment, numbered in priority order, plus the combined file">GPX zip</a> · ' +
          '<a href="' + esc(p.geojson_url) + '" title="One feature per leg; the input for an offline map product (ogr2ogr -f MBTILES)">GeoJSON of legs</a></div>';
     $('detail').innerHTML = h;
     $('profstats').innerHTML = '';

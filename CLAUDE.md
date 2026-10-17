@@ -81,7 +81,9 @@ server and Django reasoning rather than assume it.
     segment (Trail), route (not built), project (tree).
   - **Field exports** (`core/exports.py`): `/api/alignments/<id>.gpx`,
     `/api/projects/<slug>.gpx` (a GPX track per leg, named for GaiaGPS,
-    waypoints at joints and ends, priority colours) and
+    waypoints at joints and ends, priority colours),
+    `/api/projects/<slug>.zip` (one GPX per alignment plus the combined
+    file) and
     `/api/projects/<slug>.geojson` (legs, for MapApp vector MBTiles; the
     recipe is in docs/SISTER_PROJECTS.md). Links are in the alignment and
     project panels. The GPX writer lives in `core/gpx.py`.
@@ -94,7 +96,8 @@ server and Django reasoning rather than assume it.
     log. **Production has no SMTP yet** (docs/OPERATIONS.md).
   - **Dev data (local only):** `backdoor-trail` programme project (private,
     its description lists the Backdoor Trail in order) with `tutka-tusk` as
-    a child: the 8 lines of `Tutka_Tusk_sections.gpkg` as 8 single-leg
+    a child (**public**, owner's decision 2026-10-16; a public child never
+    names a private parent): the 8 lines of `Tutka_Tusk_sections.gpkg` as 8 single-leg
     alignments, evaluated 100 % on the `kbay_2023` lidar. The first field
     files were exported from it (`261016_Tutka_Tusk_plan.gpx`,
     `261016_Tutka_Tusk_legs.geojson`, in the owner's Tutka GIS data

@@ -143,6 +143,14 @@ open http://localhost:8002
 - The override file bind-mounts the source and runs `runserver`, so code
   changes reload without a rebuild. A change to `requirements.txt` or the
   `Dockerfile` needs `docker compose build`.
+- **Docker Desktop's file sharing can lag or lose an edited file** (seen
+  2026-10-16: after edits on the Mac the container served a truncated
+  `map.js`, then reported `tg_design.js` missing, and the map's startup
+  threw, so no overlays and dead controls). Check with
+  `docker compose exec web md5sum /app/<path>` against `md5 -q <path>`; if
+  they differ after a few seconds, `docker compose restart web worker`
+  resyncs the mount. The browser may also have cached the bad copy:
+  reload with the cache bypassed.
 - Only the web container migrates; the worker sets `SKIP_MIGRATE=1`.
 - The owner's Mac is short of disk space. Docker Desktop crashed on
   2026-09-25 when the disk filled.

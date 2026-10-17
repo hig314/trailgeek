@@ -41,6 +41,7 @@ urlpatterns = [
     # Field exports: GPX for GaiaGPS / phones, GeoJSON of the legs for offline map products.
     path("api/alignments/<int:pk>.gpx", core_exports.api_alignment_gpx, name="api_alignment_gpx"),
     path("api/projects/<slug:slug>.gpx", core_exports.api_project_gpx, name="api_project_gpx"),
+    path("api/projects/<slug:slug>.zip", core_exports.api_project_zip, name="api_project_zip"),
     path("api/projects/<slug:slug>.geojson", core_exports.api_project_geojson, name="api_project_geojson"),
     path("import/", design.import_lines, name="import_lines"),
     path("tracks/upload/", core_views.track_upload, name="track_upload"),

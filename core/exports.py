@@ -10,6 +10,9 @@ sortable name that starts with the alignment, e.g. "Tutka Tusk 2 Link A
 (new)". Waypoints mark where legs join and where each alignment starts and
 ends, which is what a scout navigates to.
 """
+import io
+import zipfile
+
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils.text import slugify
@@ -164,6 +167,41 @@ def api_project_gpx(request, slug):
     return _gpx_response(f"{p.slug}.gpx", p.name, tracks, waypoints,
                          desc=_desc(p.description.splitlines()[0] if p.description else "",
                                     f"{len(tracks)} tracks: preferred alignments red, alternates blue, future grey"))
+
+
+def project_zip(project):
+    """A zip with one GPX per alignment (numbered in priority order, so they
+    list in order on a phone) plus the combined file. Bytes."""
+    als = list(project.alignments.defer("evaluation").order_by("priority", "name"))
+    names = _unique_names(als)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for i, (a, name) in enumerate(zip(als, names), 1):
+            a.name = name  # export name only; not saved
+            tracks, waypoints = alignment_tracks(a)
+            if not tracks:
+                continue
+            fn = f"{i:02d}_{a.priority_label}_{slugify(name) or a.pk}.gpx"
+            z.writestr(fn, write_gpx(name, tracks, waypoints,
+                                     desc=_desc(f"{a.priority_label} alignment", a.notes, f"project: {project.name}")))
+        tracks, waypoints = project_tracks(project)
+        z.writestr(f"{project.slug}_all.gpx", write_gpx(project.name, tracks, waypoints,
+                                                        desc=f"all alignments of {project.name}"))
+        z.writestr("README.txt", (f"{project.name}: GPX files exported from trailgeek.org.\n\n"
+                                  "One file per alignment, numbered in priority order; "
+                                  f"{project.slug}_all.gpx holds them all in one file.\n"
+                                  "Tracks are coloured red (preferred), blue (alternate) or grey (future) where the app honours "
+                                  "Garmin DisplayColor; waypoints mark where legs join, and each alignment's start and end.\n"))
+    return buf.getvalue()
+
+
+@require_GET
+def api_project_zip(request, slug):
+    p = _visible_project(request.user, slug)
+    r = HttpResponse(project_zip(p), content_type="application/zip")
+    r["Content-Disposition"] = f'attachment; filename="{p.slug}-gpx.zip"'
+    r["Cache-Control"] = "private, no-cache"
+    return r
 
 
 @require_GET

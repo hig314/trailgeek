@@ -439,6 +439,34 @@ class FieldExportTests(TestCase):
         self.assertEqual(self.client.get("/api/projects/tusk.gpx").status_code, 404)
         self.assertEqual(self.client.get("/api/projects/tusk.geojson").status_code, 404)
 
+    def test_project_zip_has_one_gpx_per_alignment(self):
+        import io
+        import zipfile
+        self.assertEqual(self.client.get("/api/projects/tusk.zip").status_code, 404)
+        self.client.login(username="own", password="pw")
+        r = self.client.get("/api/projects/tusk.zip")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r["Content-Type"], "application/zip")
+        self.assertIn('filename="tusk-gpx.zip"', r["Content-Disposition"])
+        z = zipfile.ZipFile(io.BytesIO(r.content))
+        self.assertEqual(sorted(z.namelist()),
+                         ["01_preferred_tusk-preferred.gpx", "02_alternate_link-b.gpx", "README.txt", "tusk_all.gpx"])
+        one = z.read("01_preferred_tusk-preferred.gpx").decode()
+        self.assertEqual(one.count("<trk>"), 2)
+        self.assertEqual(parse_gpx(z.read("02_alternate_link-b.gpx"))["name"], "Link B")
+        self.assertEqual(z.read("tusk_all.gpx").decode().count("<trk>"), 3)
+
+    def test_public_child_does_not_name_a_private_parent(self):
+        self.project.visibility = Visibility.PUBLIC
+        self.project.save()
+        self.programme.visibility = Visibility.PRIVATE
+        self.programme.save()
+        d = self.client.get("/api/projects/tusk.json").json()   # anonymous
+        self.assertEqual(d["project"]["parents"], [])
+        self.assertEqual(self.client.get("/api/projects/tusk.zip").status_code, 200)
+        self.client.login(username="own", password="pw")
+        self.assertEqual(self.client.get("/api/projects/tusk.json").json()["project"]["parents"][0]["slug"], "backdoor")
+
     def test_project_json_carries_hierarchy_and_tracks(self):
         self.client.login(username="own", password="pw")
         d = self.client.get("/api/projects/tusk.json").json()

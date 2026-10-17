@@ -397,9 +397,11 @@ def api_project(request, slug):
         "project": {"id": p.pk, "slug": p.slug, "name": p.name, "description": p.description,
                     "visibility": p.visibility, "dem": p.dem.slug if p.dem_id else None,
                     "can_edit": access.can_edit_project(request.user, p), "bbox": ext,
-                    "parents": [{"slug": q.slug, "name": q.name} for q in p.ancestors()],
+                    "parents": [{"slug": q.slug, "name": q.name} for q in p.ancestors()
+                                if Project.objects.filter(access.visible_projects_q(request.user), pk=q.pk).exists()],
                     "children": [{"slug": q.slug, "name": q.name} for q in children],
-                    "gpx_url": f"/api/projects/{p.slug}.gpx", "geojson_url": f"/api/projects/{p.slug}.geojson"},
+                    "gpx_url": f"/api/projects/{p.slug}.gpx", "zip_url": f"/api/projects/{p.slug}.zip",
+                    "geojson_url": f"/api/projects/{p.slug}.geojson"},
         "alignments": [{"id": a.pk, "name": a.name, "priority": a.priority, "parent_id": a.parent_id,
                         "length_m": round(a.length_m, 1), "evaluation_status": a.evaluation_status,
                         "legs": a.legs.count(), "headline": a.headline} for a in als],
