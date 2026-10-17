@@ -13,7 +13,7 @@ server and Django reasoning rather than assume it.
 | [docs/SISTER_PROJECTS.md](docs/SISTER_PROJECTS.md) | What to reuse from landslidescience, GTA, demshade, and the public lidar catalogue |
 | [docs/TRAIL_ANALYSIS.md](docs/TRAIL_ANALYSIS.md) | Spec of the evaluator, profile and router algorithms to port, with their known bugs |
 
-## State of play (2026-10-16): the one dated section; update it, don't work around it
+## State of play (2026-10-17): the one dated section; update it, don't work around it
 
 - **Phase 0 and Phase 1 are merged** (hig314/trailgeek#1, 2026-09-27; the
   owner reports it running). Phase 1 gave `DemSource` (seeded by
@@ -118,8 +118,8 @@ server and Django reasoning rather than assume it.
     folder). Still to do by hand: stitch the preferred pieces (Lagoon
     Bypass, Link A, the two Tutka Tusk pieces, Upper ascent A) into one
     alignment of legs in the editor, with Link B and Upper B as variants.
-- **The URL carries the whole view** (branch `hash-view-state`, built and
-  browser-tested on the Mac 2026-10-17, awaiting the owner's test): camera
+- **The URL carries the whole view** (hig314/trailgeek#8, merge 06e7b37,
+  built, browser-tested and deployed from the Mac 2026-10-17): camera
   angle (bearing and pitch, so Top / Oblique / Side views survive a link),
   basemap (always written now, default included), the hand-picked survey,
   shading mode, hillshade opacity, 3D terrain and its exaggeration, and the
@@ -134,10 +134,10 @@ server and Django reasoning rather than assume it.
   own hash order, written only when non-zero and read as 0 when absent;
   lat/lon precision by zoom, never under 4 dp; `tools/hash_codec_check.js`
   there is the old-vs-new parser check as a script), then synced here along
-  with the current demshade build (3f7b140) and bridge. **That
-  landslidescience commit is on a branch, not shipped there yet**: it
-  follows landslidescience's own test-then-push rule. Once it is on its
-  `main`, re-pin `tools/shared.json` to that commit (same content).
+  with the current demshade build (3f7b140) and bridge. That commit is on
+  landslidescience's `main` and deployed there (owner's approval, from the
+  Mac 2026-10-17, by the procedure in its CLAUDE.md); `tools/shared.json`
+  pins it, so no re-pin is needed.
   - **Hash keys trailgeek owns**, through the shared grammar's extras
     pass-through: `t3d` `ve` `sh` `op` `trail` `track` `align` `project`.
     landslidescience's own extras are listed in ls_hash.js's header
