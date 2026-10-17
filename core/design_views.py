@@ -14,6 +14,7 @@ import tempfile
 
 from django.contrib.auth.decorators import login_required
 from django.contrib.gis.db.models import Extent
+from django.db.models import Count
 from django.contrib.gis.geos import LineString
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
@@ -379,10 +380,17 @@ def api_trail_route(request):
 
 @require_GET
 def api_projects(request):
-    """Projects the user may add alignments to (for the "new alignment" form)."""
-    qs = Project.objects.filter(access.visible_projects_q(request.user)).distinct().order_by("name")
-    return JsonResponse({"projects": [{"id": p.pk, "slug": p.slug, "name": p.name, "visibility": p.visibility}
-                                      for p in qs if access.can_edit_project(request.user, p)],
+    """Every project the user may see, with `can_edit` per project: the
+    project picker in the Layers panel lists them all (a public project is
+    shareable by its #project= link and findable here without signing in),
+    and the "new alignment" form keeps the editable ones."""
+    qs = (Project.objects.filter(access.visible_projects_q(request.user)).distinct()
+          .select_related("parent").annotate(n_alignments=Count("alignments")).order_by("name"))
+    visible = {p.pk for p in qs}   # a public child never names a private parent
+    return JsonResponse({"projects": [{"id": p.pk, "slug": p.slug, "name": p.name, "visibility": p.visibility,
+                                       "parent": p.parent.slug if p.parent_id in visible else None,
+                                       "alignments": p.n_alignments,
+                                       "can_edit": access.can_edit_project(request.user, p)} for p in qs],
                          "can_create": access.is_trail_editor(request.user)})
 
 

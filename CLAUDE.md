@@ -91,6 +91,12 @@ server and Django reasoning rather than assume it.
   - **Importer** reads Class → priority (Preferred 1 / Alternate 2 / Future
     3) and Notes → notes. Project members now see their projects everywhere
     (`access.visible_projects_q`), not only their alignments.
+  - **Public projects are shareable and findable** (hig314/trailgeek#6): the
+    Layers panel has a Project picker listing every project the visitor may
+    see (`/api/projects/` now returns all visible projects with `can_edit`
+    each; a private parent's slug is withheld), a public project opens
+    read-only for anyone with view, GPX, zip and GeoJSON, and the panel says
+    so; editing still needs sign-in, the trail_editors role and membership.
   - **Shading selector** in the Layers panel: Hillshade, Hillshade + slope
     ramp, or **Preset** (mod 5 m bands + slope ramp, hillshade in hard
     light), the same numbers as landslidescience's `LIDAR_PRESETS.preset`

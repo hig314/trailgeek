@@ -467,6 +467,20 @@ class FieldExportTests(TestCase):
         self.client.login(username="own", password="pw")
         self.assertEqual(self.client.get("/api/projects/tusk.json").json()["project"]["parents"][0]["slug"], "backdoor")
 
+    def test_project_list_shows_public_projects_to_anyone(self):
+        self.project.visibility = Visibility.PUBLIC
+        self.project.save()
+        self.programme.visibility = Visibility.PRIVATE
+        self.programme.save()
+        d = self.client.get("/api/projects/").json()   # anonymous
+        self.assertEqual([(p["slug"], p["can_edit"], p["alignments"], p["parent"]) for p in d["projects"]],
+                         [("tusk", False, 2, None)])   # the private parent is not named
+        self.assertFalse(d["can_create"])
+        self.client.login(username="own", password="pw")
+        d = self.client.get("/api/projects/").json()
+        self.assertEqual([(p["slug"], p["can_edit"]) for p in d["projects"]], [("backdoor", True), ("tusk", True)])
+        self.assertEqual([p["parent"] for p in d["projects"]], [None, "backdoor"])
+
     def test_project_json_carries_hierarchy_and_tracks(self):
         self.client.login(username="own", password="pw")
         d = self.client.get("/api/projects/tusk.json").json()

@@ -441,9 +441,11 @@
         lastFeature = null;
         setSelectedData({ type: 'FeatureCollection', features: [] });
         TgDesign.showProject(f);
+        syncProjectPicker();
         return;
       }
       lastFeature = f;
+      syncProjectPicker();
       setSelectedData(f.geometry ? f : { type: 'FeatureCollection', features: [] });
       if (fit && f.geometry) map.fitBounds(bboxOf(f.geometry), { padding: 60, maxZoom: 15, duration: 0 });
       if (kind === 'align') { TgDesign.showAlignment(f); return; }
@@ -456,6 +458,7 @@
   function clearSelection() {
     if (window.TgDesign && !TgDesign.leave()) return;
     selected = null; lastFeature = null;
+    syncProjectPicker();
     setSelectedData({ type: 'FeatureCollection', features: [] });
     setSourceData('cursor', { type: 'FeatureCollection', features: [] });
     $('panel').classList.remove('open');
@@ -563,6 +566,29 @@
   }
 
   // ---- basemap picker -------------------------------------------------------
+  // ---- project picker ---------------------------------------------------------
+  // Lists every project the visitor may see, so a public project is findable
+  // without its link. Follows the selection: the project of a selected
+  // alignment is shown too.
+  function fillProjects() {
+    var sel = $('projects');
+    fetch('/api/projects/', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (r) {
+      var h = '<option value="">Open a project…</option>';
+      r.projects.forEach(function (p) {
+        h += '<option value="' + esc(p.slug) + '">' + esc(p.name) + (p.visibility !== 'public' ? ' (' + esc(p.visibility) + ')' : '') +
+             (p.alignments ? ' · ' + p.alignments : '') + '</option>';
+      });
+      sel.innerHTML = h;
+      syncProjectPicker();
+    }).catch(function () {});
+    sel.addEventListener('change', function () { if (sel.value) select('project', sel.value, true); });
+  }
+  function syncProjectPicker() {
+    var sel = $('projects'), slug = '';
+    if (selected && selected.kind === 'project') slug = selected.key;
+    else if (lastFeature && lastFeature.properties && lastFeature.properties.project) slug = lastFeature.properties.project.slug || '';
+    if (sel.querySelector('option[value="' + slug.replace(/"/g, '') + '"]')) sel.value = slug; else sel.value = '';
+  }
   function fillBasemaps() {
     var sel = $('base');
     sel.innerHTML = basemaps.map(function (b) { return '<option value="' + b.id + '">' + esc(b.label) + '</option>'; }).join('');
@@ -822,6 +848,7 @@
 
   // ---- boot -------------------------------------------------------------------
   fillBasemaps();
+  fillProjects();
   map.on('load', function () {
     fetch('/api/dems.geojson', { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })

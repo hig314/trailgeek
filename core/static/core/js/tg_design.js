@@ -260,6 +260,7 @@ window.TgDesign = (function () {
     }
     if (p.description) h += '<p class="tg-desc tg-small">' + esc(p.description) + '</p>';
     if (p.can_edit) h += '<div class="tg-actions"><button id="d-new" class="tg-btn tg-primary">New alignment</button></div>';
+    else h += '<div class="tg-muted tg-small">Read-only view: anyone with this page\'s link can see and download it. Editing needs a sign-in with the trail_editors role and membership of the project.</div>';
     if (p.children && p.children.length) {
       h += '<div class="tg-sub">Projects within this one</div><ul class="tg-list">' +
            p.children.map(function (q) { return '<li><a href="#project=' + esc(q.slug) + '">' + esc(q.name) + '</a></li>'; }).join('') + '</ul>';
@@ -309,6 +310,7 @@ window.TgDesign = (function () {
   // ---- new alignment ------------------------------------------------------
   function newAlignment(projectId) {
     api('GET', '/api/projects/').then(function (r) {
+      r.projects = r.projects.filter(function (p) { return p.can_edit; });
       var h = '<div class="tg-kind">New alignment</div><h2>Start an alignment</h2><div class="tg-form">';
       h += '<div class="tg-field"><label>Name</label><input id="na-name" type="text" value="New alignment"></div>';
       h += '<div class="tg-field"><label>Project</label><select id="na-proj">' +
