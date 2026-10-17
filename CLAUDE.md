@@ -118,6 +118,37 @@ server and Django reasoning rather than assume it.
     folder). Still to do by hand: stitch the preferred pieces (Lagoon
     Bypass, Link A, the two Tutka Tusk pieces, Upper ascent A) into one
     alignment of legs in the editor, with Link B and Upper B as variants.
+- **The URL carries the whole view** (branch `hash-view-state`, built and
+  browser-tested on the Mac 2026-10-17, awaiting the owner's test): camera
+  angle (bearing and pitch, so Top / Oblique / Side views survive a link),
+  basemap (always written now, default included), the hand-picked survey,
+  shading mode, hillshade opacity, 3D terrain and its exaggeration, and the
+  selection. map.js keeps it as **one table, `VIEW_PARAMS`**, the shape of
+  landslidescience map.js's `_VIEW_PARAMS`: a row per key with `collect` /
+  `apply`, and the writer, the hashchange handler and the cold load are
+  loops over it, so a hand-edited URL and back/forward work and a new piece
+  of state is a new row, never a line in a writer the reader lacks. A
+  project link with its own `map=` keeps that view (it used to refit).
+  **The camera went into the shared grammar first** (landslidescience branch
+  `hash-camera`, dd09d49: `map=zoom/lat/lon[/bearing/pitch]` in MapLibre's
+  own hash order, written only when non-zero and read as 0 when absent;
+  lat/lon precision by zoom, never under 4 dp; `tools/hash_codec_check.js`
+  there is the old-vs-new parser check as a script), then synced here along
+  with the current demshade build (3f7b140) and bridge. **That
+  landslidescience commit is on a branch, not shipped there yet**: it
+  follows landslidescience's own test-then-push rule. Once it is on its
+  `main`, re-pin `tools/shared.json` to that commit (same content).
+  - **Hash keys trailgeek owns**, through the shared grammar's extras
+    pass-through: `t3d` `ve` `sh` `op` `trail` `track` `align` `project`.
+    landslidescience's own extras are listed in ls_hash.js's header
+    (inventory `id ids tab an sc ty c f sa da vol yr n10 lw lv pm pr pw pve
+    smp pp ax bx ls gr trk trg`, glaciers `site t`); never claim one of
+    those, and add a new trailgeek key here as well as to `VIEW_PARAMS`.
+  - **Dev gotcha, again:** the browser cached the old `ls_hash.js` and
+    demshade build across the sync (the page URL's query string does not
+    bust `/static/` caches in dev); the first test run showed no pitch and
+    4 dp coordinates until a `fetch(url, {cache: 'reload'})` of each script.
+    Production is unaffected (WhiteNoise's manifest storage hashes names).
 - **Open:** R2 CORS for trailgeek.org is **done on both hosts**, verified
   from the Mac 2026-09-27 with an Origin header: the `landslidescience-lidar`
   bucket (owner) and the lidar-tiles Worker on `tiles.landslidescience.org`

@@ -11,8 +11,11 @@
  * tg_editor.js), which this file hands a small `app` object.
  *
  * URL hash (LSHash grammar, so a view can be pasted between the two sites):
- *   map=z/lat/lon  base=<id>  li=<dem id>.h l<opacity%>  t3d=1
+ *   map=z/lat/lon[/bearing/pitch]  base=<id>  li=<dem id>.<h|p>l<opacity%>
+ *   and trailgeek's own keys, through the grammar's extras pass-through:
+ *   t3d=1  ve=<exaggeration>  sh=<h|s|p>  op=<opacity%>
  *   trail=<slug> | track=<id> | align=<id> | project=<slug>
+ * One table, VIEW_PARAMS (near the end of this file), writes and applies it all.
  */
 (function () {
   'use strict';
@@ -26,6 +29,12 @@
   // strength, the slope ramp at 0.6, hillshade over the top in hard light
   // (bl 2). Same numbers here so the word means the same thing on both sites.
   var PRESET = { az: 315, alt: 45, hs: 1, bl: 2, sl: 0.6, md: 1, as: 0, ve: 1 };
+  var SHADING_CODE = { hillshade: 'h', slope: 's', preset: 'p' };   // the `sh=` key (VIEW_PARAMS)
+  var SHADING_MODE = { h: 'hillshade', s: 'slope', p: 'preset' };
+  function pctOf(v, dflt) {   // '0'..'100' -> 0..1, else dflt
+    var n = parseInt(v, 10);
+    return v != null && isFinite(n) ? Math.min(100, Math.max(0, n)) / 100 : dflt;
+  }
   var $ = function (id) { return document.getElementById(id); };
 
   // ---- state from the URL --------------------------------------------------
@@ -42,6 +51,8 @@
     container: 'map',
     center: hadView ? [state.lon, state.lat] : [HOME.lon, HOME.lat],
     zoom: hadView ? state.zoom : HOME.zoom,
+    bearing: hadView ? state.bearing || 0 : 0,   // the camera angle travels with the view (ls_hash.js, 2026-10-17)
+    pitch: hadView ? state.pitch || 0 : 0,
     maxPitch: 90,            // 90 = horizontal: a side-on view of a climb (see the view buttons)
     hash: false,
     transformRequest: LSBasemaps.transformRequest,
@@ -56,9 +67,14 @@
   var dems = {};            // id -> catalogue properties
   var lidarIds = [];
   var activeDem = null;     // id of the survey feeding shade + terrain, or null for context only
-  var explicitDem = state.li ? Object.keys(state.li)[0] : null;
-  var shadeOpacity = state.li && explicitDem ? (state.li[explicitDem].opLeft != null ? state.li[explicitDem].opLeft : 0.6) : 0.6;
-  var shadingAtLoad = state.li && explicitDem && state.li[explicitDem].preset === 'preset' ? 'preset' : 'hillshade';
+  // What the link says about the shade, read here because the catalogue
+  // (and so the pickers) arrive later: the survey from `li=`, the shading
+  // and opacity from trailgeek's `sh=` / `op=`, falling back to the li
+  // entry's own code and opacity, which is all a landslidescience link has.
+  var liAt = state.li && Object.keys(state.li).length ? state.li[Object.keys(state.li)[0]] : null;
+  var explicitDem = liAt ? Object.keys(state.li)[0] : null;
+  var shadeOpacity = pctOf(state.extras.op, liAt && liAt.opLeft != null ? liAt.opLeft : 0.6);
+  var shadingAtLoad = SHADING_MODE[state.extras.sh] || (liAt && liAt.preset === 'preset' ? 'preset' : 'hillshade');
   // The context under the lidar, as on /lidar/: the baked USGS 3DEP 1/3"
   // context (the catalogue's `ctx_3dep`, z5-z13, over-zoomed above) where
   // its archive is readable from here, and AWS Terrarium beyond it (in place
@@ -337,6 +353,7 @@
     if (p > 80) setNearHorizontal(true);
     else if (p < 75) setNearHorizontal(false);
   });
+  if (map.getPitch() > 80) setNearHorizontal(true);   // a pasted side view starts near-horizontal
 
   // ---- trails, tracks, alignment legs: live MVT ------------------------------
   // Trail classes follow the Kachemak trails map's symbols; width and dash
@@ -440,7 +457,7 @@
       if (kind === 'project') {
         lastFeature = null;
         setSelectedData({ type: 'FeatureCollection', features: [] });
-        TgDesign.showProject(f);
+        TgDesign.showProject(f, fit);
         syncProjectPicker();
         return;
       }
@@ -777,25 +794,146 @@
     b.addEventListener('click', function () { setView(b.dataset.view); });
   });
 
-  // ---- hash ----------------------------------------------------------------
+  // ---- view state in the URL: one table -------------------------------------
+  // Every piece of state that travels in the hash is one row here, and the
+  // writer (syncHash) and the applier (applyState: a hashchange, or the cold
+  // load once the catalogue is in) are loops over it. So a pasted link, a
+  // hand-edited URL and back/forward all do the same thing, and new state is
+  // a new row, never a line in a writer that the reader then lacks (which is
+  // how the opacity came to be stranded inside `li=`, lost in Auto mode). The
+  // shape is landslidescience map.js's _VIEW_PARAMS (2026-10-06), kept the
+  // same so a lesson learned on one site ports to the other.
+  //
+  //   collect(o)      put the current value on the codec object (LSHash.encode's
+  //                   shape; trailgeek-only keys go in o.extras as strings)
+  //   apply(s, how)   put the parsed state on the map. how is 'hash' or 'cold'.
+  //                   A key absent from s is left alone, except where the key
+  //                   describes the whole thing: `map=` is the whole camera
+  //                   (MapLibre's rule: no bearing/pitch means 0) and `t3d`
+  //                   absent means 3D off, or a link could never turn it off.
+  //   cold            true = applied by applyState(state, 'cold') in map.on('load');
+  //                   a string names the earlier reader, for state needed while
+  //                   the map is built or before the catalogue arrives.
+  //
+  // trailgeek's own keys, through the shared grammar's extras pass-through
+  // (CLAUDE.md "URL hash" lists them beside landslidescience's so the two
+  // sites never claim one key twice):
+  //   t3d=1      3D terrain on               ve=<n>    vertical exaggeration (1.0 = true), with t3d
+  //   sh=h|s|p   hillshade | + slope ramp | preset      op=<pct>  hillshade opacity
+  //   trail=<slug> | track=<id> | align=<id> | project=<slug>   the selection
+  var SELECTION_KINDS = ['trail', 'track', 'align', 'project'];
+  function cameraNow() {
+    var c = map.getCenter();
+    return { zoom: map.getZoom(), lat: c.lat, lon: c.lng, bearing: map.getBearing(), pitch: map.getPitch() };
+  }
+  function cameraString(o) {   // the camera as the codec writes it: equal strings = same view
+    return LSHash.encode({ zoom: o.zoom, lat: o.lat, lon: o.lon, bearing: o.bearing, pitch: o.pitch });
+  }
+  function liEntry(s) { return s.li && Object.keys(s.li).length ? s.li[Object.keys(s.li)[0]] : null; }
+  var VIEW_PARAMS = [
+    { key: 'map', cold: 'the map constructor; setNearHorizontal for a pitch above 80',
+      collect: function (o) { Object.assign(o, cameraNow()); },
+      apply: function (s) {
+        if (s.zoom == null) return;
+        if (cameraString(s) === cameraString(cameraNow())) return;
+        map.jumpTo({ center: [s.lon, s.lat], zoom: s.zoom, bearing: s.bearing || 0, pitch: s.pitch || 0 });
+      } },
+    { key: 'base', cold: 'the map constructor (baseId)',
+      // Always written, default included: if the default basemap ever
+      // changes, old links keep the one they were taken with.
+      collect: function (o) { o.base = baseId; },
+      apply: function (s) {
+        if (!s.base || s.base === baseId) return;
+        if (!basemaps.some(function (b) { return b.id === s.base; })) return;
+        $('base').value = s.base;
+        setBasemap(s.base);
+      } },
+    { key: 'li', cold: 'explicitDem, read before the catalogue arrives',
+      // The survey chosen by hand, with the shading code and opacity the
+      // shared grammar gives it, so a landslidescience page reads the same
+      // survey the same way. Auto mode (finest survey under the centre)
+      // writes nothing: it follows the view, which the link already carries.
+      collect: function (o) {
+        if (!explicitDem) return;
+        o.li = {};
+        o.li[explicitDem] = { preset: $('shading').value === 'preset' ? 'preset' : 'hillshade', left: true, opLeft: shadeOpacity };
+      },
+      apply: function (s) {
+        if (!s.li) return;                       // absent: leave the survey alone
+        var id = Object.keys(s.li)[0] || null;   // present but empty: back to Auto
+        if (id === explicitDem) return;
+        explicitDem = id;
+        $('dem').value = id || '';
+        syncDem(true);
+      } },
+    { key: 'sh', cold: 'shadingAtLoad',
+      collect: function (o) { o.extras.sh = SHADING_CODE[$('shading').value] || 'h'; },
+      apply: function (s) {
+        var e = liEntry(s);
+        var mode = SHADING_MODE[s.extras.sh] || (e && s.extras.sh == null ? (e.preset === 'preset' ? 'preset' : 'hillshade') : null);
+        if (!mode || mode === $('shading').value) return;
+        $('shading').value = mode;
+        if (map.getLayer('shade')) rebuildShade();
+      } },
+    { key: 'op', cold: 'shadeOpacity',
+      collect: function (o) { o.extras.op = String(Math.round(shadeOpacity * 100)); },
+      apply: function (s) {
+        var e = liEntry(s);
+        var v = pctOf(s.extras.op, e && e.opLeft != null ? e.opLeft : null);
+        if (v == null || v === shadeOpacity) return;
+        shadeOpacity = v;
+        $('shade-op').value = Math.round(v * 100); showShadeOp();
+        if (map.getLayer('shade')) map.setPaintProperty('shade', 'raster-opacity', v);
+      } },
+    { key: 't3d', cold: true,
+      collect: function (o) {
+        if (!$('t3d').checked) return;
+        o.extras.t3d = '1';
+        o.extras.ve = (+$('exag').value / 10).toFixed(1);
+      },
+      apply: function (s) {
+        var on = s.extras.t3d === '1', ve = parseFloat(s.extras.ve), ex = $('exag');
+        var slider = isFinite(ve) ? Math.round(Math.min(+ex.max, Math.max(+ex.min, ve * 10))) : +ex.value;
+        var change = on !== $('t3d').checked || slider !== +ex.value;
+        ex.value = slider; showExag();
+        $('t3d').checked = on; ex.disabled = !on;
+        if (change || (on && !map.getTerrain())) rebuildTerrain();
+      } },
+    { key: 'selection', cold: true,
+      collect: function (o) { if (selected) o.extras[selected.kind] = selected.key; },
+      apply: function (s, how) {
+        var kind = SELECTION_KINDS.filter(function (k) { return s.extras[k]; })[0];
+        if (kind) {
+          if (!selected || selected.kind !== kind || selected.key !== String(s.extras[kind])) {
+            select(kind, s.extras[kind], s.zoom == null);   // fit to it only when the link has no view of its own
+          }
+        } else if (selected && how === 'hash') {
+          clearSelection();
+        }
+      } }
+  ];
   var hashLock = false;
   function syncHash() {
-    var c = map.getCenter();
-    var o = { zoom: map.getZoom(), lat: c.lat, lon: c.lng, base: baseId !== DEFAULT_BASE ? baseId : null, extras: {} };
-    if (explicitDem) { o.li = {}; o.li[explicitDem] = { preset: $('shading').value === 'preset' ? 'preset' : 'hillshade', left: true, opLeft: shadeOpacity }; }
-    if ($('t3d').checked) o.extras.t3d = '1';
-    if (selected) o.extras[selected.kind] = selected.key;
+    var o = { extras: {} };
+    VIEW_PARAMS.forEach(function (r) { r.collect(o); });
+    var h = LSHash.encode(o);
+    if (location.hash === h) return;
     hashLock = true;
-    history.replaceState(null, '', LSHash.encode(o));
+    history.replaceState(null, '', h);
     hashLock = false;
+  }
+  // Row order is apply order. The parsed state is applied as a snapshot: a
+  // row's side effects (a moveend, a style load) call syncHash and rewrite
+  // the address bar, but cannot change what the later rows see. At the end
+  // the address bar is normalised to what this page writes (a 4 dp link, a
+  // missing base=); an untouched page is left without a hash until it moves.
+  function applyState(s, how) {
+    VIEW_PARAMS.forEach(function (r) { if (how !== 'cold' || r.cold === true) r.apply(s, how); });
+    if (how !== 'cold' || location.hash) syncHash();
   }
   window.addEventListener('hashchange', function () {
     if (hashLock) return;
-    var s = LSHash.parse(location.hash);
-    var want = s.extras.trail ? ['trail', s.extras.trail] : s.extras.track ? ['track', s.extras.track]
-             : s.extras.align ? ['align', s.extras.align] : s.extras.project ? ['project', s.extras.project] : null;
-    if (want && (!selected || selected.kind !== want[0] || selected.key !== String(want[1]))) select(want[0], want[1], true);
-    else if (!want && selected) clearSelection();
+    applyState(LSHash.parse(location.hash), 'hash');
   });
   map.on('moveend', function () { fillDemPicker(); syncDem(false); syncHash(); });
 
@@ -810,7 +948,6 @@
   });
   $('shading').value = shadingAtLoad;
   $('shading').addEventListener('change', function () { if (map.getLayer('shade')) rebuildShade(); syncHash(); });
-  $('t3d').checked = state.extras.t3d === '1';
   $('t3d').addEventListener('change', function () { $('exag').disabled = !$('t3d').checked; rebuildTerrain(); });
   $('exag').disabled = !$('t3d').checked;
   // The sliders show their value, so "is it stretched?" has an answer:
@@ -857,12 +994,7 @@
         registerDems(fc);
         addOverlays();
         fillDemPicker();
-        if ($('t3d').checked) rebuildTerrain();
-        var s = state.extras;
-        if (s.trail) select('trail', s.trail, !hadView);
-        else if (s.track) select('track', s.track, !hadView);
-        else if (s.align) select('align', s.align, !hadView);
-        else if (s.project) select('project', s.project, !hadView);
+        applyState(state, 'cold');   // 3D terrain and the selection; the rest was read at the top
       });
   });
 })();

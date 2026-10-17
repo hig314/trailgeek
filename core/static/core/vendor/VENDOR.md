@@ -2,7 +2,7 @@
 
 | File | Source | Version |
 |---|---|---|
-| maplibre-gl-demshade.iife.js (+ .map) | landslidescience `inventory/static/inventory/js/vendor/`, which vendors /Users/Hig/Claude_projects/maplibre-gl-demshade/dist (MIT) | demshade 3adeb09, from landslidescience 1c63e60, synced 2026-09-28 |
+| maplibre-gl-demshade.iife.js (+ .map) | landslidescience `inventory/static/inventory/js/vendor/`, which vendors /Users/Hig/Claude_projects/maplibre-gl-demshade/dist (MIT) | demshade 3f7b140 (Mapterhorn 512 px sources, sea as no-data), from landslidescience dd09d49, synced 2026-10-17 |
 | maplibre-gl-demshade.css | /Users/Hig/Claude_projects/maplibre-gl-demshade/dist (landslidescience does not carry it) | 0.1.0, commit ca9d31d, copied 2026-09-25 |
 
 The .js and .map are taken from landslidescience, byte for byte, by
@@ -18,7 +18,7 @@ the `sourceMappingURL` comment and fails `collectstatic` if it is missing.
 
 ## Known issues to fix in the demshade source (owner's Mac)
 
-Still present in 3adeb09 (read from the source map, 2026-09-28):
+Still present in 3f7b140 (read from the source map again, 2026-10-17; first found in 3adeb09 on 2026-09-28):
 
 - `trackTerrainCenter` (terrain-center.ts): the function it returns to
   detach does not cancel a re-solve already queued with `map.once('idle')`,
