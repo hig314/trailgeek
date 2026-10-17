@@ -147,6 +147,26 @@ open http://localhost:8002
 - The owner's Mac is short of disk space. Docker Desktop crashed on
   2026-09-25 when the disk filled.
 
+## Password resets and email
+
+The sign-in page links to `/accounts/password_reset/` (Django's built-in
+flow, templates in `templates/registration/`). It needs to send one email.
+
+- **Local dev:** `.env` has no `EMAIL_HOST`, so the console backend prints
+  the message, reset link included, to the web container's log:
+  `docker compose logs web | grep -A3 accounts/reset`. Open the link in the
+  browser. The quicker way to fix a forgotten dev password is
+  `docker compose exec web python manage.py changepassword hig`.
+- **Production:** no SMTP is configured yet (open item). Until it is, the
+  reset form says the message was sent, but it only goes to the web
+  container's log (`docker compose -f docker-compose.yml -f
+  docker-compose.prod.yml logs web` on the droplet). To make it work, set
+  `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`,
+  `EMAIL_USE_TLS` and `DEFAULT_FROM_EMAIL` in the droplet's `.env` (any
+  SMTP relay works; the From domain should match a domain the relay is
+  allowed to send for) and restart the web container. Reset links use the
+  request's host, so `DJANGO_ALLOWED_HOSTS` already covers them.
+
 ## Testing without Docker (cloud sessions, CI)
 
 CI (`.github/workflows/ci.yml`) runs on every push to any branch. It

@@ -13,6 +13,13 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/login/", auth_views.LoginView.as_view(), name="login"),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
+    # Password reset by email (templates/registration/password_reset_*.html).
+    path("accounts/password_reset/", auth_views.PasswordResetView.as_view(
+        email_template_name="registration/password_reset_email.txt",
+        subject_template_name="registration/password_reset_subject.txt"), name="password_reset"),
+    path("accounts/password_reset/done/", auth_views.PasswordResetDoneView.as_view(), name="password_reset_done"),
+    path("accounts/reset/<uidb64>/<token>/", auth_views.PasswordResetConfirmView.as_view(), name="password_reset_confirm"),
+    path("accounts/reset/done/", auth_views.PasswordResetCompleteView.as_view(), name="password_reset_complete"),
     # Map data. Vector tiles are live from PostGIS; the GeoJSON endpoints
     # give one feature with its full (3D) geometry for the detail panel.
     path("tiles/trails/<int:z>/<int:x>/<int:y>.mvt", core_tiles.trails_mvt, name="trails_mvt"),

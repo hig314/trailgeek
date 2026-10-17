@@ -88,6 +88,10 @@ server and Django reasoning rather than assume it.
   - **Importer** reads Class → priority (Preferred 1 / Alternate 2 / Future
     3) and Notes → notes. Project members now see their projects everywhere
     (`access.visible_projects_q`), not only their alignments.
+  - **Password reset** on the sign-in page (`/accounts/password_reset/`,
+    Django's views, templates in `templates/registration/`). Email settings
+    come from env vars; with no `EMAIL_HOST` the link is printed to the web
+    log. **Production has no SMTP yet** (docs/OPERATIONS.md).
   - **Dev data (local only):** `backdoor-trail` programme project (private,
     its description lists the Backdoor Trail in order) with `tutka-tusk` as
     a child: the 8 lines of `Tutka_Tusk_sections.gpkg` as 8 single-leg

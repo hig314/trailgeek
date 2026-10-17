@@ -467,3 +467,31 @@ class FieldExportTests(TestCase):
                                                  "project": self.project.pk})
         self.assertEqual(r.status_code, 302)
         self.assertEqual(Track.objects.get(owner=editor).project, self.project)
+
+
+class PasswordResetTests(TestCase):
+    def test_link_on_login_page_and_full_reset_flow(self):
+        from django.core import mail
+        User.objects.create_user("hig", email="hig@example.org", password="old-pw-1234")
+        self.assertContains(self.client.get("/accounts/login/"), "/accounts/password_reset/")
+        self.assertEqual(self.client.get("/accounts/password_reset/").status_code, 200)
+        # An unknown address gets the same answer as a known one (no account enumeration) and no mail.
+        r = self.client.post("/accounts/password_reset/", {"email": "nobody@example.org"})
+        self.assertRedirects(r, "/accounts/password_reset/done/")
+        self.assertEqual(len(mail.outbox), 0)
+        r = self.client.post("/accounts/password_reset/", {"email": "hig@example.org"})
+        self.assertRedirects(r, "/accounts/password_reset/done/")
+        self.assertEqual(len(mail.outbox), 1)
+        msg = mail.outbox[0]
+        self.assertEqual(msg.subject, "Reset your trailgeek password")
+        self.assertIn('account "hig"', msg.body)
+        link = next(line for line in msg.body.splitlines() if "/accounts/reset/" in line).strip()
+        path = link.split("testserver", 1)[1]
+        r = self.client.get(path)  # Django redirects to a session-backed URL and shows the form there
+        self.assertEqual(r.status_code, 302)
+        r = self.client.post(r["Location"], {"new_password1": "a-long-new-password", "new_password2": "a-long-new-password"})
+        self.assertRedirects(r, "/accounts/reset/done/")
+        self.assertTrue(self.client.login(username="hig", password="a-long-new-password"))
+        self.assertFalse(self.client.login(username="hig", password="old-pw-1234"))
+        # The link is spent.
+        self.assertContains(self.client.get(path), "expired")
