@@ -24,7 +24,8 @@ SIGMA0, SIGMA_END = 5.0, 0.3        # m: bump amplitude, first and last iteratio
 COOL = 1e-3                         # final temperature / initial
 TUBE_MIN = 0.02                     # m
 GRADE_MAX_SLACK = 1.0               # %: never offer a candidate whose steepest 10 m is worse than the input's by more
-MARGIN = 0.05                       # a candidate may be worse on one factor by at most this share of the input's total
+MARGIN = 0.10                       # a candidate may be worse on one factor by at most this share of the input's total,
+                                    # or of that factor's own weight k, whichever is larger
 
 CHAIN_VARIANTS = [
     ("best", "Best overall", {}),
@@ -230,7 +231,8 @@ def refine(legs_xy, grid, settings, progress=None, seed=None):
             return False
         if k.get("grade", 0) > 0 and r["grade"].max() > prob.grade_ref + GRADE_MAX_SLACK:
             return False
-        return all(r["contrib"][f] - inp["contrib"][f] <= MARGIN * inp["total"] for f in r["contrib"])
+        return all(r["contrib"][f] - inp["contrib"][f] <= MARGIN * max(inp["total"], k.get(f, 0))
+                   for f in r["contrib"])
 
     picked = []
     order = sorted(results, key=lambda x: x[3]["total"])

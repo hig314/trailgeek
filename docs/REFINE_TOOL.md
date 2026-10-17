@@ -287,3 +287,7 @@ search then "fixed" each phantom corner and made kinks. Changes:
   candidate adds are rejected (Link option A had one).
 - The comparison shows the **tightest bend anywhere**, so kinks show in the
   numbers as well as on the map.
+- **The "no factor notably worse" guard** now allows a factor to worsen by
+  10 % of the input's total or of that factor's k, whichever is larger (was
+  5 % of the total, which on a gentle line rejected a fair trade of a little
+  more bending for much less grade).
