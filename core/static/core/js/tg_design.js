@@ -122,6 +122,7 @@ window.TgDesign = (function () {
     if (p.can_edit) {
       h += '<div class="tg-actions"><button id="d-edit" class="tg-btn tg-primary">Edit alignment</button>' +
            '<button id="d-dup" class="tg-btn">Duplicate as variant</button>' +
+           (p.legs && p.legs.length ? '<button id="d-refine" class="tg-btn" title="Propose modest tweaks that fit the lidar better: grade, corners, side slope, cut and fill, distance from this line">Refine…</button>' : '') +
            '<button id="d-new" class="tg-btn">New alignment</button>' +
            '<button id="d-del" class="tg-btn tg-danger" title="Delete this alignment">Delete</button></div>';
     }
@@ -221,6 +222,7 @@ window.TgDesign = (function () {
       }).catch(function (e) { alert(e.message); });
     });
     $('d-new').addEventListener('click', function () { newAlignment(p.project.id); });
+    var rf = $('d-refine'); if (rf) rf.addEventListener('click', function () { TgRefine.open(f, app); });
     $('d-del').addEventListener('click', function () {
       if (!confirm('Delete "' + p.name + '" and its legs? This cannot be undone.')) return;
       api('POST', '/api/alignments/' + p.id + '/delete').then(function (r) {
@@ -526,7 +528,7 @@ window.TgDesign = (function () {
     showProject: showProject,
     newAlignment: newAlignment,
     editing: function () { return editing; },
-    leave: function () { if (editing) { if (dirty && !confirm('Discard your changes to this alignment?')) return false; stopEdit(); } return true; },
-    onStyleReload: function () { if (ed && editing) ed.reattach(); }
+    leave: function () { if (window.TgRefine) TgRefine.close(); if (editing) { if (dirty && !confirm('Discard your changes to this alignment?')) return false; stopEdit(); } return true; },
+    onStyleReload: function () { if (ed && editing) ed.reattach(); if (window.TgRefine) TgRefine.onStyleReload(); }
   };
 })();

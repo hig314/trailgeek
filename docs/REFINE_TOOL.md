@@ -1,5 +1,15 @@
 # Refine route: design (draft, 2026-10-17; owner's answers folded in the same day)
 
+**Status (2026-10-17): a first draft is built** (build steps 1–3 of §5) for
+the owner to evaluate in dev: `trailgeek_analysis/refine/` (core, tested on
+synthetic surfaces), `core/refine.py` + `core/refine_views.py` (worker job,
+endpoints, per-user defaults in `UserSetting`, `Alignment.refinement`),
+`core/static/core/js/tg_refine.js` (panel, curve editor, compare, save as
+variant). Step 4, the design grade line in the evaluator for every
+alignment, is not done: the refine panel compares like with like, but the
+evaluator's numbers for a saved variant still use the raw ground. §7 lists
+what changed from the design while building it.
+
 A tool that takes a selected stretch of an alignment and proposes a modestly
 tweaked version that fits the lidar surface better. Status: **design only**,
 open questions at the end. Builds on the Alignment / Leg / variant model,
@@ -215,3 +225,34 @@ thing everywhere.
 - Defaults per user now, architecture ready for project defaults.
 - No DEM pre-smoothing; the tube handles elevation, bench-scale cross
   sections handle side slope and outslope (§2).
+
+## 7. What changed while building the first draft (2026-10-17)
+
+Found by running it on the Tutka Tusk alignments (Kachemak Bay 2023 lidar,
+0.5 m): a 757 m stretch takes ~15 s, the 1.9 km Lagoon Bypass ~45 s, at the
+default 1500 iterations × 4 chains.
+
+- **Grade has a peak term and a ceiling.** Per-metre cost alone let a
+  candidate shorten long moderate stretches while making the worst pitch
+  steeper. Now the curve's value at the steepest 10 m adds a quarter to the
+  grade cost; going past the *input's* steepest 10 m costs a further 1 per
+  10 %, without limit; and a candidate whose steepest 10 m is more than
+  1 % worse than the input's is never offered while grade is weighted.
+- **The default grade curve keeps rising to 55 %** (was full cost at 25 %).
+  A curve that tops out gives no pressure beyond its last node, and the
+  Tutka Tusk pieces run at 35 % for their steepest twentieth. General
+  lesson for every curve: put the last node where you stop caring.
+- **Drainage stub:** a design-line low point counts only when the line is
+  at least the dip depth higher on both sides within 10 m (a millimetre
+  wobble drained nothing, and the search learned to make them); the default
+  ground dip is 0.3 m, not 0.15 m, which triggered almost everywhere on raw
+  0.5 m lidar. It still finds ~1 site per 30 m on rough ground, so the
+  drainage factor rarely bites yet: expected of a stub.
+- **Chains** are weighted base, closer (offset and length ×2), steadier
+  (grade ×2), base; candidates are the best under the base weights plus the
+  best of the closer and steadier chains, deduplicated.
+- **Corners on real lidar:** the inputs show more outslope flips than an eye
+  would call corners (18 on Lagoon Bypass), and candidates often have fewer,
+  by crossing a spur or gully floor straight where the flip then costs
+  nothing. Worth the owner's eye: if the flips are noise, raise the
+  minimum side slope (a run parameter) or widen the bench.

@@ -142,3 +142,31 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .tg-key-sep { font-weight: 600; margin-left: 6px; }
 .tg-views { margin: 6px 0 2px; font-size: 13px; }
 .tg-views .tg-btn { font-size: 12px; padding: 2px 8px; margin-left: 3px; }
+
+/* The refine tool (tg_refine.js) */
+.rf-legs label { display: block; font-size: 13px; margin: 1px 0; }
+.rf-factor { border-top: 1px solid #e6e6e0; padding: 6px 0 2px; }
+.rf-fhead { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; font-size: 13px; }
+.rf-fhead .rf-k { margin-left: auto; font-size: 12px; white-space: nowrap; }
+.rf-k input { width: 58px; font: inherit; }
+.rf-svg { display: block; user-select: none; -webkit-user-select: none; }
+.rf-hist { fill: #e3e3dc; }
+.rf-line { fill: none; stroke: var(--tg-accent, #2f6b2f); stroke-width: 2; }
+.rf-seg { stroke: transparent; stroke-width: 12; cursor: ew-resize; }
+.rf-seg.rf-flat { cursor: ns-resize; }
+.rf-node { fill: #fff; stroke: var(--tg-accent, #2f6b2f); stroke-width: 2; cursor: move; }
+.rf-node.rf-del { stroke: #b3261e; fill: #f6d5d2; }
+.rf-axis text { font-size: 10px; fill: #666; }
+.rf-axis path, .rf-axis line { stroke: #bbb; }
+.rf-mark { stroke-width: 1.5; stroke-dasharray: 3 2; }
+.rf-bar { height: 6px; background: #e6e6e0; border-radius: 3px; overflow: hidden; margin: 5px 0 1px; }
+.rf-bar > i { display: block; height: 100%; background: var(--tg-accent, #2f6b2f); }
+.rf-params label { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin: 3px 0; }
+.rf-params input { width: 84px; font: inherit; }
+.rf-sw { display: inline-block; width: 14px; height: 4px; vertical-align: middle; margin-right: 3px; }
+.rf-results { font-size: 12px; }
+.rf-results th { white-space: nowrap; }
+.rf-results th label { white-space: nowrap; cursor: pointer; }
+.rf-results td.tg-better { color: #1f7a33; }
+.rf-results td.tg-worse { color: #b3261e; }
+.rf-prof svg { display: block; }

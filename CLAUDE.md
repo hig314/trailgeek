@@ -149,6 +149,16 @@ server and Django reasoning rather than assume it.
     bust `/static/` caches in dev); the first test run showed no pitch and
     4 dp coordinates until a `fetch(url, {cache: 'reload'})` of each script.
     Production is unaffected (WhiteNoise's manifest storage hashes names).
+- **Refine route tool, first draft** (branch `refine-design`, draft PR
+  hig314/trailgeek#10, built on the Mac 2026-10-17 for the owner to try in
+  dev; not merged). An alignment's panel has **Refine…**: pick a continuous
+  stretch of legs, shape a cost curve and weight per factor, run; the worker
+  anneals a sideways offset field (a B-spline along the input) with a
+  taut-string design grade line through a cut/fill tube, and the panel
+  compares up to three candidates with the input scored the same way and
+  saves one as a variant (`Alignment.refinement` keeps settings and seed).
+  Defaults are per user (`UserSetting`, key `refine`). Design, decisions and
+  what changed while building: docs/REFINE_TOOL.md. Migration 0005.
 - **Open:** R2 CORS for trailgeek.org is **done on both hosts**, verified
   from the Mac 2026-09-27 with an Origin header: the `landslidescience-lidar`
   bucket (owner) and the lidar-tiles Worker on `tiles.landslidescience.org`

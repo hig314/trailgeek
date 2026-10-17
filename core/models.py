@@ -319,6 +319,10 @@ class Alignment(models.Model):
     )
     evaluation_error = models.TextField(blank=True, editable=False)
     evaluated_at = models.DateTimeField(null=True, blank=True, editable=False)
+    refinement = models.JSONField(
+        null=True, blank=True, editable=False,
+        help_text="For a variant made by the refine tool: its settings, seed, which legs, and the "
+                  "factor costs of the input and of this candidate (docs/REFINE_TOOL.md).")
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -390,3 +394,21 @@ class Leg(models.Model):
     def save(self, *args, **kwargs):
         self.length_m = geo.length_m(self.geom)
         super().save(*args, **kwargs)
+
+
+class UserSetting(models.Model):
+    """A person's own defaults for a tool, as JSON under a key (`refine` for
+    the refine tool). One layer of a merge chain: site defaults in code,
+    then this; project defaults can slot in between later
+    (docs/REFINE_TOOL.md §2)."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="tg_settings")
+    key = models.CharField(max_length=50)
+    value = models.JSONField(default=dict, blank=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "key"], name="usersetting_user_key")]
+
+    def __str__(self):
+        return f"{self.user} · {self.key}"
