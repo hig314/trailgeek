@@ -250,7 +250,7 @@ window.TgDesign = (function () {
   }
 
   // ---- project view --------------------------------------------------------
-  function showProject(data) {
+  function showProject(data, fit) {
     cur = null;
     var p = data.project, h = '';
     h += '<div class="tg-kind">Design project' + (p.visibility !== 'public' ? ' · <span class="tg-badge">' + esc(p.visibility) + '</span>' : '') + '</div>';
@@ -304,7 +304,10 @@ window.TgDesign = (function () {
       th.addEventListener('click', function () { var k = th.dataset.k; sortDir = sortK === k ? -sortDir : 1; sortK = k; fill(); });
     });
     var n_ = $('d-new'); if (n_) n_.addEventListener('click', function () { newAlignment(p.id); });
-    if (p.bbox) app.fitTo(null, p.bbox);
+    // Fit to the project unless the caller keeps the view: a link with its own
+    // map= (the other kinds have always honoured it), or a save / delete that
+    // reopens the panel over the place being worked on.
+    if (fit !== false && p.bbox) app.fitTo(null, p.bbox);
   }
 
   // ---- new alignment ------------------------------------------------------

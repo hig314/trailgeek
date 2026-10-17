@@ -1,7 +1,7 @@
 {
   "upstream": "hig314/landslidescience",
-  "ref": "1c63e6066476fbc5d29ae18c3ba5a8f7baea4586",
-  "synced": "2026-09-28",
+  "ref": "dd09d4981ae5644a98519d1aa6d155d2801b1f84",
+  "synced": "2026-10-17",
   "files": [
     {
       "local": "core/static/core/js/basemaps.js",
@@ -13,25 +13,25 @@
       "local": "core/static/core/js/ls_hash.js",
       "upstream": "inventory/static/inventory/js/ls_hash.js",
       "header": true,
-      "sha256": "569d1f8906957ea2a3a48a3922427973ca70e7914f24969eb3324e11999f01c5"
+      "sha256": "a1ce63cfb30c6b17ec4a196ae306f4b497bbe36e69c9de7a590735a457e39a8f"
     },
     {
       "local": "core/static/core/js/dem_shade_bridge.js",
       "upstream": "inventory/static/inventory/js/dem_shade_bridge.js",
       "header": true,
-      "sha256": "d2382206820551385ace3ed9b6a6f3e3799ea675511b7f78d5af7f0326a4d1b6"
+      "sha256": "780e1c89775f1da1ab50ad369e3ed1355e3f54fdd4b53ba0bb0b2d490026a746"
     },
     {
       "local": "core/static/core/vendor/maplibre-gl-demshade.iife.js",
       "upstream": "inventory/static/inventory/js/vendor/maplibre-gl-demshade.iife.js",
       "header": false,
-      "sha256": "019220752628b59d551782aed0e294d47fc45bb62133962a19aa30a9fc8a0993"
+      "sha256": "d14751f4a8752de99d9388e8f18db0613c8d153137c901cb8c9fc0a6119a3dae"
     },
     {
       "local": "core/static/core/vendor/maplibre-gl-demshade.iife.js.map",
       "upstream": "inventory/static/inventory/js/vendor/maplibre-gl-demshade.iife.js.map",
       "header": false,
-      "sha256": "b2dc49f96a5c113491c89b97f1a0ab51318a993aa54747fc38212af0aa03c551"
+      "sha256": "1e40b90a47b3b64f1edc6db38e1f1c13a8fcdab211aa1f73e47c1e7ed65a376e"
     }
   ],
   "proposed": [

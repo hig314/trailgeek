@@ -55,14 +55,28 @@ landslidescience commit and the SHA-256 of each file's upstream content;
 | `python tools/sync_shared.py status --repo ~/path/to/landslidescience` (or `--github`) | Which shared files changed upstream since the pin |
 | `python tools/sync_shared.py sync --repo …` (or `--github`) | Copy them all at `origin/main` (`--ref` for another), rewrite the provenance headers, update the pin |
 
-Synced today, from landslidescience @ 1c63e60:
+Synced 2026-10-17 from landslidescience @ dd09d49 (branch `hash-camera`;
+first synced 2026-09-28 @ 1c63e60):
 
 | trailgeek | landslidescience |
 |---|---|
 | `core/static/core/js/basemaps.js` | `inventory/static/inventory/js/basemaps.js` |
 | `core/static/core/js/ls_hash.js` | `inventory/static/inventory/js/ls_hash.js` |
 | `core/static/core/js/dem_shade_bridge.js` | `inventory/static/inventory/js/dem_shade_bridge.js` |
-| `core/static/core/vendor/maplibre-gl-demshade.iife.js` (+ `.map`) | `inventory/static/inventory/js/vendor/…` (demshade 3adeb09) |
+| `core/static/core/vendor/maplibre-gl-demshade.iife.js` (+ `.map`) | `inventory/static/inventory/js/vendor/…` (demshade 3f7b140) |
+
+**A grammar change goes upstream first, and the check goes with it.** The
+URL hash gained the camera on 2026-10-17 (`map=zoom/lat/lon[/bearing/pitch]`,
+MapLibre's own hash order, for trailgeek's 3D views): it was written in
+landslidescience's `ls_hash.js` (branch `hash-camera`, dd09d49) under its
+"additive only" rule, with the old-vs-new parser comparison its CLAUDE.md
+asks for codified as `tools/hash_codec_check.js` there, and only then synced
+here. trailgeek's own keys ride in the grammar's extras pass-through and are
+listed in CLAUDE.md beside landslidescience's so neither site claims the
+other's. The same sync brought the demshade build 3f7b140 (Mapterhorn 512 px
+sources, the sea as no-data) and the bridge options that go with it; the
+three demshade issues in `core/static/core/vendor/VENDOR.md` are still
+present in that build.
 
 The .js copies carry a four-line provenance header (the check strips it);
 the vendored build is byte-identical. `basemaps.js` carries thumbnail paths

@@ -1,5 +1,5 @@
 /* Copied verbatim from landslidescience inventory/static/inventory/js/dem_shade_bridge.js
- * (hig314/landslidescience @ 1c63e60, 2026-09-28). One copy of every shared
+ * (hig314/landslidescience @ dd09d49, 2026-10-17). One copy of every shared
  * thing: do not edit here; change it there and run
  * `python tools/sync_shared.py sync` (tools/shared.json pins the commit). */
 /* dem_shade_bridge.js — the old `window.DemShade` API on top of the
@@ -43,7 +43,9 @@ window.DemShade = (function () {
         // Per-tile URLs through the tile Worker (edge-cached). No archive
         // header to read, so zooms and footprint come from the catalog.
         spec = { tiles: new URL(opts.tiles, location.href).href.replace(/%7B/g, '{').replace(/%7D/g, '}'),
-                 encoding: 'mapbox' };
+                 encoding: opts.encoding || 'mapbox' };
+        // 512 px publisher tiles (Mapterhorn), split into four by the package.
+        if (opts.tileSize) spec.tileSize = opts.tileSize;
         if (opts.minzoom !== undefined) spec.minzoom = opts.minzoom;
         if (opts.maxzoom !== undefined) spec.maxzoom = opts.maxzoom;
         if (opts.bounds) spec.bounds = opts.bounds;
@@ -58,6 +60,8 @@ window.DemShade = (function () {
       // 'outside' needs the survey boundary: the footprint's OUTER rings.
       if (opts.footprint) spec.footprint = opts.footprint;
       if (opts.overzoom) spec.overzoom = true;
+      // Background DEMs write the sea as a flat 0 m; 0 here makes it a void.
+      if (opts.nodataAtOrBelow !== undefined && opts.nodataAtOrBelow !== null) spec.nodataAtOrBelow = opts.nodataAtOrBelow;
       // Pre-baked slope pyramid (build_lidar.py --stage slope): the slope ramp
       // reads true slope from the float32 archive instead of a gradient of
       // the 0.1 m-quantised tiles, which staircases on gentle ground.
