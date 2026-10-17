@@ -1,4 +1,4 @@
-# Refine route: design (draft, 2026-10-17)
+# Refine route: design (draft, 2026-10-17; owner's answers folded in the same day)
 
 A tool that takes a selected stretch of an alignment and proposes a modestly
 tweaked version that fits the lidar surface better. Status: **design only**,
@@ -8,8 +8,11 @@ the Huey worker; nothing here replaces them.
 
 ## 1. Workflow
 
-1. Select an alignment, then a leg or a contiguous run of legs (default:
-   every build leg; existing-trail legs locked).
+1. Select an alignment, then a leg or a contiguous run of legs. **Existing-
+   trail legs are locked by default** (owner, 2026-10-17); the ends of the
+   refined stretch stay fixed. Finer control later: a reroute may want to
+   use existing trail as much as possible (a "shared with existing trail"
+   factor) and, once it leaves, be free to diverge a long way.
 2. **Refine…** opens a panel: one row per factor, each with a cost curve, a
    weight `k` box (0 = ignore), and behind the curve a histogram of the
    *current* line's values for that factor, so the user sees where the line
@@ -35,9 +38,13 @@ how a user learns what a `k` means.
 |---|---|---|---|---|
 | Grade | design \|grade\| %, 10 m mean | per metre | 0–8: 0, 12: 0.1, 18: 0.5, 25: 1 | 10 |
 | Corner radius | radius at an outslope flip, m | per corner | 0–3: 1, 6: 0.4, 10: 0.1, 15+: 0 | 5 |
+| Bend radius | radius of any other bend, m | per metre of bend | 0–5: 1, 10: 0.3, 20+: 0 | 1 |
 | Terrain slope | side slope %, ~3 m scale | per metre | 0–60: 0, 80: 0.3, 100: 1 | 3 |
 | Cut / fill | \|design − ground\|, m | per metre | 0–0.1: 0, 0.3: 0.3, 0.5: 1 | 5 |
 | Distance from input | lateral offset, m | per metre | 0–5: 0, 10: 0.2, 20: 1 | 2 |
+| Length | length / input length | per run | 0.9–1.02: 0, 1.1: 0.5, 1.2: 1 | 3 |
+| Drainage (stub) | metres since the last grade reversal | per metre | 0–60: 0, 120: 0.5, 200: 1 | 1 |
+| Corner landing | side slope at a corner's apex, % | per corner | 0–15: 0, 30: 0.5, 45: 1 | 2 |
 
 Hard limits sit outside the curves, so the search never wastes time there:
 the corridor (offset ≤ 25 m), the cut/fill tube (≤ 0.75 m), fixed ends.
@@ -51,7 +58,11 @@ snap to round numbers; a node's exact x, y can be typed in.
 **Defaults** live per user: a `UserSetting(user, key, value JSON)` row with
 key `refine`, falling back to the site default in code. Every run stores the
 full settings it used, so a variant can be reproduced after the defaults
-drift.
+drift. Built as a **merge chain** of partial settings with one schema,
+`site → user` now, so project-level defaults (owner, 2026-10-17: wanted,
+not in the first pass) slot in later as `site → project → user`, and named
+presets (hiking, adaptive bike) as one more link, without changing the
+format.
 
 ### Definitions
 
@@ -71,8 +82,32 @@ drift.
   gully crossed while climbing keeps the downhill side and is not a corner.
   **Radius** = arc length through the flip zone / heading change across it,
   which is steadier than a peak curvature from three points.
-- **Terrain slope** from a DEM smoothed to tread scale (~1–2 m), so 0.5 m
-  lidar micro-relief does not read as cliffs.
+- **Bend** (owner, 2026-10-17): any change of direction that is not a
+  corner, e.g. a gully crossed while climbing. Its own curve, lighter by
+  default: smoothing bends is "easier for a runner", while corners carry
+  corner-cutting and more. Builders normally smooth bends with cut and
+  fill, which the tube already allows: a straighter line across a gully
+  costs fill, and the cut/fill curve prices it.
+- **No pre-smoothing of the lidar** (owner, 2026-10-17). Elevation noise
+  along the line is what the cut/fill tube is for, so the profile uses the
+  raw surface. The exception is what the tube cannot see: quantities across
+  the line. **Side slope** is measured at bench scale, as the plane fitted
+  to the ground across the bench footprint (tread width plus the cut and
+  fill slopes, ~2–3 m, perpendicular to the line), which is the slope the
+  bench is actually cut into rather than a smoothing choice. **Outslope
+  direction** for corner detection uses that same cross-section, plus
+  hysteresis, so a boulder or a root wad cannot flip it and invent a corner.
+- **Grade reversals: a deliberately primitive stub** (owner, 2026-10-17;
+  good siting needs groundwater and the terrain below the trail, later).
+  After the taut string, candidate reversal sites are (a) where the ground
+  already dips below the design line, i.e. an easy opportunity, and (b)
+  gully crossings, where water already converges. A reversal is a fixed
+  template dip (length and depth as settings) placed at a candidate site;
+  the drainage factor charges for long runs since the last one. Marked in
+  code and UI as a stub. Next steps when it is revisited: upslope
+  contributing area from the corridor DEM (flow accumulation) as the
+  groundwater proxy, terrain grade below the trail for where water goes
+  once shed, and reversal spacing that tightens with grade.
 
 ## 3. The search
 
@@ -168,6 +203,15 @@ thing everywhere.
 5. Later: a deterministic dynamic-programming seed over a corridor trellis,
    if annealing proves slow on long legs; the router can reuse the curves.
 
-## 6. Open questions
+## 6. Decisions (owner, 2026-10-17)
 
-See the PR or the conversation of 2026-10-17; answers get folded in here.
+- Proposed improvements accepted: input scored with the same grade line
+  (an evaluator option for all alignments), corner landing slope, up to
+  three candidates, only real improvements offered.
+- Grade reversals: a primitive stub, flagged as such (§2).
+- Bends: a separate, lighter factor from corners (§2).
+- Existing-trail legs locked by default; reuse-existing-trail factor later.
+- Length carries a cost.
+- Defaults per user now, architecture ready for project defaults.
+- No DEM pre-smoothing; the tube handles elevation, bench-scale cross
+  sections handle side slope and outslope (§2).
