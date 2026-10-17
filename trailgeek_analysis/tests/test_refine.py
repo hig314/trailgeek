@@ -9,7 +9,7 @@ import numpy as np
 from trailgeek_analysis.refine import Grid, clean_settings, merge_settings, refine
 from trailgeek_analysis.refine import spline
 from trailgeek_analysis.refine.profile import taut_string
-from trailgeek_analysis.refine.score import Problem, intersects, side_of_downhill
+from trailgeek_analysis.refine.score import Problem, intersects, polyline_distance, side_of_downhill
 
 PLANE = 0.3          # ground rising 30 % to the north
 
@@ -86,7 +86,7 @@ class CornerTests(unittest.TestCase):
     def score(self, legs, grid, **params):
         s = clean_settings({"params": {"spacing_m": 1.0, **params}})
         prob = Problem(legs, grid, s)
-        return prob.score(np.zeros(prob.nfree), 0.1, detail=True)
+        return prob.score_line(prob.P, 0.1, detail=True)            # the line as given
 
     def test_hairpin_is_one_corner_of_about_its_radius(self):
         R = 8.0
@@ -136,6 +136,62 @@ class CornerTests(unittest.TestCase):
         r = self.score([line], gully)
         self.assertEqual(len(r["corners"]), 0)
         self.assertGreater(r["costs"]["bend"], 0)
+
+
+class SketchTests(unittest.TestCase):
+    """The person's line as evidence of a smooth intent (2026-10-17): the
+    start is a smooth fit to it, rounded more for a loose sketch than for a
+    precise line, and rounding a sketched corner costs no distance."""
+    SQUARE = [np.array([[0, 0], [100, 0], [100, 80]], float)]
+
+    def start(self, legs, sigma, grid=None):
+        prob = Problem(legs, grid or plane_grid(-60, -120, 260, 160), clean_settings({"params": {"input_sigma_m": sigma}}))
+        return prob, prob.score(prob.start(), 0.1, detail=True)
+
+    def test_a_sketched_corner_is_rounded_by_how_loose_the_sketch_is(self):
+        _, tight = self.start(self.SQUARE, 0.5)
+        _, loose = self.start(self.SQUARE, 3.0)
+        self.assertIsNotNone(tight); self.assertIsNotNone(loose)
+        self.assertLess(tight["bend_r"].min(), 6)
+        self.assertTrue(7 < loose["bend_r"].min() < 20, loose["bend_r"].min())
+        self.assertLess(tight["dist"].max(), 1.5)                       # a precise line stays put
+        np.testing.assert_allclose(loose["Q"][0], [0, 0], atol=1e-6)  # ends pinned
+        np.testing.assert_allclose(loose["Q"][-1], [100, 80], atol=1e-6)
+
+    def test_a_sketched_hairpin_gives_a_clean_start(self):
+        for legs in ([np.array([[0, 0], [100, 0], [20, 30]], float)], [np.array([[0, 0], [100, 0], [0, 6]], float)]):
+            prob, r = self.start(legs, 3.0)
+            self.assertIsNotNone(r, legs)
+            self.assertFalse(prob.folds(prob.start()))
+
+    def test_rounding_a_sketched_corner_to_the_sketch_radius_is_free(self):
+        prob, _ = self.start(self.SQUARE, 0.0)
+        R = prob.R_sketch
+        a = np.linspace(-np.pi / 2, 0, 30)
+        arc = np.column_stack([100 - R + R * np.cos(a), R + R * np.sin(a)])
+        self.assertLess(prob.eff_grid.sample(arc[:, 0], arc[:, 1]).max(), 0.6)
+        far = prob.eff_grid.sample(np.array([50.0]), np.array([-10.0]))[0]
+        self.assertGreater(far, 9)                                    # off a straight stretch it costs
+
+    def test_respacing_keeps_the_shape(self):
+        prob, _ = self.start(self.SQUARE, 3.0)
+        c = prob.start()
+        # Bunch the controls on the first straight by sliding them along it.
+        first = np.flatnonzero(c[:, 1] < 0.5)[2:8]
+        c[first, 0] = np.linspace(c[first[0], 0], c[first[0], 0] + 3, len(first))
+        c2 = prob.respace(c)
+        self.assertIsNotNone(c2)
+        gap = lambda cc: np.diff(cc[first[0] - 1:first[-1] + 2, 0])
+        self.assertLess(gap(c2).std(), gap(c).std())                    # evened out
+        before, after = prob.curve(c), prob.curve(c2)
+        dev, _ = polyline_distance(after[:, 0], after[:, 1], before)
+        self.assertLess(dev.max(), 0.3)                                 # same shape
+
+    def test_refining_a_sketch_smooths_its_corner(self):
+        s = clean_settings({"factors": {"drainage": {"k": 0}}, "params": {"iterations": 400, "chains": 2}})
+        r = refine(self.SQUARE, plane_grid(-60, -120, 260, 160), s, seed=6)
+        self.assertTrue(r["candidates"])
+        self.assertGreater(r["candidates"][0]["stats"]["bend_min_r"], 3 * r["input"]["stats"]["bend_min_r"])
 
 
 class RefineTests(unittest.TestCase):

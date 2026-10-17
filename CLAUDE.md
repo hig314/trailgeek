@@ -160,8 +160,10 @@ server and Django reasoning rather than assume it.
   hig314/trailgeek#10, built on the Mac 2026-10-17 for the owner to try in
   dev; not merged). An alignment's panel has **Refine…**: pick a continuous
   stretch of legs, shape a cost curve and weight per factor, run; the worker
-  anneals a sideways offset field (a B-spline along the input) with a
-  taut-string design grade line through a cut/fill tube, and the panel
+  reads the line as a sketch of a smooth path (± `input_sigma_m`, sketched
+  corners allowed to round), anneals its own smooth curve (a planar B-spline
+  starting from a smooth fit to the line) with a taut-string design grade
+  line through a cut/fill tube, and the panel
   compares up to three candidates with the input scored the same way and
   saves one as a variant (`Alignment.refinement` keeps settings and seed).
   Defaults are per user (`UserSetting`, key `refine`). Design, decisions and

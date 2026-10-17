@@ -291,3 +291,58 @@ search then "fixed" each phantom corner and made kinks. Changes:
   10 % of the input's total or of that factor's k, whichever is larger (was
   5 % of the total, which on a gentle line rejected a fair trade of a little
   more bending for much less grade).
+
+## 8. The sketch as evidence (2026-10-17, owner's direction)
+
+The first draft built a candidate as *the input plus a smooth sideways
+offset*, so every sharp vertex of a hand-drawn line came through into the
+result. The owner's point: a person lays out a coarse conceptual path, with
+sharp corners they understand as sketches of much rounder ones, so the
+refinement itself must do the rounding, and the input should be read as
+*± some error around a smooth idea*. Now:
+
+- **A candidate is its own smooth curve**: a clamped cubic B-spline through
+  control points in the plane, ends pinned to the line's ends, controls
+  every `knot_m` (8 m) on straight ground and up to three times closer
+  where the line turns sharply (weighted arc length). No kink finer than the
+  controls can exist.
+- **The start is a smooth reading of the line**: its vertices filleted (at
+  `sketch_radius_m` for a loose sketch, less for a precise line; limited by
+  the neighbouring segments, so a hairpin becomes a U-turn where its arms are
+  far enough apart instead of a cusp), then a least-squares fit with a
+  curvature penalty that grows with `input_sigma_m`. Where the fit would
+  still fold, the penalty is relaxed there and it refits. The stored line is
+  never changed.
+- **The line enters only through distance**: the nearest distance to it,
+  less a corner allowance at each sketched vertex (rounding a turn D to the
+  sketch radius R stands R (sec(D/2) − 1) off the vertex, tapering over the
+  tangent length), less the line's uncertainty. Precomputed once on the
+  terrain grid's cells, so it costs a lookup per step.
+- **Moves act along the candidate's own sideways direction**, and every 250
+  iterations the controls are re-spaced along the curve when a refit keeps
+  the shape within 0.25 m.
+- **"Your line, smoothed"** (the start) is scored and offered beside the
+  search's candidates, and the input column is the line *as drawn*, so the
+  gain from rounding alone and the gain from fitting the terrain show apart.
+- **One input setting covers sketch and survey**: `input_sigma_m`, about 3
+  to 5 m for a sketch, about 0.5 m for a GPS track or existing trail.
+
+Two default-balance lessons came out of running it on the Tutka lines:
+
+- **One scale for all factors.** Per-metre factors are now charged per 100 m
+  of line (were averaged over the line), and length per 100 m of the input.
+  Averaged, grade could never cost more than its k however long the route,
+  while corners summed, so on a 2.5 km climb six corners outweighed any
+  grade and the search removed switchbacks.
+- **The grade curve must be convex.** Climbing a height costs
+  (curve ÷ grade) per metre of climb; where the curve flattens,
+  steeper-and-shorter becomes cheaper and the search heads up the fall line.
+  The default now rises convexly to full cost at 60 %; keep y ÷ x rising up
+  to the steepest grade you would accept when editing it.
+
+On the four Tutka lines with the defaults: candidates' tightest bends rise
+from ~2–3 m (sketch vertices) to 6–11 m, the steepest 10 m drops or holds,
+the 95th-percentile grade holds within ~1 point (Upper ascent A: "Steadier
+grade" 36.8 % against 37.4 % drawn, keeping 3 of 6 corners; "Best overall"
+40.8 % with 2), and mean distance from the line is ~3 m. Runs take 25 s for
+757 m to 100 s for 2.5 km at the default 1500 iterations × 4 chains.

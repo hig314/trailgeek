@@ -13,6 +13,7 @@ import numpy as np
 
 from . import spline
 from .profile import taut_string
+from .terrain import Grid
 from .settings import FACTOR_META
 
 CORNER_KAPPA = 1 / 50.0     # 1/m: curvature that counts as still turning, around a flip
@@ -21,7 +22,11 @@ CORNER_CLUSTER_M = 20.0     # side flips closer than this are one event
 CORNER_MIN_TURN_DEG = 60.0  # a side change with less turning than this is a crossing, not a corner
 GRADE_OVER_PER = 10.0       # %: each this much past the input's steepest 10 m adds 1 to the grade cost
 GRADE_PEAK_SHARE = 0.25     # the steepest 10 m adds this times its curve value to the grade cost
+PER_M = 100.0               # per-metre factors are charged per this many metres
 SITE_MERGE_M = 15.0         # reversal sites closer than this are one site
+RESPACE_MAX_M = 0.25        # m: a re-spacing that would move the line more than this is skipped
+SIGMA_REF = 3.0             # m: at this uncertainty or more, sketched vertices are filleted at the full sketch radius
+FIT_SMOOTH = 0.5            # the start's curvature penalty per (sample per control) per m^2 of uncertainty
 DIP_WINDOW_M = 10.0         # a ground dip is measured against the ground this far either side
 
 
@@ -137,10 +142,133 @@ def intersects(Q, stride):
     return bool(np.triu(hit, 2).any())
 
 
+def fit_controls(B, X, lam, row_w=None):
+    """Controls of a clamped spline (basis B, n x K) fitted to points X by
+    least squares, ends pinned to X's ends, second differences of the
+    controls penalised by lam (times row_w per interior control)."""
+    K = B.shape[1]
+    X0, Xe = X[0], X[-1]
+    Bi = B[:, 1:K - 1]
+    rhs = X - np.outer(B[:, 0], X0) - np.outer(B[:, K - 1], Xe)
+    D = np.zeros((K - 2, K))
+    for i in range(K - 2):
+        D[i, i:i + 3] = [1, -2, 1]
+    Di = D[:, 1:K - 1]
+    fixed = np.outer(D[:, 0], X0) + np.outer(D[:, K - 1], Xe)
+    Wd = (lam * (np.ones(K - 2) if row_w is None else row_w))[:, None]
+    A = Bi.T @ Bi + Di.T @ (Wd * Di)
+    b = Bi.T @ rhs - Di.T @ (Wd * fixed)
+    Ci = np.linalg.solve(A, b)
+    return np.vstack([X0, Ci, Xe])
+
+
+def fillet(xy, radius, step, r_min=1.5):
+    """The polyline with each vertex replaced by a circular arc tangent to
+    both segments: radius `radius`, reduced where the tangent length would
+    take more than 45 % of a neighbouring segment, never under r_min.
+    Arcs are sampled every `step` metres. Used only as the FIT TARGET for
+    the start (the person's line stays the reference): fitting a smooth
+    curve to a sharp hairpin tip otherwise forces a cusp."""
+    xy = np.asarray(xy, float)
+    if len(xy) < 3:
+        return xy
+    seg = np.diff(xy, axis=0)
+    L = np.hypot(seg[:, 0], seg[:, 1])
+    U = seg / np.maximum(L, 1e-12)[:, None]
+    out = [xy[0]]
+    for i in range(1, len(xy) - 1):
+        a, b = U[i - 1], U[i]
+        cosd = float(np.clip(a @ b, -1, 1))
+        D = math.acos(cosd)
+        if D < math.radians(2):
+            out.append(xy[i])
+            continue
+        tan_h = math.tan(min(D / 2, math.radians(89.5)))
+        r = max(r_min, min(radius, 0.45 * min(L[i - 1], L[i]) / tan_h))
+        T = min(r * tan_h, 0.49 * min(L[i - 1], L[i]))
+        r = T / tan_h
+        V = xy[i]
+        p1 = V - a * T
+        turn = 1.0 if (a[0] * b[1] - a[1] * b[0]) > 0 else -1.0
+        n1 = np.array([-a[1], a[0]]) * turn
+        c = p1 + n1 * r
+        ang0 = math.atan2(p1[1] - c[1], p1[0] - c[0])
+        m = max(2, int(math.ceil(r * D / step)))
+        for j in range(m + 1):
+            ang = ang0 + turn * D * j / m
+            out.append(c + r * np.array([math.cos(ang), math.sin(ang)]))
+    out.append(xy[-1])
+    out = np.asarray(out)
+    keep = np.concatenate([[True], np.hypot(*np.diff(out, axis=0).T) > 1e-6])
+    return out[keep]
+
+
+def polyline_distance(px, py, xy, chunk=20000):
+    """For points (px, py): distance to the polyline `xy` and the arc
+    position along it of the nearest point."""
+    A, B = xy[:-1], xy[1:]
+    seg = B - A
+    L2 = np.maximum((seg ** 2).sum(1), 1e-12)
+    s0 = np.concatenate([[0.0], np.cumsum(np.sqrt(L2))])[:-1]
+    dist = np.empty(len(px))
+    pos = np.empty(len(px))
+    for i in range(0, len(px), chunk):
+        x, y = px[i:i + chunk, None], py[i:i + chunk, None]
+        t = np.clip(((x - A[:, 0]) * seg[:, 0] + (y - A[:, 1]) * seg[:, 1]) / L2, 0, 1)
+        dx, dy = x - (A[:, 0] + t * seg[:, 0]), y - (A[:, 1] + t * seg[:, 1])
+        d2 = dx * dx + dy * dy
+        j = np.argmin(d2, axis=1)
+        r = np.arange(len(j))
+        dist[i:i + chunk] = np.sqrt(d2[r, j])
+        pos[i:i + chunk] = s0[j] + t[r, j] * np.sqrt(L2[j])
+    return dist, pos
+
+
+def corner_allowance(xy, radius, cap):
+    """How far a line that rounds each sketched vertex to `radius` may stand
+    off the sketch, as a function of arc position along it: at a vertex that
+    turns by D the rounded apex is radius * (sec(D/2) - 1) away, tapering to
+    0 over the tangent length radius * tan(D/2) either side. Returns
+    (vertex positions, allowances, tangent lengths)."""
+    v = np.diff(xy, axis=0)
+    L = np.hypot(v[:, 0], v[:, 1])
+    s_v = np.cumsum(L)[:-1]
+    h = np.arctan2(v[:, 1], v[:, 0])
+    D = np.abs((np.diff(h) + np.pi) % (2 * np.pi) - np.pi)
+    half = np.minimum(D / 2, np.radians(85))
+    A = np.minimum(radius * (1 / np.cos(half) - 1), cap)
+    T = np.minimum(radius * np.tan(half), 3 * radius)
+    keep = A > 0.05
+    return s_v[keep], A[keep], np.maximum(T[keep], 1.0)
+
+
+def allowance_at(pos, s_v, A, T):
+    out = np.zeros(len(pos))
+    for sv, a, t in zip(s_v, A, T):
+        out = np.maximum(out, a * np.clip(1 - np.abs(pos - sv) / t, 0, 1))
+    return out
+
+
 class Problem:
-    """The fixed parts of a refinement: the input resampled, its normals,
-    the spline basis, the terrain and the curves. `score(c, t)` scores the
-    candidate with free control values `c` and cut/fill tube half-width `t`."""
+    """The fixed parts of a refinement (docs/REFINE_TOOL.md, "the sketch as
+    evidence", 2026-10-17).
+
+    The person's line is EVIDENCE of an intended path, drawn with sharp
+    corners they expect to be rounded, not the frame the answer is built on.
+    So a candidate is its own smooth curve, a clamped cubic B-spline through
+    control points in the plane with its ends pinned to the line's ends, and
+    the line enters only through the distance cost: distance from it, less a
+    corner allowance at each sketched vertex (what rounding it to
+    `sketch_radius_m` needs), less the line's own uncertainty
+    (`input_sigma_m`). Both are precomputed on the terrain grid's cells.
+
+    The start is a smooth fit to the line: least squares with a curvature
+    penalty that grows with the uncertainty ("the smooth idea in your
+    head"). The line itself is never changed; `score_line` scores it as
+    drawn for comparison. Controls are spaced `knot_m` along the line, closer
+    where it turns sharply (a weighted arc-length parameterisation), so a
+    hairpin gets the controls it needs.
+    """
 
     def __init__(self, legs_xy, grid, settings):
         p = settings["params"]
@@ -151,19 +279,9 @@ class Problem:
         n = len(self.P)
         if n < 6:
             raise ValueError("the stretch is too short to refine")
-        self.n = n
+        self.n_in = n
         self.d_in = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(self.P, axis=0).T))])
         self.L_in = float(self.d_in[-1])
-        i = np.arange(n)
-        a = self.P[np.minimum(i + 2, n - 1)] - self.P[np.maximum(i - 2, 0)]
-        T = a / np.maximum(np.hypot(a[:, 0], a[:, 1]), 1e-9)[:, None]
-        self.N = np.column_stack([-T[:, 1], T[:, 0]])          # left normal
-        K = max(4, int(round(self.L_in / float(p["knot_m"]))) + 3)
-        B = spline.basis(self.d_in / self.L_in, K)
-        self.B = B[:, 1:K - 1]                                 # ends pinned at 0
-        self.nfree = K - 2
-        g = spline.greville(K)[1:K - 1] * self.L_in
-        self.knot_idx = np.clip(np.searchsorted(self.d_in, g), 0, n - 1)
         self.base_k = {f: float(v["k"]) for f, v in settings["factors"].items()}
         self.f = {f: curve_fn(v["curve"]) for f, v in settings["factors"].items()}
         self.corridor = float(p["corridor_m"])
@@ -171,40 +289,163 @@ class Problem:
         self.bench = float(p["bench_m"])
         self.thr = float(p["min_outslope_pct"]) / 100
         self.dip = float(p["reversal_dip_m"])
+        self.sigma = float(p["input_sigma_m"])
+        self.R_sketch = float(p["sketch_radius_m"])
         self.smooth_w = max(1, int(round(5 / self.h))) | 1
         self.side_w = max(1, int(round(10 / self.h))) | 1
-        # The input's steepest 10 m, once known (search.refine sets it): going
-        # past it costs without limit, so a saturated curve cannot hide a
-        # worse pitch ("consistent grade is minimising the maximum", owner).
-        self.grade_ref = None
-        # A hand-drawn hairpin can turn more than a right angle within one
-        # sample. That is the input as given (rounding it is the tool's job),
-        # so only folds a candidate ADDS are refused.
-        dP = np.diff(self.P, axis=0)
-        self.input_folds = np.concatenate([(dP[1:] * dP[:-1]).sum(1) < 0])
         self.stride = max(1, int(round(5 / self.h)))
+        self.grade_ref = None
 
-    def offsets(self, c):
-        return self.B @ c
+        # The raw line (all its vertices, joints included) is the reference.
+        raw = [np.asarray(xy, float) for xy in legs_xy]
+        ref = np.vstack([raw[0]] + [r[1:] for r in raw[1:]])
+        keep = np.concatenate([[True], np.hypot(*np.diff(ref, axis=0).T) > 1e-6])
+        self.ref = ref[keep]
+        self._distance_fields()
 
-    def folds(self, c):
-        o = self.offsets(c)
-        return intersects(self.P + o[:, None] * self.N, self.stride)
+        # The fit target: the line with its vertices filleted (more for a
+        # loose sketch, less for a precise line), resampled evenly.
+        r_fit = max(1.5, self.R_sketch * min(1.0, self.sigma / SIGMA_REF))
+        X, _ = resample_legs([fillet(self.ref, r_fit, self.h / 2)], self.h)
+        # Weighted arc length: sharp turns get up to 3x the controls.
+        u_in, W = self.weighted_u(X)
+        K = max(4, int(round(W / float(p["knot_m"]))) + 3)
+        self.K = K
+        self.nfree = K - 2
+        B_in = spline.basis(u_in, K)
+        n = len(X)
+        # The start: least squares to the line, second differences of the
+        # controls penalised by the line's uncertainty.
+        lam = FIT_SMOOTH * (n / K) * self.sigma ** 2
+        # Candidates are sampled at even steps of the weighted parameter:
+        # ~spacing_m apart on straight ground, closer through sharp turns.
+        N = max(6, int(round(W / self.h)) + 1)
+        self.u = np.linspace(0, 1, N)
+        self.B = spline.basis(self.u, K)
+        self.n = N
+        self.Bg = spline.basis(spline.greville(K), K)      # where each control acts on the curve
+        self.ctrl_u = spline.greville(K)[1:K - 1]
+        # Where the smoothing would fold the line (a switchback whose arms are
+        # closer than the smoothing reaches pulls them into a cusp), relax it
+        # there and refit, until the start is a clean line.
+        row_w = np.ones(K - 2)
+        for _ in range(10):
+            self.C0 = fit_controls(B_in, X, lam, row_w)
+            bad = self._bad_samples(self.B @ self.C0)
+            if not len(bad):
+                break
+            for i in bad:
+                j = int(np.clip(np.searchsorted(self.ctrl_u, self.u[i]), 0, K - 3))
+                row_w[max(0, j - 3):j + 4] *= 0.25
 
-    def score(self, c, t, k=None, detail=False):
-        """None if the candidate is impossible (outside the corridor, folded,
-        off the terrain data); else a dict with `total`, `costs` (per
-        factor, before k), `density` (cost per sample, for aiming moves) and
-        `corner_idx`; with detail=True also every array the UI shows."""
-        k = self.base_k if k is None else k
-        h, n = self.h, self.n
-        o = self.offsets(c)
-        if np.abs(o).max() > self.corridor + 1e-6:
-            return None
-        Q = self.P + o[:, None] * self.N
+    def _bad_samples(self, Q):
+        """Samples where Q folds back, bunches up, or turns tighter than 1 m."""
         dQ = np.diff(Q, axis=0)
         ds = np.hypot(dQ[:, 0], dQ[:, 1])
-        if (ds < 0.25 * h).any() or (((dQ[1:] * dQ[:-1]).sum(1) < 0) & ~self.input_folds).any():
+        bad = set(np.flatnonzero((dQ[1:] * dQ[:-1]).sum(1) < 0).tolist())
+        bad |= set(np.flatnonzero(ds < 0.1 * self.h).tolist())
+        th = np.unwrap(np.arctan2(dQ[:, 1], dQ[:, 0]))
+        kap = np.abs(np.diff(th)) / np.maximum((ds[1:] + ds[:-1]) / 2, 1e-6)
+        bad |= set(np.flatnonzero(kap > 1.0).tolist())
+        if not bad and intersects(Q, self.stride):
+            bad = set(range(0, len(Q), max(1, len(Q) // 50)))
+        return sorted(bad)
+
+    def weighted_u(self, X):
+        """Parameter along X by arc length weighted up to 3x where X turns
+        sharply (smoothed over twice the sketch radius). Returns (u, total)."""
+        seg = np.hypot(*np.diff(X, axis=0).T)
+        n = len(X)
+        turn = np.zeros(n)
+        hd = np.unwrap(np.arctan2(*np.diff(X, axis=0).T[::-1]))
+        turn[1:-1] = np.abs(np.diff(hd))
+        win = max(1, int(round(2 * self.R_sketch / self.h))) | 1
+        kap = running_mean(turn / np.maximum(np.concatenate([[seg[0]], (seg[:-1] + seg[1:]) / 2, [seg[-1]]]), 1e-6), win)
+        dw = seg * (1 + np.minimum(2.0, self.R_sketch * kap[1:]))
+        W = np.concatenate([[0.0], np.cumsum(dw)])
+        return W / W[-1], W[-1]
+
+    def respace(self, c):
+        """The same shape with its controls re-spaced (a near-exact refit of
+        the current curve), or None if the refit fails."""
+        Q = self.curve(c)
+        u, _ = self.weighted_u(Q)
+        try:
+            c2 = fit_controls(spline.basis(u, self.K), Q, 1e-6)[1:-1]
+        except np.linalg.LinAlgError:
+            return None
+        # Only if the shape survives: the refit must stay within RESPACE_MAX_M.
+        Q2 = self.curve(c2)
+        dev, _ = polyline_distance(Q2[:, 0], Q2[:, 1], Q)
+        return c2 if dev.max() <= RESPACE_MAX_M else None
+
+    def _distance_fields(self):
+        g = self.grid
+        ok = np.isfinite(g.z)
+        rows, cols = np.nonzero(ok)
+        dist, pos = polyline_distance(g.x0 + cols * g.res, g.y0 + rows * g.res, self.ref)
+        s_v, A, T = corner_allowance(self.ref, self.R_sketch, self.corridor)
+        eff = np.maximum(0.0, dist - allowance_at(pos, s_v, A, T) - self.sigma)
+        D = np.full(g.z.shape, np.nan)
+        E = np.full(g.z.shape, np.nan)
+        D[rows, cols] = dist
+        E[rows, cols] = eff
+        self.dist_grid = Grid(D, g.x0, g.y0, g.res)
+        self.eff_grid = Grid(E, g.x0, g.y0, g.res)
+
+    def full(self, c):
+        """Free controls (K-2, 2) -> all controls, ends pinned."""
+        return np.vstack([self.P[0], c, self.P[-1]])
+
+    def curve(self, c):
+        return self.B @ self.full(c)
+
+    def start(self):
+        return self.C0[1:-1].copy()
+
+    def control_frames(self, c):
+        """The curve point each free control mainly moves, and the curve's
+        left normal there."""
+        C = self.full(c)
+        pts = self.Bg @ C
+        t = np.gradient(pts, axis=0)
+        t = t / np.maximum(np.hypot(t[:, 0], t[:, 1]), 1e-9)[:, None]
+        return pts[1:-1], np.column_stack([-t[1:-1, 1], t[1:-1, 0]])
+
+    def folds(self, c):
+        return intersects(self.curve(c), self.stride)
+
+    def legs_of(self, Q):
+        """Split a candidate at the points nearest the input's leg joints."""
+        out, a = [], 0
+        for j in self.joints[1:-1]:
+            jp = self.P[j]
+            b = a + 1 + int(np.argmin(np.hypot(*(Q[a + 1:-1] - jp).T)))
+            out.append(Q[a:b + 1])
+            a = b
+        out.append(Q[a:])
+        return out
+
+    def score(self, c, t, k=None, detail=False):
+        return self.score_line(self.curve(c), t, k, detail, check_folds=True)
+
+    def score_line(self, Q, t, k=None, detail=False, check_folds=False):
+        """Score any line (the candidate's samples, or the input as drawn).
+        None if impossible (outside the corridor, folded, off the terrain
+        data); else a dict with `total`, `costs` (per factor, before k),
+        `density` (cost per sample, for aiming moves) and `corner_idx`; with
+        detail=True also every array the UI shows."""
+        k = self.base_k if k is None else k
+        h = self.h
+        n = len(Q)
+        eff = self.eff_grid.sample(Q[:, 0], Q[:, 1])
+        if not np.isfinite(eff).all() or eff.max() > self.corridor + 1e-6:
+            return None
+        dQ = np.diff(Q, axis=0)
+        ds = np.hypot(dQ[:, 0], dQ[:, 1])
+        if (ds < 1e-3).any():
+            return None
+        if check_folds and (((dQ[1:] * dQ[:-1]).sum(1) < 0).any() or (ds < 0.1 * h).any()):
             return None
         d = np.concatenate([[0.0], np.cumsum(ds)])
         L = float(d[-1])
@@ -303,7 +544,7 @@ class Problem:
         else:
             run = d.copy()
 
-        off = np.abs(o)
+        off = eff
         f = self.f
         per = {"grade": grade, "slope": side, "cutfill": cut, "offset": off, "drainage": run}
         vals = {name: f[name](x) for name, x in per.items()}
@@ -313,7 +554,12 @@ class Problem:
         # Corners are left to the corner factor.
         bend_v = f["bend"](bend_r) * ~zone
         vals["bend"] = bend_v
-        costs = {name: float((v * w).sum() / self.L_in) for name, v in vals.items() if name != "bend"}
+        # One scale for every factor (2026-10-17): per-metre factors are
+        # charged PER 100 M of line, not averaged, so a long route's grade
+        # weighs as much against its corners as a short one's. Averaging let
+        # six corners outweigh any grade on a 2.5 km climb, and the search
+        # removed switchbacks to the grade's cost.
+        costs = {name: float((v * w).sum() / PER_M) for name, v in vals.items() if name != "bend"}
         costs["bend"] = float((bend_v * akap * w).sum() / (math.pi / 2))
         # "Consistent grade is minimising the maximum grade" (owner): a short
         # steep pitch is cheap per metre, so the peak is charged as well.
@@ -325,11 +571,11 @@ class Problem:
         cl = [f["landing"](c_[4]) for c_ in corners]
         costs["corner"] = float(sum(cr))
         costs["landing"] = float(sum(cl))
-        costs["length"] = float(f["length"](L / self.L_in))
+        costs["length"] = float(f["length"](L / self.L_in)) * self.L_in / PER_M
         total = sum(k.get(name, 0) * v for name, v in costs.items())
 
-        density = sum(k.get(name, 0) * v for name, v in vals.items() if name != "bend")
-        density = density + k.get("bend", 0) * bend_v * akap * self.L_in / (math.pi / 2)
+        density = sum(k.get(name, 0) * v for name, v in vals.items() if name != "bend") * w / PER_M
+        density = density + k.get("bend", 0) * bend_v * akap * w / (math.pi / 2)
         for (fi, a, b, r, land, _, _r), x1, x2 in zip(corners, cr, cl):
             density[a:b + 1] += (k.get("corner", 0) * x1 + k.get("landing", 0) * x2) / (b - a + 1)
         out = {"total": float(total), "costs": costs, "density": density,
@@ -337,7 +583,7 @@ class Problem:
         if detail:
             out.update({
                 "Q": Q, "d": d, "ground": g, "design": zd, "cut": cut, "grade": grade, "side": side,
-                "offset": o, "bend_r": bend_r, "zone": zone, "run": run, "sites": sites,
+                "offset": eff, "dist": self.dist_grid.sample(Q[:, 0], Q[:, 1]), "bend_r": bend_r, "zone": zone, "run": run, "sites": sites,
                 "corners": [{"i": c_[0], "d": float(d[c_[0]]), "radius_m": float(c_[3]),
                              "arc_radius_m": float(c_[6]), "landing_pct": c_[4], "turn_deg": c_[5]}
                             for c_ in corners],
@@ -354,7 +600,7 @@ def histograms(r, bins=30):
     out = {}
     w = r["w"]
     src = {"grade": (r["grade"], w), "slope": (r["side"], w), "cutfill": (r["cut"], w),
-           "offset": (np.abs(r["offset"]), w), "drainage": (r["run"], w),
+           "offset": (r["offset"], w), "drainage": (r["run"], w),
            "bend": (r["bend_r"], w * ~r["zone"]),
            "corner": (np.array([c["radius_m"] for c in r["corners"]]), None),
            "landing": (np.array([c["landing_pct"] for c in r["corners"]]), None)}

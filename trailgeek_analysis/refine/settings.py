@@ -14,10 +14,11 @@ import math
 
 MAX_NODES = 9          # 8 segments
 
-# per: "metre" = averaged along the line (cost per metre over the input
-# length); "corner" = summed per corner; "run" = once per run.
+# per: "metre" = the curve integrated along the line, per 100 m; "corner" =
+# summed per corner; "turn" = per right angle turned; "run" = once, times the
+# input length / 100 m (length). One scale, so k means the same on any route.
 FACTOR_META = {
-    "grade": {"label": "Grade", "x": "design |grade| over 10 m (per metre, plus a quarter for the steepest 10 m)", "unit": "%", "per": "metre",
+    "grade": {"label": "Grade", "x": "design |grade| over 10 m, plus a quarter of the steepest 10 m's cost; keep it convex (see the note)", "unit": "%", "per": "metre",
               "xmin": 0, "xmax": 60, "snap": 0.5},
     "corner": {"label": "Corners", "x": "tightest radius of a turn in which the downhill side changes; the curve's floor is what every corner costs, so fewer corners win", "unit": "m",
                "per": "corner", "xmin": 0, "xmax": 30, "snap": 0.5},
@@ -29,7 +30,7 @@ FACTOR_META = {
               "xmin": 0, "xmax": 150, "snap": 1},
     "cutfill": {"label": "Cut and fill", "x": "|design − ground|", "unit": "m", "per": "metre",
                 "xmin": 0, "xmax": 0.75, "snap": 0.01},
-    "offset": {"label": "Distance from input", "x": "sideways offset", "unit": "m", "per": "metre",
+    "offset": {"label": "Distance from your line", "x": "beyond its uncertainty, after the room a sketched corner needs to round", "unit": "m", "per": "metre",
                "xmin": 0, "xmax": 25, "snap": 0.5},
     "length": {"label": "Length", "x": "length / input length", "unit": "×", "per": "run",
                "xmin": 0.8, "xmax": 1.3, "snap": 0.01},
@@ -40,9 +41,12 @@ FACTOR_ORDER = list(FACTOR_META)
 
 DEFAULT_SETTINGS = {
     "factors": {
-        # Keeps rising to 55 %: a curve that tops out early gives no pressure on
-        # a steep route (every metre past the last node costs the same).
-        "grade": {"k": 10, "curve": [[0, 0], [8, 0], [12, 0.1], [18, 0.35], [25, 0.6], [40, 0.9], [55, 1]]},
+        # CONVEX up to 60 %. Climbing a height costs (curve / grade) per metre
+        # of climb, so where the curve flattens, steeper-and-shorter gets
+        # cheaper and the search heads up the fall line, dropping switchbacks
+        # (it did, on Upper ascent A). Keep y / x rising up to the steepest
+        # grade you would accept.
+        "grade": {"k": 10, "curve": [[0, 0], [8, 0], [12, 0.05], [18, 0.15], [25, 0.3], [35, 0.5], [45, 0.75], [60, 1]]},
         # Never 0: every corner costs at least 0.2, so of two otherwise equal
         # lines the one with fewer corners wins (owner, 2026-10-17).
         "corner": {"k": 5, "curve": [[0, 1], [3, 1], [6, 0.5], [10, 0.3], [15, 0.2]]},
@@ -50,12 +54,15 @@ DEFAULT_SETTINGS = {
         "bend": {"k": 1, "curve": [[0, 1], [5, 1], [10, 0.3], [20, 0]]},
         "slope": {"k": 3, "curve": [[0, 0], [60, 0], [80, 0.3], [100, 1]]},
         "cutfill": {"k": 5, "curve": [[0, 0], [0.1, 0], [0.3, 0.3], [0.5, 1]]},
-        "offset": {"k": 2, "curve": [[0, 0], [5, 0], [10, 0.2], [20, 1]]},
+        # x is distance beyond the line's uncertainty (3 m by default), so with
+        # the defaults: free to ~5 m off a straight stretch, 0.2 at ~10 m, 1 at ~20 m.
+        "offset": {"k": 2, "curve": [[0, 0], [2, 0], [7, 0.2], [17, 1]]},
         "length": {"k": 3, "curve": [[0.8, 0], [1.02, 0], [1.1, 0.5], [1.2, 1]]},
         "drainage": {"k": 1, "curve": [[0, 0], [60, 0], [120, 0.5], [200, 1]]},
     },
     "params": {
-        "corridor_m": 25, "cutfill_max_m": 0.75, "bench_m": 2.5, "spacing_m": 2.0, "knot_m": 10,
+        "corridor_m": 25, "cutfill_max_m": 0.75, "bench_m": 2.5, "spacing_m": 2.0, "knot_m": 8,
+        "input_sigma_m": 3.0, "sketch_radius_m": 10.0,
         "iterations": 1500, "chains": 4, "min_outslope_pct": 10, "reversal_dip_m": 0.3,
         "seed": 0,
     },
@@ -63,11 +70,13 @@ DEFAULT_SETTINGS = {
 
 # name: (label, min, max, integer?)
 PARAM_META = {
-    "corridor_m": ("Corridor half-width, m", 2, 40, False),
+    "input_sigma_m": ("How far your line may be from what you mean, m (sketch 3-5, GPS or existing trail 0.5)", 0, 15, False),
+    "sketch_radius_m": ("Radius a sketched corner implies, m", 2, 40, False),
+    "corridor_m": ("Corridor: most distance beyond the uncertainty and corner room, m", 2, 40, False),
     "cutfill_max_m": ("Most cut or fill allowed, m", 0.05, 1.5, False),
     "bench_m": ("Bench width for side slope, m", 1, 6, False),
     "spacing_m": ("Sample spacing, m", 1, 5, False),
-    "knot_m": ("Offset control spacing, m", 4, 40, False),
+    "knot_m": ("Control spacing on straight stretches, m", 3, 40, False),
     "iterations": ("Iterations per chain", 50, 20000, True),
     "chains": ("Chains", 1, 8, True),
     "min_outslope_pct": ("Least side slope that sets the downhill side, %", 2, 50, False),

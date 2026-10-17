@@ -22,7 +22,7 @@ window.TgRefine = (function () {
   var meta = null, settings = null, mine = null;
   var legSel = [], baseline = null, result = null, runJob = null, chosen = 0, stale = false;
   var editors = {}, pollTimer = null, baseTimer = null, seq = 0;
-  var CAND = ['#d9480f', '#1864ab', '#2b8a3e'];
+  var CAND = ['#d9480f', '#1864ab', '#2b8a3e', '#7048e8'];
   var SRC = 'refine-cands', LAYERS = ['refine-cands-all', 'refine-cands-chosen'];
 
   function $(id) { return document.getElementById(id); }
@@ -71,9 +71,9 @@ window.TgRefine = (function () {
   function render() {
     var p = f.properties, h = '';
     h += '<div class="tg-kind">Refine</div><h2>' + esc(p.name) + '</h2>';
-    h += '<div class="tg-small tg-muted">Proposes modest tweaks that fit the terrain better. Nothing changes until you save a candidate, which becomes a variant of this alignment. <a href="#" id="rf-back">Back to the alignment</a></div>';
+    h += '<div class="tg-small tg-muted">Reads your line as a sketch of a smooth path (sharp corners are taken to mean rounder ones) and proposes versions that fit the terrain better. Nothing changes until you save a candidate, which becomes a variant of this alignment. <a href="#" id="rf-back">Back to the alignment</a></div>';
     h += '<div class="tg-sub">Legs to refine</div><div id="rf-legs" class="rf-legs"></div><div id="rf-legmsg" class="tg-small tg-error"></div>';
-    h += '<div class="tg-sub">Factors</div><div class="tg-small tg-muted">Each curve gives the cost, 0 to 1, by value; k weights it, and 0 ignores the factor. Drag a node; drag a flat stretch up or down, a ramp sideways; double-click a segment to add a node; drag a node off the chart to remove it. Grey bars: the selected legs today.</div>';
+    h += '<div class="tg-sub">Factors</div><div class="tg-small tg-muted">Each curve gives the cost, 0 to 1, by value; k weights it, and 0 ignores the factor. One scale throughout: k for a per-100 m factor is what 100 m at full cost costs, so with grade at 10 and corners at 5, a full-cost corner is as bad as 50 m at full grade cost. Drag a node; drag a flat stretch up or down, a ramp sideways; double-click a segment to add a node; drag a node off the chart to remove it. Grey bars: the selected legs today.</div>';
     h += '<div id="rf-factors"></div>';
     h += '<details class="tg-more"><summary>Run parameters</summary><div id="rf-params" class="rf-params"></div></details>';
     h += '<div class="tg-actions"><button id="rf-run" class="tg-btn tg-primary">Run</button>' +
@@ -134,7 +134,7 @@ window.TgRefine = (function () {
       row.innerHTML = '<div class="rf-fhead"><strong>' + esc(m.label) + '</strong>' +
         (m.stub ? ' <span class="tg-badge" title="Deliberately primitive for now: sites are low points of the design line and ground dips; no groundwater or terrain below the trail yet">stub</span>' : '') +
         '<span class="tg-muted tg-small">' + esc(m.x) + ' (' + esc(m.unit) + ') · ' +
-        (m.per === 'metre' ? 'per metre' : m.per === 'corner' ? 'per corner' : m.per === 'turn' ? 'per right angle' : 'once') + '</span>' +
+        (m.per === 'metre' ? 'per 100 m' : m.per === 'corner' ? 'per corner' : m.per === 'turn' ? 'per right angle' : 'per 100 m of your line') + '</span>' +
         '<label class="rf-k" title="Weight of this factor; 0 ignores it">k <input type="number" min="0" max="1000" step="0.5" value="' + s.k + '"></label></div>' +
         '<div class="rf-curve"></div>';
       box.appendChild(row);
@@ -346,7 +346,7 @@ window.TgRefine = (function () {
     var factors = meta.factors.filter(function (m) {
       return (settings.factors[m.name].k > 0) || inp.contrib[m.name] || cs.some(function (c) { return c.contrib[m.name]; });
     });
-    h += '<div class="tg-sub">Compare</div><div class="tg-scroll"><table class="tg-metrics rf-results"><tr><th></th><th>Input</th>';
+    h += '<div class="tg-sub">Compare</div><div class="tg-scroll"><table class="tg-metrics rf-results"><tr><th></th><th title="Your line exactly as drawn, scored the same way">As drawn</th>';
     cs.forEach(function (c, i) {
       h += '<th><label title="Show this candidate"><input type="radio" name="rf-cand" value="' + i + '"' + (i === chosen ? ' checked' : '') + '> <i class="rf-sw" style="background:' + CAND[i] + '"></i>' + esc(c.label) + '</label></th>';
     });
@@ -367,8 +367,8 @@ window.TgRefine = (function () {
     h += row('Max grade', function (d) { return d.stats.grade_max; }, function (v) { return n(v, 1) + ' %'; }, true);
     h += row('Grade, 95th pct', function (d) { return d.stats.grade_p95; }, function (v) { return n(v, 1) + ' %'; }, true);
     h += row('Length', function (d) { return d.length_m; }, function (v) { return n(v) + ' m'; }, null);
-    h += row('Offset, max', function (d) { return d.stats.offset_max; }, function (v) { return n(v, 1) + ' m'; }, null);
-    h += row('Offset, mean', function (d) { return d.stats.offset_mean; }, function (v) { return n(v, 1) + ' m'; }, null);
+    h += row('From your line, max', function (d) { return d.stats.offset_max; }, function (v) { return n(v, 1) + ' m'; }, null, 'Straight-line distance to the nearest point of your line, before any allowance for rounding its corners');
+    h += row('From your line, mean', function (d) { return d.stats.offset_mean; }, function (v) { return n(v, 1) + ' m'; }, null);
     h += row('Cut or fill, max', function (d) { return d.stats.cut_max; }, function (v) { return n(v, 2) + ' m'; }, null);
     h += row('Tube half-width', function (d) { return d.t; }, function (v) { return n(v, 2) + ' m'; }, null);
     h += row('Corners', function (d) { return d.stats.corners; }, function (v) { return n(v); }, null);
@@ -376,7 +376,7 @@ window.TgRefine = (function () {
     h += row('Tightest bend anywhere', function (d) { return d.stats.bend_min_r; }, function (v) { return v == null ? '–' : n(v, 1) + ' m'; }, false, 'Smallest radius over any 5 m of the line, corners included: kinks show here');
     h += row('Reversal sites (stub)', function (d) { return d.stats.reversals; }, function (v) { return n(v); }, null);
     h += '</table></div>';
-    h += '<div class="tg-small tg-muted">' + terrainNote(res) + ' The input is scored with the same cut/fill tube as the candidates, so the comparison is fair.</div>';
+    h += '<div class="tg-small tg-muted">' + terrainNote(res) + ' Your line is scored as drawn with the same cut/fill tube as the candidates. "Your line, smoothed" is the smooth reading of it every search starts from: the gain from rounding alone.</div>';
     if (cs.length) {
       h += '<div class="tg-sub">Profile <span class="tg-muted">ground thin, design grade line thick, cut and fill shaded; the input dashed</span></div><div id="rf-prof" class="rf-prof"></div>';
       h += '<div class="tg-actions"><button id="rf-save" class="tg-btn tg-primary">Save as variant</button> <a href="#" id="rf-zoom">Zoom to</a></div>';
@@ -436,7 +436,7 @@ window.TgRefine = (function () {
   function addLayers() {
     var map = app.map;
     if (!map.getSource(SRC)) map.addSource(SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    var colors = ['match', ['get', 'i'], 0, CAND[0], 1, CAND[1], CAND[2]];
+    var colors = ['match', ['get', 'i'], 0, CAND[0], 1, CAND[1], 2, CAND[2], CAND[3]];
     if (!map.getLayer(LAYERS[0])) map.addLayer({ id: LAYERS[0], type: 'line', source: SRC,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': colors, 'line-width': 2, 'line-opacity': 0.55, 'line-dasharray': [2, 1.5] } });
