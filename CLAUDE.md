@@ -168,6 +168,14 @@ server and Django reasoning rather than assume it.
   saves one as a variant (`Alignment.refinement` keeps settings and seed).
   Defaults are per user (`UserSetting`, key `refine`). Design, decisions and
   what changed while building: docs/REFINE_TOOL.md. Migration 0005.
+- **Project notes** (branch `project-notes`, draft PR hig314/trailgeek#11,
+  stacked on `refine-design` because its migration 0006 follows 0005; built
+  on the Mac 2026-10-17): `ProjectNote`, a point with a note, per project.
+  The open project's notes (or the open alignment's project's) show as amber
+  points; click one to read, edit, move or delete it; "Add a note" in the
+  panel, then click the map. Only those who can edit the project see them,
+  so a public project's notes stay private, and they are not in the
+  exports. `tg_notes.js`, `core/notes_views.py`.
 - **Open:** R2 CORS for trailgeek.org is **done on both hosts**, verified
   from the Mac 2026-09-27 with an Origin header: the `landslidescience-lidar`
   bucket (owner) and the lidar-tiles Worker on `tiles.landslidescience.org`

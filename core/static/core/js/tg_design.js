@@ -135,10 +135,12 @@ window.TgDesign = (function () {
     h += '<div class="tg-links"><a href="#" id="zoomto">Zoom to</a> · <a href="#" id="sideview" title="Look at it (nearly) horizontally, from the side, to see how steady the climb is">Side view</a> · ' +
          '<a href="/api/alignments/' + p.id + '.gpx" title="One track per leg, with waypoints where legs join; opens in GaiaGPS and the field map app">GPX</a> · ' +
          '<a href="/api/alignments/' + p.id + '.geojson" download="alignment-' + p.id + '.geojson">GeoJSON</a></div>';
+    if (p.can_edit) h += '<div id="notes-box"></div>';
     h += '<div class="tg-sub">Profile <span id="profsrc" class="tg-muted"></span></div>';
     $('detail').innerHTML = h;
     $('profstats').innerHTML = p.evaluation ? '<div class="tg-keys">' + app.profile.legend(true) + '</div>' : '';
     wireView(f);
+    TgNotes.setProject(p.can_edit ? { slug: p.project.slug, name: p.project.name } : null, $('notes-box'), false);
     if (p.evaluation) drawProfile(p.evaluation);
     else app.quickProfile(f);
     if (p.evaluation_status === 'queued') pollSaved(p.id);
@@ -263,6 +265,7 @@ window.TgDesign = (function () {
     if (p.description) h += '<p class="tg-desc tg-small">' + esc(p.description) + '</p>';
     if (p.can_edit) h += '<div class="tg-actions"><button id="d-new" class="tg-btn tg-primary">New alignment</button></div>';
     else h += '<div class="tg-muted tg-small">Read-only view: anyone with this page\'s link can see and download it. Editing needs a sign-in with the trail_editors role and membership of the project.</div>';
+    if (p.can_edit) h += '<div id="notes-box"></div>';
     if (p.children && p.children.length) {
       h += '<div class="tg-sub">Projects within this one</div><ul class="tg-list">' +
            p.children.map(function (q) { return '<li><a href="#project=' + esc(q.slug) + '">' + esc(q.name) + '</a></li>'; }).join('') + '</ul>';
@@ -306,6 +309,7 @@ window.TgDesign = (function () {
       th.addEventListener('click', function () { var k = th.dataset.k; sortDir = sortK === k ? -sortDir : 1; sortK = k; fill(); });
     });
     var n_ = $('d-new'); if (n_) n_.addEventListener('click', function () { newAlignment(p.id); });
+    TgNotes.setProject(p.can_edit ? { slug: p.slug, name: p.name } : null, $('notes-box'), true);
     // Fit to the project unless the caller keeps the view: a link with its own
     // map= (the other kinds have always honoured it), or a save / delete that
     // reopens the panel over the place being worked on.
@@ -529,6 +533,6 @@ window.TgDesign = (function () {
     newAlignment: newAlignment,
     editing: function () { return editing; },
     leave: function () { if (window.TgRefine) TgRefine.close(); if (editing) { if (dirty && !confirm('Discard your changes to this alignment?')) return false; stopEdit(); } return true; },
-    onStyleReload: function () { if (ed && editing) ed.reattach(); if (window.TgRefine) TgRefine.onStyleReload(); }
+    onStyleReload: function () { if (ed && editing) ed.reattach(); if (window.TgRefine) TgRefine.onStyleReload(); if (window.TgNotes) TgNotes.onStyleReload(); }
   };
 })();

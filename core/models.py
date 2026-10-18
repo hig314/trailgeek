@@ -396,6 +396,29 @@ class Leg(models.Model):
         super().save(*args, **kwargs)
 
 
+class ProjectNote(models.Model):
+    """A note at a place, for a project: a creek crossing to check, a
+    flagged corner, a landowner's gate. Seen and edited only by those who can
+    edit the project (core.access.can_edit_project), so a public project's
+    notes stay private; the description is the public text."""
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="notes")
+    geom = models.PointField(srid=4326)
+    text = models.TextField()
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                               on_delete=models.SET_NULL, related_name="+")
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                   on_delete=models.SET_NULL, related_name="+")
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created"]
+
+    def __str__(self):
+        return self.text[:60]
+
+
 class UserSetting(models.Model):
     """A person's own defaults for a tool, as JSON under a key (`refine` for
     the refine tool). One layer of a merge chain: site defaults in code,

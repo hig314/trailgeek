@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.gis import admin as gis_admin
 
-from .models import Alignment, DemSource, Leg, Project, Trail, Track
+from .models import Alignment, DemSource, Leg, Project, ProjectNote, Trail, Track
 
 
 @admin.register(DemSource)
@@ -78,3 +78,11 @@ class AlignmentAdmin(admin.ModelAdmin):
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
         form.instance.rebuild_from_legs()
+
+
+@admin.register(ProjectNote)
+class ProjectNoteAdmin(gis_admin.GISModelAdmin):
+    list_display = ("text", "project", "author", "updated")
+    list_filter = ("project",)
+    search_fields = ("text",)
+    raw_id_fields = ("project",)

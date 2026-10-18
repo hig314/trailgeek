@@ -170,3 +170,9 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .rf-results td.tg-better { color: #1f7a33; }
 .rf-results td.tg-worse { color: #b3261e; }
 .rf-prof svg { display: block; }
+.tg-notes-edit { width: 100%; min-width: 240px; box-sizing: border-box; font: inherit; font-size: 13px; }
+.tg-notes-hint { color: #8a5a00; font-weight: 600; margin: 4px 0; }
+.tg-notes-list li { margin: 2px 0; }
+.tg-note-pop .maplibregl-popup-content { padding: 10px 12px; }
+.tg-note-text { white-space: pre-wrap; font-size: 13px; margin-bottom: 4px; }
+.tg-note-acts { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
