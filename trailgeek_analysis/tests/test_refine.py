@@ -233,7 +233,7 @@ class CornerTests(unittest.TestCase):
 class SketchTests(unittest.TestCase):
     """The person's line as evidence of a smooth intent (2026-10-17): the
     start is a smooth fit to it, rounded more for a loose sketch than for a
-    precise line, and rounding a sketched corner costs no distance."""
+    precise line, inside the search's limit."""
     SQUARE = [np.array([[0, 0], [100, 0], [100, 80]], float)]
 
     def start(self, legs, sigma, grid=None):
@@ -256,14 +256,24 @@ class SketchTests(unittest.TestCase):
             self.assertIsNotNone(r, legs)
             self.assertFalse(prob.folds(prob.start()))
 
-    def test_rounding_a_sketched_corner_to_the_sketch_radius_is_free(self):
-        prob, _ = self.start(self.SQUARE, 0.0)
-        R = prob.R_sketch
-        a = np.linspace(-np.pi / 2, 0, 30)
-        arc = np.column_stack([100 - R + R * np.cos(a), R + R * np.sin(a)])
-        self.assertLess(prob.eff_grid.sample(arc[:, 0], arc[:, 1]).max(), 0.6)
-        far = prob.eff_grid.sample(np.array([50.0]), np.array([-10.0]))[0]
-        self.assertGreater(far, 9)                                    # off a straight stretch it costs
+    def test_a_narrow_search_keeps_a_sketched_corner_tight(self):
+        # No allowance at sketched corners (owner, 2026-10-18): within 2 m of
+        # a square corner, the start rounds it only as far as 2 m allows.
+        prob = Problem(self.SQUARE, plane_grid(-60, -120, 260, 160),
+                       clean_settings({"params": {"input_sigma_m": 3.0, "corridor_m": 2}}))
+        r = prob.score(prob.start(), 0.1, detail=True)
+        self.assertIsNotNone(r)
+        self.assertLessEqual(r["dist"].max(), 2 + 1e-6)
+        wide = Problem(self.SQUARE, plane_grid(-60, -120, 260, 160), clean_settings({"params": {"input_sigma_m": 3.0}}))
+        self.assertLess(r["bend_r"].min(), wide.score(wide.start(), 0.1, detail=True)["bend_r"].min())
+
+    def test_distance_from_the_line_is_a_limit_not_a_cost(self):
+        s = clean_settings({"factors": {"offset": {"k": 5}}, "params": {"corridor_m": 6, "iterations": 300, "chains": 2}})
+        self.assertNotIn("offset", s["factors"])                       # an older layer's weight is ignored
+        r = refine(self.SQUARE, plane_grid(-60, -120, 260, 160), s, seed=3)
+        for c in r["candidates"]:
+            self.assertLessEqual(c["stats"]["offset_max"], 6 + 0.01)
+            self.assertNotIn("offset", c["contrib"])
 
     def test_respacing_keeps_the_shape(self):
         prob, _ = self.start(self.SQUARE, 3.0)

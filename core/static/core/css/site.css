@@ -150,6 +150,8 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .rf-svg { display: block; user-select: none; -webkit-user-select: none; }
 .rf-wrow { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
 .rf-w { flex: 1; min-width: 120px; accent-color: var(--tg-accent, #2f6b2f); }
+.rf-reach { margin: 6px 0 4px; }
+.rf-reach input { width: 64px; }
 .rf-wn { width: 64px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .rf-zero { stroke: #888; stroke-width: 1; }
 .rf-band { fill: #e8590c; opacity: 0.10; }

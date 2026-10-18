@@ -248,7 +248,7 @@ default 1500 iterations × 4 chains.
   ground dip is 0.3 m, not 0.15 m, which triggered almost everywhere on raw
   0.5 m lidar. It still finds ~1 site per 30 m on rough ground, so the
   drainage factor rarely bites yet: expected of a stub.
-- **Chains** are weighted base, closer (offset and length ×2), steadier
+- **Chains** are weighted base, closer (offset and length ×2; since §14 the limit halved), steadier
   (grade ×2), base; candidates are the best under the base weights plus the
   best of the closer and steadier chains, deduplicated.
 - **Corners on real lidar:** the inputs show more outslope flips than an eye
@@ -568,3 +568,28 @@ as this many metres of its grade) is now a parameter.
 
 **Later** (owner): a cost surface over two dimensions (TSA and terrain
 slope, say) rather than one curve each; not yet.
+
+## 14. Distance from your line is a limit, not a cost (owner, 2026-10-18)
+
+A trail further from the sketch is not worse on the ground, so the
+"distance from your line" factor is gone. The line's position enters only
+through **Search within X m of your line** (`corridor_m`, 2 to 200 m,
+default 25), at the top of the panel: a hard limit measured straight from
+the line, corners included. There is **no allowance at sketched corners**
+and the line's uncertainty no longer widens it: a narrow search around a
+tight sketched corner gives a tight corner, as asked. The smooth start
+rounds sketched corners and smooths less, in steps, until it fits inside
+the limit (`START_SHRINK`).
+
+- The "Closer to your line" candidate is now **Within half the distance**:
+  the same search with the limit halved (skipped if the start does not fit).
+- The table keeps the distance as statistics (max and mean) and adds
+  **Along the search limit**, the length within 1 m of it: where a candidate
+  presses against the limit, a wider search may do better.
+- Older settings with a distance weight have it ignored.
+- A wider search reads more terrain (and TWI) and has more room to cover.
+  Lagoon Bypass at 25 m and at 60 m both took ~80 s and found candidates at
+  most ~17 m from the line, none against the limit. The moves' size
+  (bumps of 5 m falling to 0.3 m, `SIGMA0` / `SIGMA_END`) does not grow with
+  the limit, so a wide search explores its far side slowly: scaling them
+  with the limit is the obvious next step if wide searches matter.

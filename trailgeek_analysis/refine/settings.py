@@ -59,12 +59,15 @@ FACTOR_META = {
             "xmin": 0, "xmax": 20, "snap": 0.5},
     "cutfill": {"label": "Cut and fill", "x": "design − ground: cut below 0, fill above. Cut effort grows about as depth squared; fill is loose until compacted and soon useless on a slope", "unit": "m", "per": "metre",
                 "xmin": -2, "xmax": 0.6, "snap": 0.01},
-    "offset": {"label": "Distance from your line", "x": "beyond its uncertainty, after the room a sketched corner needs to round", "unit": "m", "per": "metre",
-               "xmin": 0, "xmax": 25, "snap": 0.5},
     "drainage": {"label": "Drainage (stub)", "x": "distance since the last grade reversal", "unit": "m",
                  "per": "metre", "xmin": 0, "xmax": 300, "snap": 5, "stub": True},
 }
 FACTOR_ORDER = list(FACTOR_META)
+# Factors that were dropped: ignored where an older saved layer has them.
+# "offset", distance from your line (owner, 2026-10-18): a trail further from
+# the sketch is not worse on the ground; the search's limit, corridor_m, is
+# the only place the line's position enters.
+RETIRED = {"offset", "length"}
 
 DEFAULT_SETTINGS = {
     "version": VERSION,
@@ -102,9 +105,6 @@ DEFAULT_SETTINGS = {
         # compacted, so past ~20 cm it climbs steeply (0.3 m is 1, 0.4 m 5).
         "cutfill": {"k": 1.67, "curve": [[-2, 8], [-1, 2], [-0.5, 0.5], [-0.25, 0.125], [-0.1, 0.02], [0, 0.01],
                                          [0.1, 0.05], [0.2, 0.2], [0.4, 5]]},
-        # x is distance beyond the line's uncertainty (3 m by default), so with
-        # the defaults: free to ~5 m off a straight stretch, 0.2 at ~10 m, 1 at ~20 m.
-        "offset": {"k": 0.67, "curve": [[0, 0.01], [2, 0.01], [4.5, 0.1], [7, 0.2], [17, 1]]},
         "drainage": {"k": 0.33, "curve": [[0, 0.01], [60, 0.01], [90, 0.25], [120, 0.5], [200, 1]]},
     },
     "params": {
@@ -121,7 +121,7 @@ PARAM_META = {
     "sketch_radius_m": ("Radius a sketched corner implies, m", 2, 40, False),
     "fall_tsa_deg": ("Fall-line band: TSA below this has no downhill side (corners) and counts as fall-line tread, degrees (also the band on the TSA curve)", 5, 60, False),
     "corner_min_turn_deg": ("A side change turning less than this is a crossing (of a crest or a gully), not a corner, degrees", 15, 150, False),
-    "corridor_m": ("Corridor: most distance beyond the uncertainty and corner room, m", 2, 40, False),
+    "corridor_m": ("Search within this distance of your line, m (wider takes longer: the terrain is read for all of it)", 2, 200, False),
     "cutfill_max_m": ("Most cut along the line, m (fill goes as far as costs the same on the cut and fill curve)", 0.05, 1.5, False),
     "corner_cut_max_m": ("Most cut where a corner is dug in, m", 0.05, 4, False),
     "grade_peak_m": ("The steepest 10 m is charged again as this many metres of its grade", 0, 200, False),
@@ -235,6 +235,8 @@ def clean_settings(raw, partial=False):
     raw = upgrade(raw) if raw else raw
     out = {"version": VERSION, "factors": {}, "params": {}}
     for name, f in (raw.get("factors") or {}).items():
+        if name in RETIRED:
+            continue
         if name not in FACTOR_META:
             raise ValueError(f"unknown factor {name!r}")
         if not isinstance(f, dict):

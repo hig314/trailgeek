@@ -35,12 +35,14 @@ MARGIN = 0.10                       # a candidate may be worse on one factor by 
 RESPACE_EVERY = 250
 RESPACE_TOL = 0.01                  # a re-spacing is kept if it changes the total by less than this share
 
+# (key, label, weight multipliers, share of the search distance)
 CHAIN_VARIANTS = [
-    ("best", "Best overall", {}),
-    ("closer", "Closer to your line", {"offset": 2.0, "length": 2.0}),
-    ("steadier", "Steadier grade", {"grade": 2.0}),
-    ("best", "Best overall", {}),
+    ("best", "Best overall", {}, 1.0),
+    ("closer", "Within half the distance", {}, 0.5),
+    ("steadier", "Steadier grade", {"grade": 2.0}, 1.0),
+    ("best", "Best overall", {}, 1.0),
 ]
+EDGE_M = 1.0                        # m: within this of the search's limit counts as "along the edge"
 
 
 def _control_of_sample(prob, i):
@@ -126,7 +128,7 @@ def anneal(prob, rng, iters, k, t0, progress=None):
     t = t0
     cur = prob.score(c, t, k)
     if cur is None:
-        raise ValueError("the smoothed line leaves the corridor or the terrain data")
+        raise ValueError("the smoothed line leaves the search distance or the terrain data")
     best = (cur["total"], c.copy(), t)
     worse = []
     for _ in range(30):
@@ -187,6 +189,7 @@ def _json_detail(prob, r, legs):
             "corner_dig_max": round(max([c["dig_m"] for c in r["corners"]]), 2) if r["corners"] else None,
             "offset_max": round(float(dist.max()), 1),
             "offset_mean": round(float((dist * r["w"]).sum() / r["length_map_m"]), 1),
+            "edge_m": round(float((r["w"] * (dist >= prob.corridor - EDGE_M)).sum()), 1),
             "corners": len(r["corners"]),
             "corner_min_r": round(min([c["radius_m"] for c in r["corners"]]), 1) if r["corners"] else None,
             "climbing_turns": sum(1 for c in r["corners"] if c["kind"] == "climbing turn"),
@@ -223,7 +226,7 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None):
     k = prob.base_k
     found = _best_tube(lambda t, kk: prob.score_line(prob.P, t, kk), k)
     if found is None:
-        raise ValueError("the selected legs run off the terrain data (or outside the corridor read for them), so they cannot be scored")
+        raise ValueError("the selected legs run off the terrain data, so they cannot be scored")
     t_in = min(found[1], prob.tmax)
     inp = prob.score_line(prob.P, t_in, k, detail=True)
     prob.grade_ref = float(inp["grade"].max())
@@ -235,13 +238,21 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None):
     iters, chains = int(p["iterations"]), int(p["chains"])
     results = []
     for ci in range(chains):
-        key, label, mult = CHAIN_VARIANTS[ci % len(CHAIN_VARIANTS)]
+        key, label, mult, reach = CHAIN_VARIANTS[ci % len(CHAIN_VARIANTS)]
         kk = {f: v * mult.get(f, 1.0) for f, v in k.items()}
         crng = np.random.default_rng(rng.integers(1, 2 ** 31 - 1))
         cb = None
         if progress:
             cb = lambda i, b, ci=ci: progress((ci * iters + i) / (chains * iters), b)
-        total, c, t = anneal(prob, crng, iters, kk, min(t0, prob.tmax), cb)
+        prob.limit = prob.corridor * reach
+        try:
+            total, c, t = anneal(prob, crng, iters, kk, min(t0, prob.tmax), cb)
+        except ValueError:
+            if reach == 1.0:
+                raise
+            continue                                  # the start does not fit the narrower limit
+        finally:
+            prob.limit = prob.corridor
         r = prob.score(c, t, k, detail=True)
         if r is not None:
             results.append((key, label, c, r))

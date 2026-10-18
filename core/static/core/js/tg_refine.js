@@ -76,6 +76,8 @@ window.TgRefine = (function () {
     h += '<div class="tg-kind">Refine</div><h2>' + esc(p.name) + '</h2>';
     h += '<div class="tg-small tg-muted">Reads your line as a sketch of a smooth path (sharp corners are taken to mean rounder ones) and proposes versions that fit the terrain better. Nothing changes until you save a candidate, which becomes a variant of this alignment. <a href="#" id="rf-back">Back to the alignment</a></div>';
     h += '<div class="tg-sub">Legs to refine</div><div id="rf-legs" class="rf-legs"></div><div id="rf-legmsg" class="tg-small tg-error"></div>';
+    h += '<div class="rf-reach"><label>Search within <input type="number" id="rf-reach" min="2" max="200" step="1"> m of your line</label>' +
+         '<div class="tg-small tg-muted">A hard limit, measured straight from your line, corners included: candidates never go further, and being nearer costs nothing. Wider finds more but takes longer (the terrain is read for all of it, and a bigger space wants more iterations).</div></div>';
     h += '<div class="tg-sub">Factors</div><div class="tg-small tg-muted">Costs are in metres of <strong>equivalent effort</strong>: the length of easy trail a line is as much work as. Its length along the slope (the climb counted) is the base; each factor adds to it. A weight is the extra metres where the factor\'s curve is at 1: per metre of trail, per corner, or per right angle turned (grade at 3.3 makes 100 m at curve 1 as much as 430 m of easy trail). 0 ignores a factor. Each curve is the cost by value, on a log scale (+ and − zoom it, fit frames it), anchors joined in straight lines on that scale; there is no 0, and 0.01 is next to nothing. Drag a node; drag a flat stretch up or down, a ramp sideways; double-click a segment to add a node, a node to remove it (or drag it off the chart). Grey bars: the selected legs today.</div>';
     h += '<div id="rf-factors"></div>';
     h += '<details class="tg-more"><summary>Run parameters</summary><div id="rf-params" class="rf-params"></div></details>';
@@ -86,6 +88,10 @@ window.TgRefine = (function () {
     h += '<div id="rf-status"></div><div id="rf-results"></div>';
     $('detail').innerHTML = h;
     renderLegs(); renderFactors(); renderParams();
+    $('rf-reach').addEventListener('change', function () {
+      var v = Math.min(200, Math.max(2, Math.round(+this.value || 25)));
+      this.value = v; settings.params.corridor_m = v; changed(); queueBaseline(400);
+    });
     $('rf-back').addEventListener('click', function (e) { e.preventDefault(); var id = f.properties.id; close(); app.select('align', id, false); });
     $('rf-run').addEventListener('click', run);
     $('rf-def').addEventListener('click', function () {
@@ -160,9 +166,11 @@ window.TgRefine = (function () {
   function renderParams() {
     var h = '';
     meta.params.forEach(function (p) {
+      if (p.name === 'corridor_m') return;                  // at the top of the panel
       h += '<label>' + esc(p.label) + ' <input type="number" data-p="' + p.name + '" min="' + p.min + '" max="' + p.max + '" step="' + (p.integer ? 1 : 'any') + '" value="' + settings.params[p.name] + '"></label>';
     });
     $('rf-params').innerHTML = h;
+    var rr = $('rf-reach'); if (rr) rr.value = settings.params.corridor_m;
     Array.prototype.forEach.call(document.querySelectorAll('#rf-params input'), function (inp) {
       inp.addEventListener('change', function () {
         var p = meta.params.filter(function (q) { return q.name === inp.dataset.p; })[0];
@@ -428,7 +436,7 @@ window.TgRefine = (function () {
     var res = result, cs = res.candidates, inp = res.input, h = '';
     h += '<div id="rf-stale" class="tg-small tg-note" style="display:none">Settings changed since this run: run again to see their effect.</div>';
     if (!cs.length) {
-      h += '<div class="tg-status">No candidate beat the input without making some factor notably worse. Try more iterations, a wider corridor, or different weights.</div>';
+      h += '<div class="tg-status">No candidate beat the input without making some factor notably worse. Try more iterations, a wider search distance, or different weights.</div>';
     }
     var factors = meta.factors.filter(function (m) {
       return (settings.factors[m.name].k > 0) || inp.contrib[m.name] || cs.some(function (c) { return c.contrib[m.name]; });
@@ -457,7 +465,8 @@ window.TgRefine = (function () {
     h += row('Max grade', function (d) { return d.stats.grade_max; }, function (v) { return n(v, 1) + ' %'; }, true);
     h += row('Grade, 95th pct', function (d) { return d.stats.grade_p95; }, function (v) { return n(v, 1) + ' %'; }, true);
     h += row('Length on the map', function (d) { return d.length_map_m; }, function (v) { return n(v) + ' m'; }, null);
-    h += row('From your line, max', function (d) { return d.stats.offset_max; }, function (v) { return n(v, 1) + ' m'; }, null, 'Straight-line distance to the nearest point of your line, before any allowance for rounding its corners');
+    h += row('From your line, max', function (d) { return d.stats.offset_max; }, function (v) { return n(v, 1) + ' m'; }, null, 'Straight-line distance to the nearest point of your line');
+    h += row('Along the search limit', function (d) { return d.stats.edge_m; }, function (v) { return n(v) + ' m'; }, null, 'Length within 1 m of the search distance: where the candidate presses against it, a wider search may find better');
     h += row('From your line, mean', function (d) { return d.stats.offset_mean; }, function (v) { return n(v, 1) + ' m'; }, null);
     h += row('Cut, max', function (d) { return d.stats.cut_max; }, function (v) { return n(v, 2) + ' m'; }, null, 'Deepest cut below the ground, corners dug in included');
     h += row('Fill, max', function (d) { return d.stats.fill_max; }, function (v) { return n(v, 2) + ' m'; }, null);

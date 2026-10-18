@@ -30,6 +30,7 @@ SITE_MERGE_M = 15.0         # reversal sites closer than this are one site
 RESPACE_MAX_M = 0.25        # m: a re-spacing that would move the line more than this is skipped
 SIGMA_REF = 3.0             # m: at this uncertainty or more, sketched vertices are filleted at the full sketch radius
 FIT_SMOOTH = 0.5            # the start's curvature penalty per (sample per control) per m^2 of uncertainty
+START_SHRINK = (1.0, 0.5, 0.25, 0.1, 0.0)   # the start's rounding and smoothing, tried in turn until it fits the limit
 DIP_WINDOW_M = 10.0         # a ground dip is measured against the ground this far either side
 
 
@@ -270,31 +271,6 @@ def polyline_distance(px, py, xy, chunk=20000):
     return dist, pos
 
 
-def corner_allowance(xy, radius, cap):
-    """How far a line that rounds each sketched vertex to `radius` may stand
-    off the sketch, as a function of arc position along it: at a vertex that
-    turns by D the rounded apex is radius * (sec(D/2) - 1) away, tapering to
-    0 over the tangent length radius * tan(D/2) either side. Returns
-    (vertex positions, allowances, tangent lengths)."""
-    v = np.diff(xy, axis=0)
-    L = np.hypot(v[:, 0], v[:, 1])
-    s_v = np.cumsum(L)[:-1]
-    h = np.arctan2(v[:, 1], v[:, 0])
-    D = np.abs((np.diff(h) + np.pi) % (2 * np.pi) - np.pi)
-    half = np.minimum(D / 2, np.radians(85))
-    A = np.minimum(radius * (1 / np.cos(half) - 1), cap)
-    T = np.minimum(radius * np.tan(half), 3 * radius)
-    keep = A > 0.05
-    return s_v[keep], A[keep], np.maximum(T[keep], 1.0)
-
-
-def allowance_at(pos, s_v, A, T):
-    out = np.zeros(len(pos))
-    for sv, a, t in zip(s_v, A, T):
-        out = np.maximum(out, a * np.clip(1 - np.abs(pos - sv) / t, 0, 1))
-    return out
-
-
 class Problem:
     """The fixed parts of a refinement (docs/REFINE_TOOL.md, "the sketch as
     evidence", 2026-10-17).
@@ -303,10 +279,11 @@ class Problem:
     corners they expect to be rounded, not the frame the answer is built on.
     So a candidate is its own smooth curve, a clamped cubic B-spline through
     control points in the plane with its ends pinned to the line's ends, and
-    the line enters only through the distance cost: distance from it, less a
-    corner allowance at each sketched vertex (what rounding it to
-    `sketch_radius_m` needs), less the line's own uncertainty
-    (`input_sigma_m`). Both are precomputed on the terrain grid's cells.
+    the line enters only as a hard limit: the search stays within
+    `corridor_m` of it, plain distance (owner, 2026-10-18: being further from
+    the sketch is not worse on the ground, so it is not a cost; and no
+    allowance at sketched corners, so a tight corner in a narrow search
+    stays tight). The distance is precomputed on the terrain grid's cells.
 
     The start is a smooth fit to the line: least squares with a curvature
     penalty that grows with the uncertainty ("the smooth idea in your
@@ -341,6 +318,7 @@ class Problem:
         fv = self.f["cutfill"](xs)
         self._fill_x, self._fill_cmax = xs, np.maximum.accumulate(fv)
         self.corridor = float(p["corridor_m"])
+        self.limit = self.corridor          # the search's limit; a chain may narrow it
         self.tmax = float(p["cutfill_max_m"])
         self.bench = float(p["bench_m"])
         self.thr = float(p["min_outslope_pct"]) / 100
@@ -363,45 +341,51 @@ class Problem:
         self.ref = ref[keep]
         self._distance_fields()
 
-        # The fit target: the line with its vertices filleted (more for a
-        # loose sketch, less for a precise line), resampled evenly.
-        r_fit = max(1.5, self.R_sketch * min(1.0, self.sigma / SIGMA_REF))
-        X, _ = resample_legs([fillet(self.ref, r_fit, self.h / 2)], self.h)
-        # Weighted arc length: sharp turns get up to 3x the controls.
-        u_in, W = self.weighted_u(X)
-        K = max(4, int(round(W / float(p["knot_m"]))) + 3)
-        self.K = K
-        self.nfree = K - 2
-        B_in = spline.basis(u_in, K)
-        n = len(X)
-        # The start: least squares to the line, second differences of the
-        # controls penalised by the line's uncertainty.
-        lam = FIT_SMOOTH * (n / K) * self.sigma ** 2
-        # Candidates are sampled at even steps of the weighted parameter:
-        # ~spacing_m apart on straight ground, closer through sharp turns.
-        N = max(6, int(round(W / self.h)) + 1)
-        self.u = np.linspace(0, 1, N)
-        self.B = spline.basis(self.u, K)
-        # Each sample depends on 4 controls: keep their indices and weights,
-        # so evaluating a candidate is O(samples), not samples x controls.
-        j0 = np.clip(np.argmax(self.B > 0, axis=1), 0, K - 4)
-        self.B_idx = j0[:, None] + np.arange(4)[None, :]
-        self.B_w = np.take_along_axis(self.B, self.B_idx, axis=1)
-        self.n = N
-        self.Bg = spline.basis(spline.greville(K), K)      # where each control acts on the curve
-        self.ctrl_u = spline.greville(K)[1:K - 1]
-        # Where the smoothing would fold the line (a switchback whose arms are
-        # closer than the smoothing reaches pulls them into a cusp), relax it
-        # there and refit, until the start is a clean line.
-        row_w = np.ones(K - 2)
-        for _ in range(10):
-            self.C0 = fit_controls(B_in, X, lam, row_w)
-            bad = self._bad_samples(self.B @ self.C0)
-            if not len(bad):
+        # The start must lie within the search's limit. With a narrow limit
+        # the rounding of sketched corners and the smoothing are reduced
+        # until it does (a tight corner in a narrow search stays tight).
+        for shrink in START_SHRINK:
+            # The fit target: the line with its vertices filleted (more for a
+            # loose sketch, less for a precise line), resampled evenly.
+            r_fit = max(1.5, shrink * self.R_sketch * min(1.0, self.sigma / SIGMA_REF))
+            X, _ = resample_legs([fillet(self.ref, r_fit, self.h / 2)], self.h)
+            # Weighted arc length: sharp turns get up to 3x the controls.
+            u_in, W = self.weighted_u(X)
+            K = max(4, int(round(W / float(p["knot_m"]))) + 3)
+            self.K = K
+            self.nfree = K - 2
+            B_in = spline.basis(u_in, K)
+            n = len(X)
+            # The start: least squares to the line, second differences of the
+            # controls penalised by the line's uncertainty.
+            lam = FIT_SMOOTH * (n / K) * (shrink * self.sigma) ** 2
+            # Candidates are sampled at even steps of the weighted parameter:
+            # ~spacing_m apart on straight ground, closer through sharp turns.
+            N = max(6, int(round(W / self.h)) + 1)
+            self.u = np.linspace(0, 1, N)
+            self.B = spline.basis(self.u, K)
+            # Each sample depends on 4 controls: keep their indices and weights,
+            # so evaluating a candidate is O(samples), not samples x controls.
+            j0 = np.clip(np.argmax(self.B > 0, axis=1), 0, K - 4)
+            self.B_idx = j0[:, None] + np.arange(4)[None, :]
+            self.B_w = np.take_along_axis(self.B, self.B_idx, axis=1)
+            self.n = N
+            self.Bg = spline.basis(spline.greville(K), K)      # where each control acts on the curve
+            self.ctrl_u = spline.greville(K)[1:K - 1]
+            # Where the smoothing would fold the line (a switchback whose arms are
+            # closer than the smoothing reaches pulls them into a cusp), relax it
+            # there and refit, until the start is a clean line.
+            row_w = np.ones(K - 2)
+            for _ in range(10):
+                self.C0 = fit_controls(B_in, X, lam, row_w)
+                bad = self._bad_samples(self.B @ self.C0)
+                if not len(bad):
+                    break
+                for i in bad:
+                    j = int(np.clip(np.searchsorted(self.ctrl_u, self.u[i]), 0, K - 3))
+                    row_w[max(0, j - 3):j + 4] *= 0.25
+            if np.nanmax(self.dist_grid.sample(*(self.B @ self.C0).T)) <= self.limit:
                 break
-            for i in bad:
-                j = int(np.clip(np.searchsorted(self.ctrl_u, self.u[i]), 0, K - 3))
-                row_w[max(0, j - 3):j + 4] *= 0.25
 
     def _bad_samples(self, Q):
         """Samples where Q folds back, bunches up, or turns tighter than 1 m."""
@@ -448,15 +432,10 @@ class Problem:
         g = self.grid
         ok = np.isfinite(g.z)
         rows, cols = np.nonzero(ok)
-        dist, pos = polyline_distance(g.x0 + cols * g.res, g.y0 + rows * g.res, self.ref)
-        s_v, A, T = corner_allowance(self.ref, self.R_sketch, self.corridor)
-        eff = np.maximum(0.0, dist - allowance_at(pos, s_v, A, T) - self.sigma)
+        dist, _ = polyline_distance(g.x0 + cols * g.res, g.y0 + rows * g.res, self.ref)
         D = np.full(g.z.shape, np.nan)
-        E = np.full(g.z.shape, np.nan)
         D[rows, cols] = dist
-        E[rows, cols] = eff
         self.dist_grid = Grid(D, g.x0, g.y0, g.res)
-        self.eff_grid = Grid(E, g.x0, g.y0, g.res)
 
     def full(self, c):
         """Free controls (K-2, 2) -> all controls, ends pinned."""
@@ -619,8 +598,8 @@ class Problem:
         k = self.base_k if k is None else k
         h = self.h
         n = len(Q)
-        eff = self.eff_grid.sample(Q[:, 0], Q[:, 1])
-        if not np.isfinite(eff).all() or eff.max() > self.corridor + 1e-6:
+        dist = self.dist_grid.sample(Q[:, 0], Q[:, 1])
+        if not np.isfinite(dist).all() or dist.max() > self.limit + 1e-6:
             return None
         dQ = np.diff(Q, axis=0)
         ds = np.hypot(dQ[:, 0], dQ[:, 1])
@@ -701,11 +680,10 @@ class Problem:
         L3 = float(d3[-1])
         w3 = np.gradient(d3)
 
-        off = eff
         f = self.f
         wet = (np.nan_to_num(self.twi_grid.sample(Q[:, 0], Q[:, 1]), nan=0.0)
                if self.twi_grid is not None else np.zeros(n))
-        per = {"grade": grade, "slope": side, "cutfill": e, "offset": off, "drainage": run, "wet": wet, "tsa": tsa_v}
+        per = {"grade": grade, "slope": side, "cutfill": e, "drainage": run, "wet": wet, "tsa": tsa_v}
         vals = {name: f[name](x) for name, x in per.items()}
         if self.twi_grid is None:
             vals["wet"] = np.zeros(n)        # no wetness layer: the factor is off, not at its floor
@@ -752,7 +730,7 @@ class Problem:
             out.update({
                 "Q": Q, "d": d, "fall": fall, "tsa": tsa, "tsa_v": tsa_v, "ground": g, "design": zd, "cut": cut, "e": e,
                 "grade": grade, "side": side, "w3": w3,
-                "twi": wet, "offset": eff, "dist": self.dist_grid.sample(Q[:, 0], Q[:, 1]), "bend_r": bend_r, "zone": zone, "run": run, "sites": sites,
+                "twi": wet, "dist": dist, "bend_r": bend_r, "zone": zone, "run": run, "sites": sites,
                 "corners": [{"i": c_["mid"], "d": float(d[c_["mid"]]), "radius_m": float(c_["r"]),
                              "arc_radius_m": float(c_["r_arc"]), "side_pct": c_["side_pct"], "turn_deg": c_["turn_deg"],
                              "crossing_pct": c_["crossing"], "tsa_min": c_["tsa_min"], "kind": c_["kind"],
@@ -771,7 +749,7 @@ def histograms(r, bins=30):
     out = {}
     w = r["w3"]
     src = {"grade": (r["grade"], w), "slope": (r["side"], w), "cutfill": (r["e"], w), "tsa": (r["tsa_v"], w),
-           "offset": (r["offset"], w), "drainage": (r["run"], w), "wet": (r["twi"], w),
+           "drainage": (r["run"], w), "wet": (r["twi"], w),
            "bend": (r["bend_r"], r["w"] * ~r["zone"]),
            "corner": (np.array([c["radius_m"] for c in r["corners"]]), None),
            "falltread": (r["grade"], w * r["fall"])}
