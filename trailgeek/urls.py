@@ -5,6 +5,7 @@ from django.urls import include, path
 from core import design_views as design
 from core import exports as core_exports
 from core import notes_views as notes
+from core import water
 from core import refine_views
 from core import tiles as core_tiles
 from core import views as core_views
@@ -41,6 +42,8 @@ urlpatterns = [
     path("api/alignments/<int:pk>/refine", refine_views.api_alignment_refine, name="api_alignment_refine"),
     path("api/alignments/<int:pk>/refine/accept", refine_views.api_alignment_refine_accept,
          name="api_alignment_refine_accept"),
+    path("api/twi/", water.api_twi, name="api_twi"),
+    path("api/twi/jobs/<str:job>/", water.api_twi_job, name="api_twi_job"),
     path("api/refine/settings", refine_views.api_refine_settings, name="api_refine_settings"),
     path("api/refine/jobs/<str:job>/", refine_views.api_refine_job, name="api_refine_job"),
     path("api/projects/", design.api_projects, name="api_projects"),

@@ -23,6 +23,15 @@
       <option value="slope">Hillshade + slope ramp</option>
       <option value="preset">Preset: mod 5 m bands + slope</option>
     </select></label>
+    {% if user.is_authenticated %}
+    <div class="tg-twi" title="Topographic wetness index, ln(upslope area / slope) on a 5 m grid: hollows, benches and channels are wetter. Light: no culverts, and closed basins are filled, so lakes and the sea read as solid blue">
+      Wetness (TWI) <button type="button" id="twi-go" class="tg-btn">Compute for this view</button>
+      <label class="tg-check"><input id="twi-show" type="checkbox" disabled> Show</label>
+      <label>Opacity <input id="twi-op" type="range" min="0" max="100" value="80"> <output id="twi-op-val" for="twi-op">80 %</output></label>
+      <div class="tg-twi-ramp"><span>dry</span><i></i><span>wet</span></div>
+      <div id="twi-status" class="tg-muted tg-small">Zoom in to 4 km² or less. Takes a minute or two.</div>
+    </div>
+    {% endif %}
     <label class="tg-check"><input id="t3d" type="checkbox"> 3D terrain</label>
     <label>Exaggeration <input id="exag" type="range" min="5" max="30" value="10"> <output id="exag-val" for="exag" title="Vertical exaggeration of the 3D terrain; 1.0× is true scale">1.0×</output></label>
     <div class="tg-views">View:
@@ -74,6 +83,7 @@
 <script src="{% static 'core/js/tg_editor.js' %}"></script>
 <script src="{% static 'core/js/tg_refine.js' %}"></script>
 <script src="{% static 'core/js/tg_notes.js' %}"></script>
+<script src="{% static 'core/js/tg_twi.js' %}"></script>
 <script src="{% static 'core/js/tg_design.js' %}"></script>
 <script src="{% static 'core/js/map.js' %}"></script>
 {% endblock %}

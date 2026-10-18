@@ -433,3 +433,13 @@ medians 3.7-5.6), each window's wettest 1 % from 10.3 to 13.5; metres at
 TWI >= 10: Lagoon Bypass 54, Link option A 12, Upper ascent A 4, Backdoor
 loop connection 264, the rest 0. Reading the window took 6-35 s per line
 (117 s for the 10 km loop).
+
+**Map overlay** (2026-10-17): the Layers panel's **Wetness (TWI)** (signed
+in) computes the same TWI for the current view in the worker
+(`core/water.py`, `tg_twi.js`): 5 m cells of 2 x 2 samples, 150 m buffer
+for upslope area, cropped to the view, coloured clear (TWI < 6) through
+pale to deep blue (14) and drawn as an image over the shading, under the
+trails, with its own opacity. At most 4 km² a view; 4.4 km² around Lagoon
+Bypass took 91 s, nearly all of it reading the DEM. Filled flats (lakes,
+the sea) read solid blue, striped by the fill's epsilon gradient.
+Recomputed on request only; not in the URL.
