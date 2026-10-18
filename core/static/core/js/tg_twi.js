@@ -34,14 +34,20 @@ window.TgTwi = (function () {
     fetch('/api/twi/', { method: 'POST', credentials: 'same-origin',
                         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
                         body: JSON.stringify({ bbox: bbox }) })
-      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'Error ' + r.status); return j; }); })
+      .then(function (r) {
+        if (r.redirected && /\/accounts\/login\//.test(r.url)) throw new Error('You have been signed out. Sign in again and retry.');
+        return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'Error ' + r.status); return j; });
+      })
       .then(function (j) { startedAt = Date.now(); poll(j.job); })
       .catch(function (e) { $('twi-go').disabled = false; status(e.message, true); });
   }
   function poll(job) {
     clearTimeout(timer);
     fetch('/api/twi/jobs/' + job + '/', { credentials: 'same-origin' })
-      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        if (r.redirected && /\/accounts\/login\//.test(r.url)) return { status: 'failed', error: 'You have been signed out. Sign in again and retry.' };
+        return r.json();
+      })
       .then(function (j) {
         if (j.status === 'done') {
           img = j.result; $('twi-go').disabled = false; $('twi-show').disabled = false; $('twi-show').checked = true;

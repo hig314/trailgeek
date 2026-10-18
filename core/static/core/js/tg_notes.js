@@ -28,6 +28,7 @@ window.TgNotes = (function () {
                         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
                         body: body ? JSON.stringify(body) : undefined })
       .then(function (r) {
+        if (r.redirected && /\/accounts\/login\//.test(r.url)) throw new Error('You have been signed out. Sign in again (in another tab, to keep this one) and retry.');
         return r.json().catch(function () { return {}; }).then(function (j) {
           if (!r.ok) throw new Error(j.error || (r.status === 403 ? 'Not allowed.' : 'Error ' + r.status));
           return j;

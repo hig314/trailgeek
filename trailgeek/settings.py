@@ -111,6 +111,13 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "trailgeek <noreply@tr
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 PASSWORD_RESET_TIMEOUT = 60 * 60 * 24  # a day, in seconds
 SESSION_SAVE_EVERY_REQUEST = True
+# Cookies are per host, not per port, so on a workstation running
+# landslidescience (localhost:8001) beside this site (localhost:8002) the two
+# shared Django's default `sessionid`: a request to the other site carried
+# ours, found no such session there and deleted it, signing the person out
+# here mid-run (2026-10-17). Our own names keep the sites apart.
+SESSION_COOKIE_NAME = "tg_sessionid"
+CSRF_COOKIE_NAME = "tg_csrftoken"
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "America/Anchorage"
