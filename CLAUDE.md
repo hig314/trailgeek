@@ -13,7 +13,7 @@ server and Django reasoning rather than assume it.
 | [docs/SISTER_PROJECTS.md](docs/SISTER_PROJECTS.md) | What to reuse from landslidescience, GTA, demshade, and the public lidar catalogue |
 | [docs/TRAIL_ANALYSIS.md](docs/TRAIL_ANALYSIS.md) | Spec of the evaluator, profile and router algorithms to port, with their known bugs |
 
-## State of play (2026-10-16): the one dated section; update it, don't work around it
+## State of play (2026-10-17): the one dated section; update it, don't work around it
 
 - **Phase 0 and Phase 1 are merged** (hig314/trailgeek#1, 2026-09-27; the
   owner reports it running). Phase 1 gave `DemSource` (seeded by
@@ -118,8 +118,8 @@ server and Django reasoning rather than assume it.
     folder). Still to do by hand: stitch the preferred pieces (Lagoon
     Bypass, Link A, the two Tutka Tusk pieces, Upper ascent A) into one
     alignment of legs in the editor, with Link B and Upper B as variants.
-- **The URL carries the whole view** (branch `hash-view-state`, built and
-  browser-tested on the Mac 2026-10-17, awaiting the owner's test): camera
+- **The URL carries the whole view** (hig314/trailgeek#8, merge 06e7b37,
+  built, browser-tested and deployed from the Mac 2026-10-17): camera
   angle (bearing and pitch, so Top / Oblique / Side views survive a link),
   basemap (always written now, default included), the hand-picked survey,
   shading mode, hillshade opacity, 3D terrain and its exaggeration, and the
@@ -134,10 +134,10 @@ server and Django reasoning rather than assume it.
   own hash order, written only when non-zero and read as 0 when absent;
   lat/lon precision by zoom, never under 4 dp; `tools/hash_codec_check.js`
   there is the old-vs-new parser check as a script), then synced here along
-  with the current demshade build (3f7b140) and bridge. **That
-  landslidescience commit is on a branch, not shipped there yet**: it
-  follows landslidescience's own test-then-push rule. Once it is on its
-  `main`, re-pin `tools/shared.json` to that commit (same content).
+  with the current demshade build (3f7b140) and bridge. That commit is on
+  landslidescience's `main` and deployed there (owner's approval, from the
+  Mac 2026-10-17, by the procedure in its CLAUDE.md); `tools/shared.json`
+  pins it, so no re-pin is needed.
   - **View links and navigation links** (owner, 2026-10-17): a hash with
     `map=` is a view and says everything; one without (`#project=…`,
     `#align=…`, the panels' links) is navigation and changes only the
@@ -156,9 +156,8 @@ server and Django reasoning rather than assume it.
     bust `/static/` caches in dev); the first test run showed no pitch and
     4 dp coordinates until a `fetch(url, {cache: 'reload'})` of each script.
     Production is unaffected (WhiteNoise's manifest storage hashes names).
-- **Refine route tool, first draft** (branch `refine-design`, draft PR
-  hig314/trailgeek#10, built on the Mac 2026-10-17 for the owner to try in
-  dev; not merged). An alignment's panel has **Refine…**: pick a continuous
+- **Refine route tool, first draft** (hig314/trailgeek#10, merge 55b003c,
+  deployed from the Mac 2026-10-17; migration 0005 applied in production). An alignment's panel has **Refine…**: pick a continuous
   stretch of legs, shape a cost curve and weight per factor, run; the worker
   reads the line as a sketch of a smooth path (± `input_sigma_m`, sketched
   corners allowed to round), anneals its own smooth curve (a planar B-spline
@@ -168,9 +167,8 @@ server and Django reasoning rather than assume it.
   saves one as a variant (`Alignment.refinement` keeps settings and seed).
   Defaults are per user (`UserSetting`, key `refine`). Design, decisions and
   what changed while building: docs/REFINE_TOOL.md. Migration 0005.
-- **Project notes** (branch `project-notes`, draft PR hig314/trailgeek#11,
-  stacked on `refine-design` because its migration 0006 follows 0005; built
-  on the Mac 2026-10-17): `ProjectNote`, a point with a note, per project.
+- **Project notes** (hig314/trailgeek#11, merge 3004234, deployed from the
+  Mac 2026-10-17; migration 0006 applied in production): `ProjectNote`, a point with a note, per project.
   The open project's notes (or the open alignment's project's) show as amber
   points; click one to read, edit, move or delete it; "Add a note" in the
   panel, then click the map. Only those who can edit the project see them,
