@@ -150,7 +150,10 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .rf-svg { display: block; user-select: none; -webkit-user-select: none; }
 .rf-wrow { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
 .rf-w { flex: 1; min-width: 120px; accent-color: var(--tg-accent, #2f6b2f); }
-.rf-wv { width: 52px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+.rf-wn { width: 64px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.rf-zero { stroke: #888; stroke-width: 1; }
+.rf-band { fill: #e8590c; opacity: 0.10; }
+.rf-band-edge { stroke: #e8590c; stroke-width: 6; stroke-opacity: 0.35; cursor: ew-resize; }
 .rf-factor.rf-off .rf-curvebox, .rf-factor.rf-off strong { opacity: 0.45; }
 .rf-curvebox { position: relative; }
 .rf-zoom { position: absolute; right: 12px; top: 4px; display: flex; gap: 2px; z-index: 1; }

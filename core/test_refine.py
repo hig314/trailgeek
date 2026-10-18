@@ -40,7 +40,7 @@ class RefineApiTests(TestCase):
     def test_defaults_are_per_user(self):
         r = self.client.get("/api/refine/settings").json()
         self.assertIsNone(r["mine"])
-        self.assertEqual(r["effective"]["factors"]["grade"]["k"], 27.1)
+        self.assertEqual(r["effective"]["factors"]["grade"]["k"], 3.3)
         self.assertEqual(len(r["factors"]), 10)
         r = self.post("/api/refine/settings", {"settings": {"factors": {"grade": {"k": 4}}, "params": {"seed": 9}}})
         self.assertEqual(r.json()["effective"]["factors"]["grade"]["k"], 4)

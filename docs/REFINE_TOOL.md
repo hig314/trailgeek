@@ -446,13 +446,12 @@ Recomputed on request only; not in the URL.
 
 ## 12. Shares and log curves (owner, 2026-10-17)
 
-- **Weights are shares** adding up to 100 %, one slider per factor. Moving
+- **Weights were shares** (replaced by metres on 2026-10-18, §13) adding up to 100 %, one slider per factor. Moving
   one scales the others to fit, keeping their ratios, and the ratios
   survive a trip through the extremes (one factor to 100 %, then 0 %,
-  then 50 %): `tg_weights.js` keeps a mass and a level per factor, and a
-  share set to 100 % lifts its factor a level above the rest instead of
-  zeroing them, so nothing is rescaled in place and nothing drifts. Checked
-  by `node tools/weights_check.js`. Only the ratios reach the search: the
+  then 50 %): a mass and a level per factor, where a share set to 100 %
+  lifted its factor a level above the rest instead of zeroing them (the
+  module, `tg_weights.js`, went with the shares). Only the ratios reach the search: the
   defaults are the earlier k values (grade 10, corners 5, ...) as shares of
   100, and older saved settings score the same.
 - **Curves live in log space**: drawn on a log y axis, 0.1 to 10 at first
@@ -466,8 +465,6 @@ Recomputed on request only; not in the URL.
   4.5 % costs 0.25, as before, not 0.03). The floor is not quite free: the
   defaults' floors add about 0.65 per 100 m in all, some 8 % of what
   length itself costs per 100 m.
-- A share lifted out of sight by another factor's 100 % is not saved: Set
-  as my default stores the shares as shown.
 
 **Where this is heading** (owner's framing, 2026-10-17, for later): the
 weights are an intuitive balance of what is really an economic question.
@@ -478,3 +475,96 @@ life lost to a fall). Calibrated against real settings, the ad hoc
 weighting could converge on such a model, founded on explicit monetary
 signals and on revealed value. The evaluator's construction and
 maintenance rubric is the natural meeting point.
+
+## 13. Equivalent effort in metres; signed cut and fill; corners by signed TSA (owner, 2026-10-18)
+
+**Equivalent effort.** The fundamental cost of a trail is its length, and
+every hard design trade-off adds to it. So a line's cost is now the length
+of easy trail it is as much work as, in metres:
+
+    effort = length along the slope
+           + Σ per-metre factors  k × ∫ curve ds      (k: extra m per m at curve 1)
+           + Σ corners            k × curve(radius)   (k: m per corner at curve 1)
+           + bends                k × Σ curve(r) × right angles turned
+
+- **Length along the slope** is the design grade line's own length, the
+  climb included, and per-metre factors are integrated along it. Length has
+  no weight: it is the unit. It is charged in full, not from the input's
+  length, so totals compare across runs and between reaches of different
+  lengths.
+- **Weights are in metres** (log sliders with a box to type in; 0 is off).
+  The defaults are the 2026-10-17 shares over length's 8.1: grade 3.3 m
+  per m, corners 167 m each (the 0.2 floor is 33 m), bends 33 m per right
+  angle, and so on. With the 0.01 floors, easy ground runs about 1.07 to
+  1.09 × its length; the owner's target is nearer 1.05.
+- The table leads with **Equivalent effort**, then length along the slope
+  and each factor's extra metres, and **effort per metre** (1.00× is easy
+  trail all the way). On the Tutka lines (2026-10-18, defaults): Lagoon
+  Bypass 3175 m for 1942 m (1.63×), best candidate 2625 m (1.42×); Upper
+  ascent A 5605 m for 2573 m (2.18×), of which corners are 1033 m, best
+  4607 m (1.93×).
+- **Older settings** (shares, or the earlier grade 10 / corners 5 / ...,
+  always saved with a length weight) are converted on reading,
+  `settings.upgrade`: per-metre k / length k, per corner or turn k / length k
+  × 100; the old |cut or fill| curve is mirrored onto the cut side; the old
+  fall-line default of 30 degrees gives way to 22.
+- The search guard (a candidate may be worse on one factor by at most 10 %)
+  is now 10 % of the input's effort beyond its length, or of the factor's
+  unit (100 m at curve 1, one corner, one right angle), whichever is larger.
+
+**Cut and fill is signed**: x is design − ground, cut below 0, fill above.
+Cut reaches compacted ground, a sound tread, and its effort grows about as
+depth squared (the walls lay back): the default is 2 d² (0.5 m is 0.5, 1 m
+is 2). Fill is loose until compacted, and saturated it can turn to soup or
+flow away, so past ~20 cm it climbs steeply (0.3 m is 1, 0.4 m is 5).
+Full-bench construction would be fill at a very high cost. The tube the
+design line runs through is asymmetric to match: cut down to the search's
+depth t, fill up to the depth that costs the same on the curve (0.5 m of
+cut matches about 0.26 m of fill), never past the curve's last node.
+
+**Trail-slope alignment (TSA) is a factor** with its own curve over 0 to
+90 degrees, flat ground read as 90. The **fall-line band** (TSA below
+`fall_tsa_deg`, now 22, Marion's convention) is drawn on that curve as a
+shaded band whose edge drags, so the cutoff is not a hidden parameter. The
+band also decides where the tread counts as fall-line (the fall-line tread
+factor) and where the downhill side is undefined (corners). TSA and
+fall-line tread overlap (both charge the band), so TSA's default weight is
+light, 0.5 m per m.
+
+**Corners by signed TSA** (`Problem._corners`). The downhill side is right
+(+) or left (−) of the trail, from the cross slope over ~10 m. It is
+undefined in the fall-line band and where the cross slope is under
+`min_outslope_pct`, and a side held for less than 10 m is noise. A corner is
+a change of side across an undefined stretch (or none), where the line
+turns at least `corner_min_turn_deg` (60, now a parameter: less is
+crossing a crest or a gully). Its turn reaches out from the change for as
+long as the line keeps curving the same way, at radii up to 500 m and at
+most 100 m either side. Corners up to 45 m used to count and wider ones
+did not (the turn had to be tighter than 50 m within 25 m of the change),
+which is why the search widened corners into broad arcs: a 50 m corner
+saved the whole 33 m floor.
+
+**Digging a corner in** (option 2 of the 2026-10-18 discussion, computed on
+the real ground rather than a uniform plane; `Problem._dig`). Turning
+180 degrees at radius r on a slope S, the ground between the two arms
+differs by 2rS but the trail climbs only πrG at grade G, so above about
+S = πG/2 (16 % slope at 10 % grade) the turn either steepens through the
+apex or is cut into the slope. Each corner tries cuts of 0.25 to 4 m (up
+to `corner_cut_max_m`, 2 by default) over its turn and 20 m of ramp either
+side, the design line pinned to its profile at the ends and fill matched
+as above, and keeps the cheapest in grade (with the steepest 10 m) plus
+cut and fill. So a wider corner on steep ground costs more digging (the
+cut grows with r), and a turn hidden in gentle ground costs nothing extra.
+With the default curves a 35 % hairpin of radius 8 m is about even
+between 30 % grade through the apex and a 0.25 m cut; the grade curve's
+leniency above 20 % decides that, and it is the owner's to tune.
+
+**Still hidden** (candidates to expose): the second grade charge past the
+input's steepest 10 m (`GRADE_OVER_PER`), the 10 m and 5 m smoothing
+windows, the 4 % flat-ground cutoff for TSA, the corner reach (100 m, 1/500
+per m) and ramp (20 m), and the climbing-turn / switchback labels (15 % and
+25 %, labels only). `grade_peak_m` (25 m: the steepest 10 m charged again
+as this many metres of its grade) is now a parameter.
+
+**Later** (owner): a cost surface over two dimensions (TSA and terrain
+slope, say) rather than one curve each; not yet.

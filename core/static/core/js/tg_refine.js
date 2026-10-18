@@ -8,8 +8,8 @@
  * input scored the same way, and saves a chosen one as a variant.
  *
  * Curve editor: curves are log-linear between at most 9 nodes, y > 0 on a log
- * axis; weights are shares adding up to 100 %
- * (tg_weights.js). Drag a
+ * axis. Weights are in metres of equivalent effort (docs/REFINE_TOOL.md §13):
+ * extra metres per metre at curve 1, per corner, or per right angle. Drag a
  * node; drag a flat stretch up or down; drag a ramp sideways; double-click a
  * segment to add a node; double-click a node (or drag it off the chart) to remove it. The grey
  * bars behind a curve are the selected legs' own values today (a baseline
@@ -23,7 +23,7 @@ window.TgRefine = (function () {
   var app = null, f = null, active = false;
   var meta = null, settings = null, mine = null;
   var legSel = [], baseline = null, result = null, runJob = null, chosen = 0, stale = false;
-  var editors = {}, weights = null, pollTimer = null, baseTimer = null, seq = 0;
+  var editors = {}, pollTimer = null, baseTimer = null, seq = 0;
   var CAND = ['#d9480f', '#1864ab', '#2b8a3e', '#7048e8'];
   var SRC = 'refine-cands', LAYERS = ['refine-cands-all', 'refine-cands-chosen'];
 
@@ -76,7 +76,7 @@ window.TgRefine = (function () {
     h += '<div class="tg-kind">Refine</div><h2>' + esc(p.name) + '</h2>';
     h += '<div class="tg-small tg-muted">Reads your line as a sketch of a smooth path (sharp corners are taken to mean rounder ones) and proposes versions that fit the terrain better. Nothing changes until you save a candidate, which becomes a variant of this alignment. <a href="#" id="rf-back">Back to the alignment</a></div>';
     h += '<div class="tg-sub">Legs to refine</div><div id="rf-legs" class="rf-legs"></div><div id="rf-legmsg" class="tg-small tg-error"></div>';
-    h += '<div class="tg-sub">Factors</div><div class="tg-small tg-muted">Each factor has a share of the weight (the sliders add up to 100 %: moving one scales the others, keeping their ratios; 0 ignores a factor) and a curve: the cost by value, on a log scale (+ and − zoom it, fit frames it), anchors joined in straight lines on that scale. There is no 0: 0.01 is next to nothing. One scale throughout: a per-100 m factor at cost 1 for 100 m costs its share; with grade at 27 % and corners at 13.5 %, a corner at cost 1 is as bad as 50 m of grade at cost 1. Drag a node; drag a flat stretch up or down, a ramp sideways; double-click a segment to add a node, a node to remove it (or drag it off the chart). Grey bars: the selected legs today.</div>';
+    h += '<div class="tg-sub">Factors</div><div class="tg-small tg-muted">Costs are in metres of <strong>equivalent effort</strong>: the length of easy trail a line is as much work as. Its length along the slope (the climb counted) is the base; each factor adds to it. A weight is the extra metres where the factor\'s curve is at 1: per metre of trail, per corner, or per right angle turned (grade at 3.3 makes 100 m at curve 1 as much as 430 m of easy trail). 0 ignores a factor. Each curve is the cost by value, on a log scale (+ and − zoom it, fit frames it), anchors joined in straight lines on that scale; there is no 0, and 0.01 is next to nothing. Drag a node; drag a flat stretch up or down, a ramp sideways; double-click a segment to add a node, a node to remove it (or drag it off the chart). Grey bars: the selected legs today.</div>';
     h += '<div id="rf-factors"></div>';
     h += '<details class="tg-more"><summary>Run parameters</summary><div id="rf-params" class="rf-params"></div></details>';
     h += '<div class="tg-actions"><button id="rf-run" class="tg-btn tg-primary">Run</button>' +
@@ -128,43 +128,33 @@ window.TgRefine = (function () {
     return !msg;
   }
 
+  // Weight sliders are logarithmic, with "off" at the far left.
+  var WRANGE = { metre: [0.01, 30], corner: [1, 3000], turn: [1, 3000] };
+  var WUNIT = { metre: 'm per m', corner: 'm per corner', turn: 'm per right angle' };
+  function wToPos(v, r) { return v > 0 ? Math.max(1, Math.round(1000 * Math.log(v / r[0]) / Math.log(r[1] / r[0]))) : 0; }
+  function posToW(p, r) { return p > 0 ? +(r[0] * Math.pow(r[1] / r[0], p / 1000)).toPrecision(2) : 0; }
   function renderFactors() {
     var box = $('rf-factors'); box.innerHTML = ''; editors = {};
-    var init = {};
-    meta.factors.forEach(function (m) { init[m.name] = settings.factors[m.name].k; });
-    weights = TgWeights.create(init);
-    var rows = {};
     meta.factors.forEach(function (m) {
-      var s = settings.factors[m.name];
+      var s = settings.factors[m.name], r = WRANGE[m.per];
       var row = document.createElement('div');
       row.className = 'rf-factor';
       row.innerHTML = '<div class="rf-fhead"><strong>' + esc(m.label) + '</strong>' +
         (m.stub ? ' <span class="tg-badge" title="Deliberately primitive for now: sites are low points of the design line and ground dips; no groundwater or terrain below the trail yet">stub</span>' : '') +
-        '<span class="tg-muted tg-small">' + (m.flat ? esc(m.x) + ' · per 100 m' : esc(m.x) + ' (' + esc(m.unit) + ') · ' +
-        (m.per === 'metre' ? 'per 100 m' : m.per === 'corner' ? 'per corner' : 'per right angle')) + '</span></div>' +
-        '<div class="rf-wrow" title="This factor\'s share of the weight. The shares add up to 100 %: moving one scales the others to fit, keeping their ratios. 0 ignores the factor.">' +
-        '<input type="range" class="rf-w" min="0" max="100" step="0.1"><output class="rf-wv"></output></div>' +
-        (m.flat ? '' : '<div class="rf-curve"></div>');
+        '<span class="tg-muted tg-small">' + esc(m.x) + ' (' + esc(m.unit) + ')</span></div>' +
+        '<div class="rf-wrow" title="Extra metres of equivalent effort where this curve is at 1, ' + WUNIT[m.per] + ' (' + (m.per === 'metre' ? 'per metre of trail' : m.per === 'corner' ? 'for each corner' : 'for each right angle turned') + '). 0 ignores the factor.">' +
+        '<input type="range" class="rf-w" min="0" max="1000" step="1"><input type="number" class="rf-wn" min="0" max="10000" step="any"><span class="tg-small tg-muted">' + WUNIT[m.per] + '</span></div>' +
+        '<div class="rf-curve"></div>';
       box.appendChild(row);
-      rows[m.name] = row;
-      row.querySelector('.rf-w').addEventListener('input', function () {
-        weights.set(m.name, +this.value / 100);
-        syncWeights(m.name);
-        changed();
-      });
-      if (!m.flat) editors[m.name] = curveEditor(row.querySelector('.rf-curve'), m, s.curve, changed);
+      var sl = row.querySelector('.rf-w'), num = row.querySelector('.rf-wn');
+      function show(v) { num.value = v; sl.value = wToPos(v, r); row.classList.toggle('rf-off', v === 0); }
+      show(s.k);
+      sl.addEventListener('input', function () { s.k = posToW(+sl.value, r); num.value = s.k; row.classList.toggle('rf-off', s.k === 0); changed(); });
+      num.addEventListener('change', function () { s.k = Math.max(0, Math.min(10000, +num.value || 0)); show(s.k); changed(); });
+      var band = m.band ? { get: function () { return settings.params[m.band]; },
+                            set: function (v) { settings.params[m.band] = v; var i = document.querySelector('#rf-params input[data-p="' + m.band + '"]'); if (i) i.value = v; } } : null;
+      editors[m.name] = curveEditor(row.querySelector('.rf-curve'), m, s.curve, changed, band);
     });
-    function syncWeights(except) {
-      var sh = weights.shares(), shown = TgWeights.roundShares(sh, 1);
-      meta.factors.forEach(function (m) {
-        var v = sh[m.name], row = rows[m.name];
-        settings.factors[m.name].k = Math.round(v * 1e6) / 1e4;      // a share of 100
-        if (m.name !== except) row.querySelector('.rf-w').value = shown[m.name];
-        row.querySelector('.rf-wv').textContent = shown[m.name].toFixed(1) + ' %';
-        row.classList.toggle('rf-off', v === 0);
-      });
-    }
-    syncWeights(null);
     applyHistograms();
   }
   function renderParams() {
@@ -178,6 +168,7 @@ window.TgRefine = (function () {
         var p = meta.params.filter(function (q) { return q.name === inp.dataset.p; })[0];
         var v = Math.min(p.max, Math.max(p.min, +inp.value || 0)); if (p.integer) v = Math.round(v);
         inp.value = v; settings.params[p.name] = v; changed();
+        Object.keys(editors).forEach(function (k) { if (editors[k].refreshBand) editors[k].refreshBand(); });
         if (p.name === 'corridor_m' || p.name === 'spacing_m') queueBaseline(400);
       });
     });
@@ -191,7 +182,9 @@ window.TgRefine = (function () {
   // whole decades to take in the curve; + and − zoom it, "fit" frames the
   // curve). There is no 0: anchors are joined log-linearly, straight lines
   // on this axis, as score.curve_fn applies them.
-  function curveEditor(el, fm, nodes, onChange) {
+  // `band` ({get, set}, optional): a parameter shown as a shaded band from
+  // the left edge, its edge draggable (the TSA curve's fall-line band).
+  function curveEditor(el, fm, nodes, onChange, band) {
     var W = Math.max(280, Math.min(520, el.clientWidth || 480)), H = 104;
     var m = { l: 34, r: 10, t: 6, b: 18 }, w = W - m.l - m.r, h = H - m.t - m.b;
     var YMIN = 1e-4, YMAX = 1e4, FREE = 0.01;
@@ -206,7 +199,29 @@ window.TgRefine = (function () {
     zb.append('button').attr('type', 'button').attr('title', 'Frame the curve').text('fit').on('click', fit);
     var svg = d3.select(el).append('svg').attr('width', W).attr('height', H).attr('class', 'rf-svg');
     var g = svg.append('g').attr('transform', 'translate(' + m.l + ',' + m.t + ')');
-    var gh = g.append('g'), gm = g.append('g');
+    var gb = g.append('g'), gh = g.append('g'), gm = g.append('g');
+    if (fm.xmin < 0 && fm.xmax > 0) {                     // a signed x: mark 0
+      gb.append('line').attr('class', 'rf-zero').attr('x1', x(0)).attr('x2', x(0)).attr('y1', 0).attr('y2', h);
+      gb.append('text').attr('class', 'rf-axis').attr('x', x(0) - 4).attr('y', 10).attr('text-anchor', 'end').attr('font-size', 10).text('cut');
+      gb.append('text').attr('class', 'rf-axis').attr('x', x(0) + 4).attr('y', 10).attr('font-size', 10).text('fill');
+    }
+    var bandRect = null, bandEdge = null;
+    if (band) {
+      bandRect = gb.append('rect').attr('class', 'rf-band').attr('x', 0).attr('y', 0).attr('height', h);
+      bandEdge = gb.append('line').attr('class', 'rf-band-edge').attr('y1', 0).attr('y2', h)
+        .call(d3.drag().on('drag', function (ev) {
+          band.set(Math.max(5, Math.min(60, Math.round(x.invert(Math.max(0, Math.min(w, ev.x)))))));
+          placeBand();
+        }).on('end', function () { onChange(); }));
+      bandEdge.append('title').text('Drag: the fall-line band, where the downhill side is undefined (a corner is a change of side across it) and the tread counts as fall-line');
+    }
+    function placeBand() {
+      if (!band) return;
+      var bx = x(band.get());
+      bandRect.attr('width', Math.max(0, bx));
+      bandEdge.attr('x1', bx).attr('x2', bx);
+    }
+    placeBand();
     g.append('g').attr('class', 'rf-axis').attr('transform', 'translate(0,' + h + ')').call(d3.axisBottom(x).ticks(6).tickSizeOuter(0));
     var gy = g.append('g').attr('class', 'rf-axis');
     var path = g.append('path').attr('class', 'rf-line');
@@ -322,6 +337,7 @@ window.TgRefine = (function () {
     }
     draw();
     return {
+      refreshBand: placeBand,
       setHist: function (hh) { hist = hh; draw(); },
       setMarks: function (marks) {            // [{x, color, title}]
         var s = gm.selectAll('line').data(marks || []);
@@ -378,7 +394,7 @@ window.TgRefine = (function () {
   function baselineLine(res) {
     var s = res.input.stats;
     return 'Today (scored with a ' + n(res.input.t, 2) + ' m cut/fill tube): max grade ' + n(s.grade_max, 1) + ' %, 95th percentile ' +
-      n(s.grade_p95, 1) + ' %, ' + s.corners + ' corner' + (s.corners === 1 ? '' : 's') +
+      n(s.grade_p95, 1) + ' %; equivalent effort ' + n(res.input.total) + ' m for ' + n(res.input.length_m) + ' m along the slope (' + n(res.input.total / res.input.length_m, 2) + '×); ' + s.corners + ' corner' + (s.corners === 1 ? '' : 's') +
       (s.corner_min_r != null ? ' (tightest ' + n(s.corner_min_r, 1) + ' m)' : '') +
       (s.corners ? ': ' + s.climbing_turns + ' climbing turn' + (s.climbing_turns === 1 ? '' : 's') + ', ' + s.switchbacks + ' switchback-like' : '') +
       ', ' + n(s.fall_m) + ' m of fall-line tread, ' + n(s.wet_m) + ' m on wet ground, ' + s.reversals + ' reversal site' + (s.reversals === 1 ? '' : 's') +
@@ -394,8 +410,8 @@ window.TgRefine = (function () {
       runJob = r.job;
       return poll(r.job, mySeq, function (st) {
         var pct = Math.round(100 * (st.progress || 0));
-        status((st.stage || 'Searching') + '… ' + pct + ' %' + (st.best != null ? ' · best so far ' + n(st.best, 3) : '') +
-               (baseline ? ' · input ' + n(baseline.input.total, 3) : '') +
+        status((st.stage || 'Searching') + '… ' + pct + ' %' + (st.best != null ? ' · best so far ' + n(st.best) + ' m' : '') +
+               (baseline ? ' · input ' + n(baseline.input.total) + ' m' : '') +
                '<div class="rf-bar"><i style="width:' + pct + '%"></i></div>');
       });
     }).then(function (res) {
@@ -431,17 +447,22 @@ window.TgRefine = (function () {
       });
       return t + '</tr>';
     }
-    h += row('<strong>Total cost</strong>', function (d) { return d.total; }, function (v) { return n(v, 3); }, true);
+    h += row('<strong>Equivalent effort</strong>', function (d) { return d.total; }, function (v) { return '<strong>' + n(v) + ' m</strong>'; }, true,
+             'The length of easy trail this line is as much work as: its length along the slope plus every factor\'s extra metres');
+    h += row('&nbsp;&nbsp;Length along the slope', function (d) { return d.contrib.length; }, function (v) { return n(v) + ' m'; }, true, 'The base: the design line\'s length, climb included');
     factors.forEach(function (m) {
-      h += row('&nbsp;&nbsp;' + esc(m.label), function (d) { return d.contrib[m.name]; }, function (v) { return n(v, 3); }, true, 'k × cost');
+      h += row('&nbsp;&nbsp;+ ' + esc(m.label), function (d) { return d.contrib[m.name]; }, function (v) { return n(v) + ' m'; }, true, 'Extra metres from this factor: weight × curve, summed');
     });
+    h += row('Effort per metre', function (d) { return d.total / d.length_m; }, function (v) { return n(v, 2) + '×'; }, true, 'Equivalent effort over length along the slope: 1.00× is easy trail all the way');
     h += row('Max grade', function (d) { return d.stats.grade_max; }, function (v) { return n(v, 1) + ' %'; }, true);
     h += row('Grade, 95th pct', function (d) { return d.stats.grade_p95; }, function (v) { return n(v, 1) + ' %'; }, true);
-    h += row('Length', function (d) { return d.length_m; }, function (v) { return n(v) + ' m'; }, null);
+    h += row('Length on the map', function (d) { return d.length_map_m; }, function (v) { return n(v) + ' m'; }, null);
     h += row('From your line, max', function (d) { return d.stats.offset_max; }, function (v) { return n(v, 1) + ' m'; }, null, 'Straight-line distance to the nearest point of your line, before any allowance for rounding its corners');
     h += row('From your line, mean', function (d) { return d.stats.offset_mean; }, function (v) { return n(v, 1) + ' m'; }, null);
-    h += row('Cut or fill, max', function (d) { return d.stats.cut_max; }, function (v) { return n(v, 2) + ' m'; }, null);
-    h += row('Tube half-width', function (d) { return d.t; }, function (v) { return n(v, 2) + ' m'; }, null);
+    h += row('Cut, max', function (d) { return d.stats.cut_max; }, function (v) { return n(v, 2) + ' m'; }, null, 'Deepest cut below the ground, corners dug in included');
+    h += row('Fill, max', function (d) { return d.stats.fill_max; }, function (v) { return n(v, 2) + ' m'; }, null);
+    h += row('Cut allowed along the line', function (d) { return d.t; }, function (v) { return n(v, 2) + ' m'; }, null, 'The search sets this; fill may go as far as costs the same on the cut and fill curve. Corners may dig deeper, to the parameter\'s limit');
+    h += row('Deepest corner dig', function (d) { return d.stats.corner_dig_max; }, function (v) { return v == null ? '–' : n(v, 2) + ' m'; }, null, 'Where a corner is cut into the slope to hold its grade, the deepest cut there');
     h += row('Corners', function (d) { return d.stats.corners; }, function (v) { return n(v); }, null);
     h += row('Tightest corner', function (d) { return d.stats.corner_min_r; }, function (v) { return v == null ? '–' : n(v, 1) + ' m'; }, false);
     h += row('Climbing turns', function (d) { return d.stats.climbing_turns; }, function (v) { return n(v); }, null, 'Corners that cross the fall line on gentle ground (15 % or less): the trail can climb straight through');
@@ -505,7 +526,7 @@ window.TgRefine = (function () {
       g.append('line').attr('x1', x(k.d)).attr('x2', x(k.d)).attr('y1', 0).attr('y2', h).attr('stroke', '#7b3fa0').attr('stroke-dasharray', '2 2');
       g.append('text').attr('x', x(k.d) + 3).attr('y', 10).attr('class', 'rf-axis').attr('font-size', 10).attr('fill', '#7b3fa0')
         .text('r ' + n(k.radius_m) + ' m · ' + (k.kind === 'climbing turn' ? 'climbing' : k.kind === 'switchback-like' ? 'switchback' : 'between'))
-        .append('title').text(k.kind + ': crosses the fall line on ' + n(k.crossing_pct) + ' % ground; turns ' + n(k.turn_deg) + '°');
+        .append('title').text(k.kind + ': crosses the fall line on ' + n(k.crossing_pct) + ' % ground; turns ' + n(k.turn_deg) + '°' + (k.dig_m > 0.05 ? '; dug in ' + n(k.dig_m, 2) + ' m' : ''));
     });
   }
 
