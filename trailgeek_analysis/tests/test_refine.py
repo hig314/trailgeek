@@ -76,6 +76,16 @@ class PieceTests(unittest.TestCase):
         s = side_of_downhill(np.array([0.0, 0.3, 0.01, -0.01, 0.2, -0.3]), 0.1)
         self.assertEqual(s.tolist(), [1, 1, 1, 1, 1, -1])
 
+    def test_intersects_changed_agrees_with_the_full_check(self):
+        from trailgeek_analysis.refine.score import intersects_changed
+        base = np.column_stack([np.linspace(0, 100, 51), np.zeros(51)])
+        bent = base.copy()
+        bent[30:34] = [[60, 5], [62, 10], [40, -3], [42, -6]]          # loops back across itself
+        self.assertTrue(intersects(bent, 1))
+        self.assertTrue(intersects_changed(bent, base, 1))
+        mild = base.copy(); mild[30:34, 1] += 2
+        self.assertEqual(intersects_changed(mild, base, 1), intersects(mild, 1))
+
     def test_intersects(self):
         loop = np.array([[0, 0], [10, 0], [10, 10], [5, -5]], float)
         self.assertTrue(intersects(loop, 1))
@@ -129,6 +139,25 @@ class CornerTests(unittest.TestCase):
         smooth, rough = (self.score([L], plane_grid())["corners"] for L in (line, kinked))
         self.assertEqual((len(smooth), len(rough)), (1, 1))
         self.assertLess(rough[0]["radius_m"], 0.5 * smooth[0]["radius_m"])
+
+    def test_corner_kind_follows_the_ground_where_it_crosses_the_fall_line(self):
+        kinds = {}
+        for slope in (0.12, 0.35):
+            g = Grid.from_function(lambda X, Y: slope * Y, -60, -60, 160, 120)
+            kinds[slope] = [c["kind"] for c in self.score([self.hairpin(10)], g)["corners"]]
+        self.assertEqual(kinds, {0.12: ["climbing turn"], 0.35: ["switchback-like"]})
+
+    def test_fall_line_tread_is_free_at_5_to_8_percent_and_costs_either_side(self):
+        cost = {}
+        for slope in (0.045, 0.065, 0.14):
+            g = Grid.from_function(lambda X, Y: slope * Y, -60, -60, 60, 160)
+            down_fall = self.score([np.array([[0, 0], [0, 100]], float)], g)
+            cost[slope] = down_fall["costs"]["falltread"]
+            contour = self.score([np.array([[-50, 50], [50, 50]], float)], g)
+            self.assertEqual(contour["costs"]["falltread"], 0.0)      # across the slope: never fall-line
+        self.assertAlmostEqual(cost[0.065], 0.0, places=3)
+        self.assertGreater(cost[0.045], 0.1)                            # pools
+        self.assertGreater(cost[0.14], 0.1)                             # erodes
 
     def test_gully_crossed_while_climbing_is_a_bend_not_a_corner(self):
         gully = Grid.from_function(lambda X, Y: PLANE * Y - 3 * np.exp(-((X - 50) ** 2) / 72), -60, -60, 160, 80)

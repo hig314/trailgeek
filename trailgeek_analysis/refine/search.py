@@ -148,7 +148,7 @@ def anneal(prob, rng, iters, k, t0, progress=None):
         if r is not None:
             delta = r["total"] - cur["total"]
             if delta < 0 or rng.random() < math.exp(-delta / T):
-                if not prob.folds(c2):
+                if not prob.folds(c2, c):
                     c, t, cur = c2, t2, r
                     if cur["total"] < best[0]:
                         best = (cur["total"], c.copy(), t)
@@ -181,6 +181,9 @@ def _json_detail(prob, r, legs):
             "offset_mean": round(float((dist * r["w"]).sum() / r["length_m"]), 1),
             "corners": len(r["corners"]),
             "corner_min_r": round(min([c["radius_m"] for c in r["corners"]]), 1) if r["corners"] else None,
+            "climbing_turns": sum(1 for c in r["corners"] if c["kind"] == "climbing turn"),
+            "switchbacks": sum(1 for c in r["corners"] if c["kind"] == "switchback-like"),
+            "fall_m": round(float((r["w"] * r["fall"]).sum()), 1),
             "bend_min_r": round(float(r["bend_r"].min()), 1),
             "reversals": len(r["sites"]),
         },

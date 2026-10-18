@@ -310,7 +310,9 @@ window.TgRefine = (function () {
     var s = res.input.stats;
     return 'Today (scored with a ' + n(res.input.t, 2) + ' m cut/fill tube): max grade ' + n(s.grade_max, 1) + ' %, 95th percentile ' +
       n(s.grade_p95, 1) + ' %, ' + s.corners + ' corner' + (s.corners === 1 ? '' : 's') +
-      (s.corner_min_r != null ? ' (tightest ' + n(s.corner_min_r, 1) + ' m)' : '') + ', ' + s.reversals + ' reversal site' + (s.reversals === 1 ? '' : 's') +
+      (s.corner_min_r != null ? ' (tightest ' + n(s.corner_min_r, 1) + ' m)' : '') +
+      (s.corners ? ': ' + s.climbing_turns + ' climbing turn' + (s.climbing_turns === 1 ? '' : 's') + ', ' + s.switchbacks + ' switchback-like' : '') +
+      ', ' + n(s.fall_m) + ' m of fall-line tread, ' + s.reversals + ' reversal site' + (s.reversals === 1 ? '' : 's') +
       '.<div class="tg-small tg-muted">' + terrainNote(res) + '</div>';
   }
   function run() {
@@ -373,6 +375,9 @@ window.TgRefine = (function () {
     h += row('Tube half-width', function (d) { return d.t; }, function (v) { return n(v, 2) + ' m'; }, null);
     h += row('Corners', function (d) { return d.stats.corners; }, function (v) { return n(v); }, null);
     h += row('Tightest corner', function (d) { return d.stats.corner_min_r; }, function (v) { return v == null ? '–' : n(v, 1) + ' m'; }, false);
+    h += row('Climbing turns', function (d) { return d.stats.climbing_turns; }, function (v) { return n(v); }, null, 'Corners that cross the fall line on gentle ground (15 % or less): the trail can climb straight through');
+    h += row('Switchback-like corners', function (d) { return d.stats.switchbacks; }, function (v) { return n(v); }, true, 'Corners that cross the fall line on ground of 25 % or more: a landing would have to be cut');
+    h += row('Fall-line tread', function (d) { return d.stats.fall_m; }, function (v) { return n(v) + ' m'; }, null, 'Length within the set angle of the fall line, where water cannot leave the tread sideways');
     h += row('Tightest bend anywhere', function (d) { return d.stats.bend_min_r; }, function (v) { return v == null ? '–' : n(v, 1) + ' m'; }, false, 'Smallest radius over any 5 m of the line, corners included: kinks show here');
     h += row('Reversal sites (stub)', function (d) { return d.stats.reversals; }, function (v) { return n(v); }, null);
     h += '</table></div>';
@@ -428,7 +433,9 @@ window.TgRefine = (function () {
     });
     (c.corners || []).forEach(function (k) {
       g.append('line').attr('x1', x(k.d)).attr('x2', x(k.d)).attr('y1', 0).attr('y2', h).attr('stroke', '#7b3fa0').attr('stroke-dasharray', '2 2');
-      g.append('text').attr('x', x(k.d) + 3).attr('y', 10).attr('class', 'rf-axis').attr('font-size', 10).attr('fill', '#7b3fa0').text('r ' + n(k.radius_m) + ' m');
+      g.append('text').attr('x', x(k.d) + 3).attr('y', 10).attr('class', 'rf-axis').attr('font-size', 10).attr('fill', '#7b3fa0')
+        .text('r ' + n(k.radius_m) + ' m · ' + (k.kind === 'climbing turn' ? 'climbing' : k.kind === 'switchback-like' ? 'switchback' : 'between'))
+        .append('title').text(k.kind + ': crosses the fall line on ' + n(k.crossing_pct) + ' % ground; turns ' + n(k.turn_deg) + '°');
     });
   }
 

@@ -22,6 +22,9 @@ CORNER_CLUSTER_M = 20.0     # side flips closer than this are one event
 CORNER_MIN_TURN_DEG = 60.0  # a side change with less turning than this is a crossing, not a corner
 GRADE_OVER_PER = 10.0       # %: each this much past the input's steepest 10 m adds 1 to the grade cost
 GRADE_PEAK_SHARE = 0.25     # the steepest 10 m adds this times its curve value to the grade cost
+FALL_MIN_SLOPE_PCT = 4.0    # %: flatter ground has no fall line to speak of
+CLIMB_TURN_MAX_PCT = 15.0   # %: a corner crossing the fall line on ground this gentle or gentler is a climbing turn
+SWITCHBACK_MIN_PCT = 25.0   # %: ... this steep or steeper, switchback-like (a landing must be cut)
 PER_M = 100.0               # per-metre factors are charged per this many metres
 SITE_MERGE_M = 15.0         # reversal sites closer than this are one site
 RESPACE_MAX_M = 0.25        # m: a re-spacing that would move the line more than this is skipped
@@ -114,6 +117,33 @@ def reversal_sites(d, zd, g, dip):
         if not out or d[i] - d[out[-1]] >= SITE_MERGE_M:
             out.append(i)
     return out
+
+
+def intersects_changed(Q, Q_old, stride):
+    """intersects(), checking only segments that moved since Q_old against
+    all others: a move changes a stretch, so this is the same answer for a
+    candidate whose predecessor was clean, at a fraction of the cost."""
+    S, So = Q[::stride], Q_old[::stride]
+    if len(Q) and (len(Q) - 1) % stride:
+        S, So = np.vstack([S, Q[-1]]), np.vstack([So, Q_old[-1]])
+    moved = np.abs(S - So).max(1) > 1e-9
+    segc = np.flatnonzero(moved[:-1] | moved[1:])
+    m = len(S) - 1
+    if not len(segc) or m < 3:
+        return False
+    A, B = S[:-1], S[1:]
+    ea, eb = A[segc], B[segc]
+    e = eb - ea
+    f = B - A
+    def cr(ux, uy, vx, vy):
+        return ux * vy - uy * vx
+    o1 = cr(e[:, None, 0], e[:, None, 1], A[None, :, 0] - ea[:, None, 0], A[None, :, 1] - ea[:, None, 1])
+    o2 = cr(e[:, None, 0], e[:, None, 1], B[None, :, 0] - ea[:, None, 0], B[None, :, 1] - ea[:, None, 1])
+    o3 = cr(f[None, :, 0], f[None, :, 1], ea[:, None, 0] - A[None, :, 0], ea[:, None, 1] - A[None, :, 1])
+    o4 = cr(f[None, :, 0], f[None, :, 1], eb[:, None, 0] - A[None, :, 0], eb[:, None, 1] - A[None, :, 1])
+    hit = (o1 * o2 < 0) & (o3 * o4 < 0)
+    far = np.abs(segc[:, None] - np.arange(m)[None, :]) >= 2
+    return bool((hit & far).any())
 
 
 def intersects(Q, stride):
@@ -289,6 +319,7 @@ class Problem:
         self.bench = float(p["bench_m"])
         self.thr = float(p["min_outslope_pct"]) / 100
         self.dip = float(p["reversal_dip_m"])
+        self.fall_tsa = float(p["fall_tsa_deg"])
         self.sigma = float(p["input_sigma_m"])
         self.R_sketch = float(p["sketch_radius_m"])
         self.smooth_w = max(1, int(round(5 / self.h))) | 1
@@ -322,6 +353,11 @@ class Problem:
         N = max(6, int(round(W / self.h)) + 1)
         self.u = np.linspace(0, 1, N)
         self.B = spline.basis(self.u, K)
+        # Each sample depends on 4 controls: keep their indices and weights,
+        # so evaluating a candidate is O(samples), not samples x controls.
+        j0 = np.clip(np.argmax(self.B > 0, axis=1), 0, K - 4)
+        self.B_idx = j0[:, None] + np.arange(4)[None, :]
+        self.B_w = np.take_along_axis(self.B, self.B_idx, axis=1)
         self.n = N
         self.Bg = spline.basis(spline.greville(K), K)      # where each control acts on the curve
         self.ctrl_u = spline.greville(K)[1:K - 1]
@@ -398,7 +434,8 @@ class Problem:
         return np.vstack([self.P[0], c, self.P[-1]])
 
     def curve(self, c):
-        return self.B @ self.full(c)
+        C = self.full(c)
+        return np.einsum("nk,nkd->nd", self.B_w, C[self.B_idx])
 
     def start(self):
         return self.C0[1:-1].copy()
@@ -412,8 +449,12 @@ class Problem:
         t = t / np.maximum(np.hypot(t[:, 0], t[:, 1]), 1e-9)[:, None]
         return pts[1:-1], np.column_stack([-t[1:-1, 1], t[1:-1, 0]])
 
-    def folds(self, c):
-        return intersects(self.curve(c), self.stride)
+    def folds(self, c, c_prev=None):
+        """Does the candidate cross itself? With c_prev (a candidate known
+        not to), only the stretch that moved is checked."""
+        if c_prev is None:
+            return intersects(self.curve(c), self.stride)
+        return intersects_changed(self.curve(c), self.curve(c_prev), self.stride)
 
     def legs_of(self, Q):
         """Split a candidate at the points nearest the input's leg joints."""
@@ -511,6 +552,13 @@ class Problem:
                 zones[-1] = (zones[-1][0], max(b, zones[-1][1]), zones[-1][2] + [f0, f1])
             else:
                 zones.append((a, b, [f0, f1]))
+        # Trail-slope alignment (TSA): the angle in plan between the trail and
+        # the fall line, from the bench cross-sections averaged over ~5 m;
+        # 0 = straight down the fall line, 90 = on the contour. Undefined
+        # (nan) where the ground is flatter than FALL_MIN_SLOPE_PCT.
+        cs5, al5 = running_mean(cross, self.smooth_w), running_mean(along, self.smooth_w)
+        tsa = np.degrees(np.arctan2(np.abs(cs5), np.abs(al5)))
+        tsa[100 * np.hypot(cs5, al5) < FALL_MIN_SLOPE_PCT] = np.nan
         zone = np.zeros(n, bool)
         corners = []
         wn = self.side_w
@@ -526,7 +574,21 @@ class Problem:
             r_tight = 1 / max(float(akap[a:b + 1].max()), 1e-4)
             r = min(1000.0, r_arc, r_tight)
             mid = (a + b) // 2
-            corners.append((mid, a, b, r, float(side[a:b + 1].mean()), math.degrees(dth), min(1000.0, r_arc)))
+            # Climbing turn or switchback (owner, 2026-10-17). A corner (the
+            # downhill side flips) always crosses the fall line somewhere; what
+            # matters is the ground there. Gentle (a bench, a nose top, a mild
+            # slope): the trail can climb straight through the crossing, a
+            # climbing turn. Steep: crossing the fall line is a steep pitch
+            # unless a landing is excavated, a switchback.
+            tz = tsa[a:b + 1]
+            cross_at = np.isfinite(tz) & (tz < self.fall_tsa)
+            sz = side[a:b + 1]
+            crossing = float(sz[cross_at].mean()) if cross_at.any() else float(sz.min())
+            tsa_min = float(np.nanmin(tz)) if np.isfinite(tz).any() else None
+            kind = ("climbing turn" if crossing <= CLIMB_TURN_MAX_PCT else
+                    "switchback-like" if crossing >= SWITCHBACK_MIN_PCT else "between")
+            corners.append((mid, a, b, r, float(side[a:b + 1].mean()), math.degrees(dth), min(1000.0, r_arc),
+                            crossing, tsa_min, kind))
             zone[a:b + 1] = True
         bend_r = 1 / np.maximum(akap, 1e-4)
 
@@ -548,6 +610,15 @@ class Problem:
         f = self.f
         per = {"grade": grade, "slope": side, "cutfill": cut, "offset": off, "drainage": run}
         vals = {name: f[name](x) for name, x in per.items()}
+        # Fall-line tread (owner, 2026-10-17): where the trail runs within
+        # fall_tsa_deg of the fall line, water cannot leave the tread
+        # sideways; at 5-8 % it runs off along the trail, flatter it pools,
+        # steeper it erodes. Charged per metre at the design grade, so a
+        # broad corner's long fall-line arc pays for its length, and corners
+        # on convex ground (where the fall line turns with the trail) win
+        # without a rule of their own.
+        fall = np.nan_to_num(tsa, nan=90.0) < self.fall_tsa
+        vals["falltread"] = f["falltread"](grade) * fall
         # Bends are charged per right angle TURNED, weighted by the curve at
         # the radius it was turned at, not per metre: a kink is an event, and
         # per metre a 3 m jog on a 750 m line cost nothing (2026-10-17).
@@ -568,24 +639,24 @@ class Problem:
         if self.grade_ref is not None and gmax > self.grade_ref:
             costs["grade"] += (gmax - self.grade_ref) / GRADE_OVER_PER
         cr = [f["corner"](c_[3]) for c_ in corners]
-        cl = [f["landing"](c_[4]) for c_ in corners]
         costs["corner"] = float(sum(cr))
-        costs["landing"] = float(sum(cl))
         costs["length"] = float(f["length"](L / self.L_in)) * self.L_in / PER_M
         total = sum(k.get(name, 0) * v for name, v in costs.items())
 
         density = sum(k.get(name, 0) * v for name, v in vals.items() if name != "bend") * w / PER_M
         density = density + k.get("bend", 0) * bend_v * akap * w / (math.pi / 2)
-        for (fi, a, b, r, land, _, _r), x1, x2 in zip(corners, cr, cl):
-            density[a:b + 1] += (k.get("corner", 0) * x1 + k.get("landing", 0) * x2) / (b - a + 1)
+        for c_, x1 in zip(corners, cr):
+            a, b = c_[1], c_[2]
+            density[a:b + 1] += k.get("corner", 0) * x1 / (b - a + 1)
         out = {"total": float(total), "costs": costs, "density": density,
                "corner_idx": [c_[0] for c_ in corners], "length_m": L}
         if detail:
             out.update({
-                "Q": Q, "d": d, "ground": g, "design": zd, "cut": cut, "grade": grade, "side": side,
+                "Q": Q, "d": d, "fall": fall, "tsa": tsa, "ground": g, "design": zd, "cut": cut, "grade": grade, "side": side,
                 "offset": eff, "dist": self.dist_grid.sample(Q[:, 0], Q[:, 1]), "bend_r": bend_r, "zone": zone, "run": run, "sites": sites,
                 "corners": [{"i": c_[0], "d": float(d[c_[0]]), "radius_m": float(c_[3]),
-                             "arc_radius_m": float(c_[6]), "landing_pct": c_[4], "turn_deg": c_[5]}
+                             "arc_radius_m": float(c_[6]), "side_pct": c_[4], "turn_deg": c_[5],
+                             "crossing_pct": c_[7], "tsa_min": c_[8], "kind": c_[9]}
                             for c_ in corners],
                 "w": w, "t": float(t),
                 "contrib": {name: k.get(name, 0) * v for name, v in costs.items()},
@@ -603,7 +674,7 @@ def histograms(r, bins=30):
            "offset": (r["offset"], w), "drainage": (r["run"], w),
            "bend": (r["bend_r"], w * ~r["zone"]),
            "corner": (np.array([c["radius_m"] for c in r["corners"]]), None),
-           "landing": (np.array([c["landing_pct"] for c in r["corners"]]), None)}
+           "falltread": (r["grade"], w * r["fall"])}
     for name, (x, wt) in src.items():
         m = FACTOR_META[name]
         lo, hi = m["xmin"], m["xmax"]

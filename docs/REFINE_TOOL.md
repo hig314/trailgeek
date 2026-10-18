@@ -346,3 +346,50 @@ the 95th-percentile grade holds within ~1 point (Upper ascent A: "Steadier
 grade" 36.8 % against 37.4 % drawn, keeping 3 of 6 corners; "Best overall"
 40.8 % with 2), and mean distance from the line is ~3 m. Runs take 25 s for
 757 m to 100 s for 2.5 km at the default 1500 iterations × 4 chains.
+
+## 9. Corners: fall-line tread and climbing turns versus switchbacks (2026-10-17)
+
+The owner's reasoning, which replaced the "corner landing" factor:
+
+- **Landing was mostly emergent, and partly wrong.** A broad corner on steep
+  ground swings through the fall line, so its apex grade approaches the side
+  slope and the (convex) grade factor already charges it; landing charged it
+  twice. On gentle ground it pointed the wrong way: it preferred flat spots,
+  where a fall-line arc pools. Removed.
+- **Fall-line tread** (new, per 100 m): where the trail runs within
+  `fall_tsa_deg` (30°) of the fall line, water cannot leave the tread
+  sideways. The cost is a U-shaped curve of the design grade there: free at
+  5–8 % (water runs off along the tread and it holds up), full below 3 %
+  (pools), rising gently above 8 % (erodes; gently, since grade charges
+  steep pitches too). Per metre, so a broad corner's long fall-line arc on
+  gentle ground pays for its length: the counterweight that lets a sharper
+  corner win when it keeps the trail across the slope. Ground flatter than
+  4 % has no fall line to speak of and is not counted (pooling there is a
+  grade question).
+- **Climbing turn or switchback-like.** Every corner (the downhill side
+  flips) crosses the fall line somewhere; what decides its kind is the
+  ground there. At 15 % or gentler (a bench, a nose top, a mild slope) the
+  trail can climb straight through the crossing: a climbing turn. At 25 % or
+  steeper, crossing the fall line is a steep pitch unless a landing is cut:
+  switchback-like. Between is "between". Reported per corner (profile labels,
+  the comparison table, the baseline line); it does not change costs yet.
+  (A first attempt classified by how far the fall line turns with the trail;
+  but a turn that wraps a nose keeps the downhill side and is a bend, not a
+  corner, so that measure could not separate the kinds.)
+- **Next, only if the classification shows switchback-like corners the owner
+  wants:** an explicit switchback corner type with its own fixed cost (work,
+  appearance), exempt from the radius curve, allowed a deeper landing cut,
+  and a search move that converts a corner to a switchback and back.
+
+**What the classification found on the Tutka lines** (default settings,
+2026-10-17): every drawn corner crosses the fall line on steep ground: Tutka
+Tusk ~58 %, Link option A ~76 %, Upper ascent A's six at 31–70 %. Checked
+against a 5 m bench (35–68 %), so it is the terrain, not lidar roughness.
+The candidates move their corners but do not find gentler crossings within
+the corridor (Upper ascent A keeps 2–3 corners at 27–69 %). That is the
+evidence for or against the switchback corner type above.
+
+**Speed:** the self-intersection check now tests only the stretch a move
+changed against the rest, and a candidate is evaluated from the 4 controls
+each sample depends on: Tutka Tusk 100 s → 21 s, Upper ascent A 268 s → 65 s,
+same results for the same seed.

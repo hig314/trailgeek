@@ -22,8 +22,8 @@ FACTOR_META = {
               "xmin": 0, "xmax": 60, "snap": 0.5},
     "corner": {"label": "Corners", "x": "tightest radius of a turn in which the downhill side changes; the curve's floor is what every corner costs, so fewer corners win", "unit": "m",
                "per": "corner", "xmin": 0, "xmax": 30, "snap": 0.5},
-    "landing": {"label": "Corner landing", "x": "side slope through a corner", "unit": "%", "per": "corner",
-                "xmin": 0, "xmax": 80, "snap": 1},
+    "falltread": {"label": "Fall-line tread", "x": "design grade where the trail runs near the fall line (water cannot leave sideways)", "unit": "%", "per": "metre",
+                "xmin": 0, "xmax": 40, "snap": 0.5},
     "bend": {"label": "Bends", "x": "radius of any other bend, charged per right angle turned at it", "unit": "m", "per": "turn",
              "xmin": 0, "xmax": 40, "snap": 0.5},
     "slope": {"label": "Terrain slope", "x": "side slope at bench scale", "unit": "%", "per": "metre",
@@ -50,7 +50,10 @@ DEFAULT_SETTINGS = {
         # Never 0: every corner costs at least 0.2, so of two otherwise equal
         # lines the one with fewer corners wins (owner, 2026-10-17).
         "corner": {"k": 5, "curve": [[0, 1], [3, 1], [6, 0.5], [10, 0.3], [15, 0.2]]},
-        "landing": {"k": 2, "curve": [[0, 0], [15, 0], [30, 0.5], [45, 1]]},
+        # U-shaped (owner, 2026-10-17): a fall-line run at 5-8 % sheds water
+        # along the tread and holds up; flatter pools, steeper erodes. The
+        # steep side is gentle because the grade factor already charges it.
+        "falltread": {"k": 4, "curve": [[0, 1], [3, 1], [5, 0], [8, 0], [15, 0.3], [30, 0.6]]},
         "bend": {"k": 1, "curve": [[0, 1], [5, 1], [10, 0.3], [20, 0]]},
         "slope": {"k": 3, "curve": [[0, 0], [60, 0], [80, 0.3], [100, 1]]},
         "cutfill": {"k": 5, "curve": [[0, 0], [0.1, 0], [0.3, 0.3], [0.5, 1]]},
@@ -62,7 +65,7 @@ DEFAULT_SETTINGS = {
     },
     "params": {
         "corridor_m": 25, "cutfill_max_m": 0.75, "bench_m": 2.5, "spacing_m": 2.0, "knot_m": 8,
-        "input_sigma_m": 3.0, "sketch_radius_m": 10.0,
+        "input_sigma_m": 3.0, "sketch_radius_m": 10.0, "fall_tsa_deg": 30,
         "iterations": 1500, "chains": 4, "min_outslope_pct": 10, "reversal_dip_m": 0.3,
         "seed": 0,
     },
@@ -72,6 +75,7 @@ DEFAULT_SETTINGS = {
 PARAM_META = {
     "input_sigma_m": ("How far your line may be from what you mean, m (sketch 3-5, GPS or existing trail 0.5)", 0, 15, False),
     "sketch_radius_m": ("Radius a sketched corner implies, m", 2, 40, False),
+    "fall_tsa_deg": ("Within this angle of the fall line the tread counts as fall-line, degrees", 5, 60, False),
     "corridor_m": ("Corridor: most distance beyond the uncertainty and corner room, m", 2, 40, False),
     "cutfill_max_m": ("Most cut or fill allowed, m", 0.05, 1.5, False),
     "bench_m": ("Bench width for side slope, m", 1, 6, False),
