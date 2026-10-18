@@ -9,7 +9,7 @@
  *
  * Curve editor: curves are piecewise linear, at most 9 nodes, y 0..1. Drag a
  * node; drag a flat stretch up or down; drag a ramp sideways; double-click a
- * segment to add a node; drag a node off the chart to remove it. The grey
+ * segment to add a node; double-click a node (or drag it off the chart) to remove it. The grey
  * bars behind a curve are the selected legs' own values today (a baseline
  * run scores the input when the panel opens or the selection changes).
  *
@@ -73,7 +73,7 @@ window.TgRefine = (function () {
     h += '<div class="tg-kind">Refine</div><h2>' + esc(p.name) + '</h2>';
     h += '<div class="tg-small tg-muted">Reads your line as a sketch of a smooth path (sharp corners are taken to mean rounder ones) and proposes versions that fit the terrain better. Nothing changes until you save a candidate, which becomes a variant of this alignment. <a href="#" id="rf-back">Back to the alignment</a></div>';
     h += '<div class="tg-sub">Legs to refine</div><div id="rf-legs" class="rf-legs"></div><div id="rf-legmsg" class="tg-small tg-error"></div>';
-    h += '<div class="tg-sub">Factors</div><div class="tg-small tg-muted">Each curve gives the cost, 0 to 1, by value; k weights it, and 0 ignores the factor. One scale throughout: k for a per-100 m factor is what 100 m at full cost costs, so with grade at 10 and corners at 5, a full-cost corner is as bad as 50 m at full grade cost. Drag a node; drag a flat stretch up or down, a ramp sideways; double-click a segment to add a node; drag a node off the chart to remove it. Grey bars: the selected legs today.</div>';
+    h += '<div class="tg-sub">Factors</div><div class="tg-small tg-muted">Each curve gives the cost, 0 to 1, by value; k weights it, and 0 ignores the factor. One scale throughout: k for a per-100 m factor is what 100 m at full cost costs, so with grade at 10 and corners at 5, a full-cost corner is as bad as 50 m at full grade cost. Drag a node; drag a flat stretch up or down, a ramp sideways; double-click a segment to add a node, a node to remove it (or drag it off the chart). Grey bars: the selected legs today.</div>';
     h += '<div id="rf-factors"></div>';
     h += '<details class="tg-more"><summary>Run parameters</summary><div id="rf-params" class="rf-params"></div></details>';
     h += '<div class="tg-actions"><button id="rf-run" class="tg-btn tg-primary">Run</button>' +
@@ -221,6 +221,12 @@ window.TgRefine = (function () {
       nodes.splice(i + 1, 0, [xv, snapY(yv)]);
       draw(); onChange();
     }
+    function remove(ev, d) {
+      ev.preventDefault(); ev.stopPropagation();
+      if (nodes.length <= 2) return;
+      nodes.splice(nodes.indexOf(d), 1);
+      draw(); onChange();
+    }
     function draw() {
       gh.selectAll('rect').remove();
       if (hist && hist.counts) {
@@ -241,7 +247,7 @@ window.TgRefine = (function () {
         .classed('rf-flat', function (i) { return Math.abs(nodes[i][1] - nodes[i + 1][1]) < 1e-9; });
       var dd = dots.selectAll('circle').data(nodes);
       dd.exit().remove();
-      dd.enter().append('circle').attr('class', 'rf-node').attr('r', 5).call(nodeDrag)
+      dd.enter().append('circle').attr('class', 'rf-node').attr('r', 5).call(nodeDrag).on('dblclick', remove)
         .merge(dd).attr('cx', function (d) { return x(d[0]); }).attr('cy', function (d) { return y(d[1]); })
         .classed('rf-del', false)
         .each(function (d) { d3.select(this).selectAll('title').remove(); d3.select(this).append('title').text(d[0] + ' ' + fm.unit + ' → ' + d[1]); });
