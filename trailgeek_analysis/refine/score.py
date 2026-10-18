@@ -2,10 +2,9 @@
 cross-sections from the Grid, the design grade line, corners and bends, the
 drainage stub, and every factor's cost (docs/REFINE_TOOL.md §2-3).
 
-Costs: a per-metre factor is the integral of its curve along the line
-divided by the INPUT length, so making the line longer does not dilute it
-(length has its own factor). A per-corner factor is summed over corners. The
-total is the sum of k * cost.
+Costs: a per-metre factor is the integral of its curve along the line, per
+100 m. A per-corner factor is summed over corners. Length is k per 100 m,
+counted from the input's length. The total is the sum of k * cost.
 """
 import math
 
@@ -640,7 +639,11 @@ class Problem:
             costs["grade"] += (gmax - self.grade_ref) / GRADE_OVER_PER
         cr = [f["corner"](c_[3]) for c_ in corners]
         costs["corner"] = float(sum(cr))
-        costs["length"] = float(f["length"](L / self.L_in)) * self.L_in / PER_M
+        # Every metre alike (owner, 2026-10-17). Counted from the input's
+        # length, so the line as drawn pays 0 and a shorter candidate earns
+        # a credit: totals stay comparable and the per-factor guard is not
+        # loosened by a large constant.
+        costs["length"] = (L - self.L_in) / PER_M
         total = sum(k.get(name, 0) * v for name, v in costs.items())
 
         density = sum(k.get(name, 0) * v for name, v in vals.items() if name != "bend") * w / PER_M
@@ -667,7 +670,7 @@ class Problem:
 def histograms(r, bins=30):
     """The input's values per factor, binned over each factor's x range, for
     the curve editor's background: metres per bin for per-metre factors,
-    counts for per-corner ones, the one value for length."""
+    counts for per-corner ones."""
     out = {}
     w = r["w"]
     src = {"grade": (r["grade"], w), "slope": (r["side"], w), "cutfill": (r["cut"], w),
@@ -682,5 +685,4 @@ def histograms(r, bins=30):
         hgt, _ = np.histogram(xc, bins=bins, range=(lo, hi), weights=wt)
         out[name] = {"lo": lo, "hi": hi, "counts": [round(float(v), 2) for v in hgt],
                      "unit": "m" if wt is not None else "corners"}
-    out["length"] = {"value": 1.0}
     return out

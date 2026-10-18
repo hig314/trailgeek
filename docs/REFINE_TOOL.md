@@ -52,7 +52,7 @@ how a user learns what a `k` means.
 | Terrain slope | side slope %, ~3 m scale | per metre | 0–60: 0, 80: 0.3, 100: 1 | 3 |
 | Cut / fill | \|design − ground\|, m | per metre | 0–0.1: 0, 0.3: 0.3, 0.5: 1 | 5 |
 | Distance from input | lateral offset, m | per metre | 0–5: 0, 10: 0.2, 20: 1 | 2 |
-| Length | length / input length | per run | 0.9–1.02: 0, 1.1: 0.5, 1.2: 1 | 3 |
+| Length | metres, every one alike (no curve; §10) | per 100 m, from the input's length | — | 3 |
 | Drainage (stub) | metres since the last grade reversal | per metre | 0–60: 0, 120: 0.5, 200: 1 | 1 |
 | Corner landing | side slope at a corner's apex, % | per corner | 0–15: 0, 30: 0.5, 45: 1 | 2 |
 
@@ -393,3 +393,13 @@ evidence for or against the switchback corner type above.
 changed against the rest, and a candidate is evaluated from the 4 controls
 each sample depends on: Tutka Tusk 100 s → 21 s, Upper ascent A 268 s → 65 s,
 same results for the same seed.
+
+## 10. Length per metre (owner, 2026-10-17)
+
+Length was a curve of length / input length (free to +2 %, then steep). It
+is now a plain multiple: k per 100 m, every metre alike, counted from the
+input's length so the line as drawn pays 0 and a shorter candidate earns a
+credit. The panel shows only its k. Default k 3: 100 m more costs as much
+as 30 m at full grade cost. At k 5 the test sketch's search cut its corner
+by ~40 m for the credit and every chain was refused by the offset guard,
+leaving only "Your line, smoothed".

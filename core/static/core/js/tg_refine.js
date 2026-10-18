@@ -133,15 +133,15 @@ window.TgRefine = (function () {
       row.className = 'rf-factor';
       row.innerHTML = '<div class="rf-fhead"><strong>' + esc(m.label) + '</strong>' +
         (m.stub ? ' <span class="tg-badge" title="Deliberately primitive for now: sites are low points of the design line and ground dips; no groundwater or terrain below the trail yet">stub</span>' : '') +
-        '<span class="tg-muted tg-small">' + esc(m.x) + ' (' + esc(m.unit) + ') · ' +
-        (m.per === 'metre' ? 'per 100 m' : m.per === 'corner' ? 'per corner' : m.per === 'turn' ? 'per right angle' : 'per 100 m of your line') + '</span>' +
+        '<span class="tg-muted tg-small">' + (m.flat ? esc(m.x) + ' · per 100 m' : esc(m.x) + ' (' + esc(m.unit) + ') · ' +
+        (m.per === 'metre' ? 'per 100 m' : m.per === 'corner' ? 'per corner' : 'per right angle')) + '</span>' +
         '<label class="rf-k" title="Weight of this factor; 0 ignores it">k <input type="number" min="0" max="1000" step="0.5" value="' + s.k + '"></label></div>' +
-        '<div class="rf-curve"></div>';
+        (m.flat ? '' : '<div class="rf-curve"></div>');
       box.appendChild(row);
       row.querySelector('.rf-k input').addEventListener('change', function () {
         var v = Math.max(0, +this.value || 0); this.value = v; s.k = v; changed();
       });
-      editors[m.name] = curveEditor(row.querySelector('.rf-curve'), m, s.curve, changed);
+      if (!m.flat) editors[m.name] = curveEditor(row.querySelector('.rf-curve'), m, s.curve, changed);
     });
     applyHistograms();
   }
@@ -267,11 +267,6 @@ window.TgRefine = (function () {
   function applyHistograms() {
     var hs = baseline && baseline.histograms;
     Object.keys(editors).forEach(function (k) { if (hs && hs[k] && hs[k].counts) editors[k].setHist(hs[k]); });
-    if (editors['length']) {
-      var marks = [{ x: 1, color: '#555' }];
-      if (result) result.candidates.forEach(function (c, i) { marks.push({ x: c.length_m / result.input.length_m, color: CAND[i] }); });
-      editors['length'].setMarks(marks);
-    }
   }
 
   // ---- jobs ------------------------------------------------------------------------

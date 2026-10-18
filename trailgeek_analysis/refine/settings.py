@@ -15,8 +15,10 @@ import math
 MAX_NODES = 9          # 8 segments
 
 # per: "metre" = the curve integrated along the line, per 100 m; "corner" =
-# summed per corner; "turn" = per right angle turned; "run" = once, times the
-# input length / 100 m (length). One scale, so k means the same on any route.
+# summed per corner; "turn" = per right angle turned. One scale, so k means
+# the same on any route. A "flat" factor has no curve worth shaping: length
+# is k per 100 m of line, every metre alike.
+
 FACTOR_META = {
     "grade": {"label": "Grade", "x": "design |grade| over 10 m, plus a quarter of the steepest 10 m's cost; keep it convex (see the note)", "unit": "%", "per": "metre",
               "xmin": 0, "xmax": 60, "snap": 0.5},
@@ -32,8 +34,8 @@ FACTOR_META = {
                 "xmin": 0, "xmax": 0.75, "snap": 0.01},
     "offset": {"label": "Distance from your line", "x": "beyond its uncertainty, after the room a sketched corner needs to round", "unit": "m", "per": "metre",
                "xmin": 0, "xmax": 25, "snap": 0.5},
-    "length": {"label": "Length", "x": "length / input length", "unit": "×", "per": "run",
-               "xmin": 0.8, "xmax": 1.3, "snap": 0.01},
+    "length": {"label": "Length", "x": "every metre the same; charged on the difference from your line, so as drawn it is 0", "unit": "m", "per": "metre",
+               "xmin": 0, "xmax": 1, "snap": 1, "flat": True},
     "drainage": {"label": "Drainage (stub)", "x": "distance since the last grade reversal", "unit": "m",
                  "per": "metre", "xmin": 0, "xmax": 300, "snap": 5, "stub": True},
 }
@@ -60,7 +62,11 @@ DEFAULT_SETTINGS = {
         # x is distance beyond the line's uncertainty (3 m by default), so with
         # the defaults: free to ~5 m off a straight stretch, 0.2 at ~10 m, 1 at ~20 m.
         "offset": {"k": 2, "curve": [[0, 0], [2, 0], [7, 0.2], [17, 1]]},
-        "length": {"k": 3, "curve": [[0.8, 0], [1.02, 0], [1.1, 0.5], [1.2, 1]]},
+        # Per metre, a plain multiple of length (owner, 2026-10-17; was a
+        # curve of length / input length): 100 m more costs 3, as much as
+        # 30 m at full grade cost. k 5 rewarded cutting corners past the
+        # offset guard. The curve is kept for the schema, not used.
+        "length": {"k": 3, "curve": [[0, 1], [1, 1]]},
         "drainage": {"k": 1, "curve": [[0, 0], [60, 0], [120, 0.5], [200, 1]]},
     },
     "params": {
