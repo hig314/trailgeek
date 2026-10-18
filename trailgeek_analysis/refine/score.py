@@ -13,7 +13,7 @@ import numpy as np
 from . import spline
 from .profile import taut_string
 from .terrain import Grid
-from .settings import FACTOR_META
+from .settings import FACTOR_META, ZERO_AS
 
 CORNER_KAPPA = 1 / 50.0     # 1/m: curvature that counts as still turning, around a flip
 CORNER_HALF_M = 25.0        # a corner's turn zone reaches at most this far beyond its flips
@@ -66,9 +66,25 @@ def resample_legs(legs_xy, spacing):
 
 
 def curve_fn(curve):
+    """A cost curve as a function: log-linear between anchors (geometric:
+    halfway from 0.1 to 10 is 1), a straight line on the panel's log axis,
+    and flat beyond the first and last anchor (owner, 2026-10-17). Costs
+    are never 0; a 0 in an older curve reads as ZERO_AS (settings).
+    """
     xs = np.array([c[0] for c in curve], float)
     ys = np.array([c[1] for c in curve], float)
-    return lambda x: np.interp(x, xs, ys)
+    ly = np.log(np.where(ys > 0, ys, ZERO_AS))
+    if len(xs) == 1:
+        return lambda x: float(np.exp(ly[0])) if np.ndim(x) == 0 else np.full(np.shape(x), np.exp(ly[0]))
+    dx = np.diff(xs)
+
+    def f(x):
+        x = np.asarray(x, float)
+        i = np.clip(np.searchsorted(xs, x, side="right") - 1, 0, len(xs) - 2)
+        t = np.clip(np.divide(x - xs[i], dx[i], out=np.ones_like(x), where=dx[i] > 0), 0.0, 1.0)
+        out = np.exp(ly[i] + (ly[i + 1] - ly[i]) * t)
+        return float(out) if out.ndim == 0 else out
+    return f
 
 
 def side_of_downhill(cross, thr):
@@ -612,6 +628,8 @@ class Problem:
                if self.twi_grid is not None else np.zeros(n))
         per = {"grade": grade, "slope": side, "cutfill": cut, "offset": off, "drainage": run, "wet": wet}
         vals = {name: f[name](x) for name, x in per.items()}
+        if self.twi_grid is None:
+            vals["wet"] = np.zeros(n)        # no wetness layer: the factor is off, not at its floor
         # Fall-line tread (owner, 2026-10-17): where the trail runs within
         # fall_tsa_deg of the fall line, water cannot leave the tread
         # sideways; at 5-8 % it runs off along the trail, flatter it pools,

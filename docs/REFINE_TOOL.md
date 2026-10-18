@@ -455,11 +455,17 @@ Recomputed on request only; not in the URL.
   by `node tools/weights_check.js`. Only the ratios reach the search: the
   defaults are the earlier k values (grade 10, corners 5, ...) as shares of
   100, and older saved settings score the same.
-- **Curves are drawn on a log y axis**, 0.1 to 10 at first; + and − zoom,
-  "fit" frames the curve. 0 has a strip of its own below the axis (drag a
-  node or a flat stretch into it to make that range free). Values may now
-  exceed 1 (up to 10^4). Between nodes the cost stays linear in value, as
-  the search applies it, so ramps are drawn bent.
+- **Curves live in log space**: drawn on a log y axis, 0.1 to 10 at first
+  (+ and − zoom, "fit" frames the curve), and joined **log-linearly**
+  between anchors, straight on that axis, in the search as on screen
+  (`score.curve_fn`; halfway from 0.1 to 10 is 1). There is **no 0**:
+  costs run 10^-4 to 10^4, "next to nothing" is 0.01, and a 0 in an older
+  saved curve reads as 0.01. Since a log-linear rise off the floor hugs it
+  most of the way, the default curves gained a midway anchor at each such
+  rise, at the value the earlier linear curve had there (fall-line tread at
+  4.5 % costs 0.25, as before, not 0.03). The floor is not quite free: the
+  defaults' floors add about 0.65 per 100 m in all, some 8 % of what
+  length itself costs per 100 m.
 - A share lifted out of sight by another factor's 100 % is not saved: Set
   as my default stores the shares as shown.
 

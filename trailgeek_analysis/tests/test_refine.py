@@ -38,7 +38,8 @@ class SettingsTests(unittest.TestCase):
             {"factors": {"grade": {"k": -1}}},
             {"factors": {"grade": {"curve": [[0, 0]]}}},
             {"factors": {"grade": {"curve": [[0, 0], [5, 2e4]]}}},
-            {"factors": {"grade": {"curve": [[0, 0], [5, -0.5]]}}},
+            {"factors": {"grade": {"curve": [[0, 0.01], [5, -0.5]]}}},
+            {"factors": {"grade": {"curve": [[0, 1e-6], [5, 1]]}}},
             {"factors": {"grade": {"curve": [[5, 0], [1, 1]]}}},
             {"factors": {"grade": {"curve": [[i, 0] for i in range(10)]}}},
             {"params": {"iterations": 10 ** 9}},
@@ -50,6 +51,16 @@ class SettingsTests(unittest.TestCase):
 
 
 class PieceTests(unittest.TestCase):
+    def test_curves_are_log_linear_between_positive_anchors(self):
+        from trailgeek_analysis.refine.score import curve_fn
+        f = curve_fn([[0, 0.1], [10, 10]])
+        np.testing.assert_allclose(f(np.array([-5.0, 5.0, 20.0])), [0.1, 1.0, 10.0])   # geometric, flat beyond
+        g = curve_fn([[0, 0.01], [10, 1], [20, 4]])
+        np.testing.assert_allclose(g(np.array([5.0, 15.0])), [0.1, 2.0])
+        self.assertIsInstance(g(7.5), float)
+        np.testing.assert_allclose(curve_fn([[0, 0], [10, 1]])(5.0), 0.1)             # an older curve's 0 reads as 0.01
+        self.assertEqual(clean_settings({"factors": {"grade": {"curve": [[0, 0], [5, 1]]}}})["factors"]["grade"]["curve"][0][1], 0.01)
+
     def test_grid_bilinear_is_exact_on_a_plane(self):
         g = plane_grid()
         x, y = np.array([0.3, 10.7, -5.5]), np.array([1.25, 33.3, 7.9])
@@ -156,7 +167,7 @@ class CornerTests(unittest.TestCase):
             cost[slope] = down_fall["costs"]["falltread"]
             contour = self.score([np.array([[-50, 50], [50, 50]], float)], g)
             self.assertEqual(contour["costs"]["falltread"], 0.0)      # across the slope: never fall-line
-        self.assertAlmostEqual(cost[0.065], 0.0, places=3)
+        self.assertLess(cost[0.065], 0.012)                             # the 0.01 floor: next to nothing
         self.assertGreater(cost[0.045], 0.1)                            # pools
         self.assertGreater(cost[0.14], 0.1)                             # erodes
 
