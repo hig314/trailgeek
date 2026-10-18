@@ -7,17 +7,30 @@ A settings dict is {"factors": {name: {"k": float, "curve": [[x, y], ...]}},
 every stored layer has the same schema and may hold only what it changes.
 
 Curves are piecewise linear with at most MAX_NODES nodes, x increasing,
-y in 0..1, flat beyond the first and last node.
+y in 0..CURVE_Y_MAX, flat beyond the first and last node. The panel draws
+them on a log y axis (0.1 to 10 by default, zoomable), with 0 in a strip
+of its own below it.
+
+Weights k are shares: the panel keeps them adding up to 100 (owner,
+2026-10-17). Only their ratios matter to the search (the annealer's
+temperature comes from the cost differences it sees, and its guards scale
+with k), so settings saved with the older weights (grade 10, corners 5, ...)
+score the same; the panel shows them as shares.
 """
 import copy
 import math
 
 MAX_NODES = 9          # 8 segments
+CURVE_Y_MAX = 1e4
 
 # per: "metre" = the curve integrated along the line, per 100 m; "corner" =
 # summed per corner; "turn" = per right angle turned. One scale, so k means
 # the same on any route. A "flat" factor has no curve worth shaping: length
 # is k per 100 m of line, every metre alike.
+#
+# Default weights are the earlier ones (grade 10, corners 5, fall-line tread
+# 4, cut and fill 5, slope, wet ground and length 3, distance 2, bends and
+# drainage 1) as shares of 100.
 
 FACTOR_META = {
     "grade": {"label": "Grade", "x": "design |grade| over 10 m, plus a quarter of the steepest 10 m's cost; keep it convex (see the note)", "unit": "%", "per": "metre",
@@ -50,29 +63,29 @@ DEFAULT_SETTINGS = {
         # cheaper and the search heads up the fall line, dropping switchbacks
         # (it did, on Upper ascent A). Keep y / x rising up to the steepest
         # grade you would accept.
-        "grade": {"k": 10, "curve": [[0, 0], [8, 0], [12, 0.05], [18, 0.15], [25, 0.3], [35, 0.5], [45, 0.75], [60, 1]]},
+        "grade": {"k": 27.1, "curve": [[0, 0], [8, 0], [12, 0.05], [18, 0.15], [25, 0.3], [35, 0.5], [45, 0.75], [60, 1]]},
         # Never 0: every corner costs at least 0.2, so of two otherwise equal
         # lines the one with fewer corners wins (owner, 2026-10-17).
-        "corner": {"k": 5, "curve": [[0, 1], [3, 1], [6, 0.5], [10, 0.3], [15, 0.2]]},
+        "corner": {"k": 13.5, "curve": [[0, 1], [3, 1], [6, 0.5], [10, 0.3], [15, 0.2]]},
         # U-shaped (owner, 2026-10-17): a fall-line run at 5-8 % sheds water
         # along the tread and holds up; flatter pools, steeper erodes. The
         # steep side is gentle because the grade factor already charges it.
-        "falltread": {"k": 4, "curve": [[0, 1], [3, 1], [5, 0], [8, 0], [15, 0.3], [30, 0.6]]},
-        "bend": {"k": 1, "curve": [[0, 1], [5, 1], [10, 0.3], [20, 0]]},
-        "slope": {"k": 3, "curve": [[0, 0], [60, 0], [80, 0.3], [100, 1]]},
+        "falltread": {"k": 10.8, "curve": [[0, 1], [3, 1], [5, 0], [8, 0], [15, 0.3], [30, 0.6]]},
+        "bend": {"k": 2.7, "curve": [[0, 1], [5, 1], [10, 0.3], [20, 0]]},
+        "slope": {"k": 8.1, "curve": [[0, 0], [60, 0], [80, 0.3], [100, 1]]},
         # A first guess (2026-10-17): open hillside reads ~4-8, hollows and
         # benches ~9-11, channels and filled basins 12 and up.
-        "wet": {"k": 3, "curve": [[0, 0], [8, 0], [10, 0.3], [12, 0.7], [14, 1]]},
-        "cutfill": {"k": 5, "curve": [[0, 0], [0.1, 0], [0.3, 0.3], [0.5, 1]]},
+        "wet": {"k": 8.1, "curve": [[0, 0], [8, 0], [10, 0.3], [12, 0.7], [14, 1]]},
+        "cutfill": {"k": 13.5, "curve": [[0, 0], [0.1, 0], [0.3, 0.3], [0.5, 1]]},
         # x is distance beyond the line's uncertainty (3 m by default), so with
         # the defaults: free to ~5 m off a straight stretch, 0.2 at ~10 m, 1 at ~20 m.
-        "offset": {"k": 2, "curve": [[0, 0], [2, 0], [7, 0.2], [17, 1]]},
+        "offset": {"k": 5.4, "curve": [[0, 0], [2, 0], [7, 0.2], [17, 1]]},
         # Per metre, a plain multiple of length (owner, 2026-10-17; was a
-        # curve of length / input length): 100 m more costs 3, as much as
-        # 30 m at full grade cost. k 5 rewarded cutting corners past the
-        # offset guard. The curve is kept for the schema, not used.
-        "length": {"k": 3, "curve": [[0, 1], [1, 1]]},
-        "drainage": {"k": 1, "curve": [[0, 0], [60, 0], [120, 0.5], [200, 1]]},
+        # curve of length / input length): 100 m more costs as much as 30 m
+        # at full grade cost. A weight of 5 against grade's 10 rewarded
+        # cutting corners past the offset guard. The curve is kept for the schema, not used.
+        "length": {"k": 8.1, "curve": [[0, 1], [1, 1]]},
+        "drainage": {"k": 2.7, "curve": [[0, 0], [60, 0], [120, 0.5], [200, 1]]},
     },
     "params": {
         "corridor_m": 25, "cutfill_max_m": 0.75, "bench_m": 2.5, "spacing_m": 2.0, "knot_m": 8,
@@ -133,8 +146,8 @@ def clean_curve(curve, what):
         if not isinstance(node, (list, tuple)) or len(node) != 2:
             raise ValueError(f"{what}: each node is [x, y]")
         x, y = _num(node[0], what), _num(node[1], what)
-        if not 0 <= y <= 1:
-            raise ValueError(f"{what}: y must be between 0 and 1")
+        if not 0 <= y <= CURVE_Y_MAX:
+            raise ValueError(f"{what}: y must be between 0 and {CURVE_Y_MAX:g}")
         if out and x < out[-1][0]:
             raise ValueError(f"{what}: x must not decrease")
         out.append([x, y])

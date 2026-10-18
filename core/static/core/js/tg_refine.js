@@ -7,7 +7,9 @@
  * the candidates on the map and their profiles, compares them with the
  * input scored the same way, and saves a chosen one as a variant.
  *
- * Curve editor: curves are piecewise linear, at most 9 nodes, y 0..1. Drag a
+ * Curve editor: curves are piecewise linear, at most 9 nodes, y >= 0 on a log
+ * axis with 0 in a strip below it; weights are shares adding up to 100 %
+ * (tg_weights.js). Drag a
  * node; drag a flat stretch up or down; drag a ramp sideways; double-click a
  * segment to add a node; double-click a node (or drag it off the chart) to remove it. The grey
  * bars behind a curve are the selected legs' own values today (a baseline
@@ -21,7 +23,7 @@ window.TgRefine = (function () {
   var app = null, f = null, active = false;
   var meta = null, settings = null, mine = null;
   var legSel = [], baseline = null, result = null, runJob = null, chosen = 0, stale = false;
-  var editors = {}, pollTimer = null, baseTimer = null, seq = 0;
+  var editors = {}, weights = null, pollTimer = null, baseTimer = null, seq = 0;
   var CAND = ['#d9480f', '#1864ab', '#2b8a3e', '#7048e8'];
   var SRC = 'refine-cands', LAYERS = ['refine-cands-all', 'refine-cands-chosen'];
 
@@ -73,7 +75,7 @@ window.TgRefine = (function () {
     h += '<div class="tg-kind">Refine</div><h2>' + esc(p.name) + '</h2>';
     h += '<div class="tg-small tg-muted">Reads your line as a sketch of a smooth path (sharp corners are taken to mean rounder ones) and proposes versions that fit the terrain better. Nothing changes until you save a candidate, which becomes a variant of this alignment. <a href="#" id="rf-back">Back to the alignment</a></div>';
     h += '<div class="tg-sub">Legs to refine</div><div id="rf-legs" class="rf-legs"></div><div id="rf-legmsg" class="tg-small tg-error"></div>';
-    h += '<div class="tg-sub">Factors</div><div class="tg-small tg-muted">Each curve gives the cost, 0 to 1, by value; k weights it, and 0 ignores the factor. One scale throughout: k for a per-100 m factor is what 100 m at full cost costs, so with grade at 10 and corners at 5, a full-cost corner is as bad as 50 m at full grade cost. Drag a node; drag a flat stretch up or down, a ramp sideways; double-click a segment to add a node, a node to remove it (or drag it off the chart). Grey bars: the selected legs today.</div>';
+    h += '<div class="tg-sub">Factors</div><div class="tg-small tg-muted">Each factor has a share of the weight (the sliders add up to 100 %: moving one scales the others, keeping their ratios; 0 ignores a factor) and a curve: the cost by value, on a log scale (+ and − zoom it, fit frames it), with 0 in the strip at the bottom. One scale throughout: a per-100 m factor at cost 1 for 100 m costs its share; with grade at 27 % and corners at 13.5 %, a corner at cost 1 is as bad as 50 m of grade at cost 1. Drag a node; drag a flat stretch up or down, a ramp sideways; double-click a segment to add a node, a node to remove it (or drag it off the chart). Grey bars: the selected legs today.</div>';
     h += '<div id="rf-factors"></div>';
     h += '<details class="tg-more"><summary>Run parameters</summary><div id="rf-params" class="rf-params"></div></details>';
     h += '<div class="tg-actions"><button id="rf-run" class="tg-btn tg-primary">Run</button>' +
@@ -127,6 +129,10 @@ window.TgRefine = (function () {
 
   function renderFactors() {
     var box = $('rf-factors'); box.innerHTML = ''; editors = {};
+    var init = {};
+    meta.factors.forEach(function (m) { init[m.name] = settings.factors[m.name].k; });
+    weights = TgWeights.create(init);
+    var rows = {};
     meta.factors.forEach(function (m) {
       var s = settings.factors[m.name];
       var row = document.createElement('div');
@@ -134,15 +140,30 @@ window.TgRefine = (function () {
       row.innerHTML = '<div class="rf-fhead"><strong>' + esc(m.label) + '</strong>' +
         (m.stub ? ' <span class="tg-badge" title="Deliberately primitive for now: sites are low points of the design line and ground dips; no groundwater or terrain below the trail yet">stub</span>' : '') +
         '<span class="tg-muted tg-small">' + (m.flat ? esc(m.x) + ' · per 100 m' : esc(m.x) + ' (' + esc(m.unit) + ') · ' +
-        (m.per === 'metre' ? 'per 100 m' : m.per === 'corner' ? 'per corner' : 'per right angle')) + '</span>' +
-        '<label class="rf-k" title="Weight of this factor; 0 ignores it">k <input type="number" min="0" max="1000" step="0.5" value="' + s.k + '"></label></div>' +
+        (m.per === 'metre' ? 'per 100 m' : m.per === 'corner' ? 'per corner' : 'per right angle')) + '</span></div>' +
+        '<div class="rf-wrow" title="This factor\'s share of the weight. The shares add up to 100 %: moving one scales the others to fit, keeping their ratios. 0 ignores the factor.">' +
+        '<input type="range" class="rf-w" min="0" max="100" step="0.1"><output class="rf-wv"></output></div>' +
         (m.flat ? '' : '<div class="rf-curve"></div>');
       box.appendChild(row);
-      row.querySelector('.rf-k input').addEventListener('change', function () {
-        var v = Math.max(0, +this.value || 0); this.value = v; s.k = v; changed();
+      rows[m.name] = row;
+      row.querySelector('.rf-w').addEventListener('input', function () {
+        weights.set(m.name, +this.value / 100);
+        syncWeights(m.name);
+        changed();
       });
       if (!m.flat) editors[m.name] = curveEditor(row.querySelector('.rf-curve'), m, s.curve, changed);
     });
+    function syncWeights(except) {
+      var sh = weights.shares(), shown = TgWeights.roundShares(sh, 1);
+      meta.factors.forEach(function (m) {
+        var v = sh[m.name], row = rows[m.name];
+        settings.factors[m.name].k = Math.round(v * 1e6) / 1e4;      // a share of 100
+        if (m.name !== except) row.querySelector('.rf-w').value = shown[m.name];
+        row.querySelector('.rf-wv').textContent = shown[m.name].toFixed(1) + ' %';
+        row.classList.toggle('rf-off', v === 0);
+      });
+    }
+    syncWeights(null);
     applyHistograms();
   }
   function renderParams() {
@@ -165,32 +186,88 @@ window.TgRefine = (function () {
   }
 
   // ---- the curve editor ----------------------------------------------------------
+  // y is a cost multiplier on a log axis (0.1 to 10 at first; + and − zoom
+  // it, "fit" frames the curve), with 0 in a strip of its own below the
+  // axis: drag a node or a flat stretch into the strip to make it free.
+  // Between nodes the cost is linear in value, as the search applies it,
+  // so a ramp is drawn curved on the log axis.
   function curveEditor(el, fm, nodes, onChange) {
-    var W = Math.max(280, Math.min(520, el.clientWidth || 480)), H = 92;
-    var m = { l: 28, r: 10, t: 6, b: 18 }, w = W - m.l - m.r, h = H - m.t - m.b;
+    var W = Math.max(280, Math.min(520, el.clientWidth || 480)), H = 112;
+    var m = { l: 34, r: 10, t: 6, b: 18 }, w = W - m.l - m.r, h = H - m.t - m.b;
+    var ZS = 16, hl = h - ZS - 4, zeroY = h - ZS / 2;   // a 4 px gap between the axis and the zero strip          // log area 0..hl, the zero strip below
     var x = d3.scaleLinear().domain([fm.xmin, fm.xmax]).range([0, w]);
-    var y = d3.scaleLinear().domain([0, 1]).range([h, 0]);
+    var lo = 0.1, hi = 10;
+    var y = d3.scaleLog().range([hl, 0]);
+    el.classList.add('rf-curvebox');
+    var zb = d3.select(el).append('div').attr('class', 'rf-zoom');
+    zb.append('button').attr('type', 'button').attr('title', 'Zoom in: a narrower range of costs').text('+').on('click', function () { zoom(-0.5); });
+    zb.append('button').attr('type', 'button').attr('title', 'Zoom out: a wider range of costs').text('−').on('click', function () { zoom(0.5); });
+    zb.append('button').attr('type', 'button').attr('title', 'Frame the curve').text('fit').on('click', fit);
     var svg = d3.select(el).append('svg').attr('width', W).attr('height', H).attr('class', 'rf-svg');
     var g = svg.append('g').attr('transform', 'translate(' + m.l + ',' + m.t + ')');
     var gh = g.append('g'), gm = g.append('g');
     g.append('g').attr('class', 'rf-axis').attr('transform', 'translate(0,' + h + ')').call(d3.axisBottom(x).ticks(6).tickSizeOuter(0));
-    g.append('g').attr('class', 'rf-axis').call(d3.axisLeft(y).tickValues([0, 0.5, 1]).tickSizeOuter(0));
+    var gy = g.append('g').attr('class', 'rf-axis');
+    g.append('rect').attr('class', 'rf-zero').attr('x', 0).attr('y', h - ZS).attr('width', w).attr('height', ZS);
+    g.append('text').attr('class', 'rf-zero-label').attr('x', -4).attr('y', zeroY + 3).attr('text-anchor', 'end').text('0');
     var path = g.append('path').attr('class', 'rf-line');
     var segs = g.append('g'), dots = g.append('g');
     var hist = null;
     var snap = fm.snap || 1;
     function snapX(v) { return Math.round(v / snap) * snap; }
-    function snapY(v) { return Math.round(v * 20) / 20; }
+    function snapY(v) { return v <= 0 ? 0 : +v.toPrecision(2); }
     function clampX(v) { return Math.max(fm.xmin, Math.min(fm.xmax, v)); }
+    function ypx(v) { return v <= 0 ? zeroY : y(Math.max(lo, Math.min(hi, v))); }
+    function yval(py) { return py > hl + 4 ? 0 : snapY(y.invert(Math.max(0, Math.min(hl, py)))); }
 
+    function setRange(a, b) {
+      lo = a; hi = b; y.domain([lo, hi]);
+      // Decades; 2 and 5 as well when the range is narrow enough to read them.
+      var wide = Math.log10(hi / lo) > 1.6;
+      var ticks = y.ticks(10).filter(function (t) {
+        var d = t / Math.pow(10, Math.floor(Math.log10(t) + 1e-9));
+        return d < 1.01 || (!wide && (Math.abs(d - 2) < 0.01 || Math.abs(d - 5) < 0.01));
+      });
+      gy.call(d3.axisLeft(y).tickValues(ticks).tickFormat(d3.format('~g')).tickSizeOuter(0));
+    }
+    function zoom(dDec) {                                 // widen (+) or narrow (−) by dDec decades each side
+      var c = Math.sqrt(lo * hi), half = Math.log10(hi / lo) / 2 + dDec;
+      half = Math.max(0.25, Math.min(4, half));
+      setRange(c / Math.pow(10, half), c * Math.pow(10, half));
+      draw();
+    }
+    function fit() {
+      var pos = nodes.map(function (q) { return q[1]; }).filter(function (v) { return v > 0; });
+      if (!pos.length) return;
+      var a = Math.min.apply(null, pos), b = Math.max.apply(null, pos);
+      if (b / a < 10) { var c = Math.sqrt(a * b); a = c / Math.sqrt(10); b = c * Math.sqrt(10); }
+      setRange(a / 1.5, b * 1.5);
+      draw();
+    }
+    // Start at 0.1 to 10, widened by whole decades if a node is outside.
+    var pos0 = nodes.map(function (q) { return q[1]; }).filter(function (v) { return v > 0; });
+    var a0 = 0.1, b0 = 10;
+    pos0.forEach(function (v) { while (v < a0) a0 /= 10; while (v > b0) b0 *= 10; });
+    setRange(a0, b0);
+
+    // A segment's line, sampled so a ramp bends as it should on the log axis.
+    function segPts(a, b) {
+      var out = [], n = (a[1] === b[1] || a[0] === b[0]) ? 1 : 24;
+      for (var j = 0; j <= n; j++) {
+        var xv = a[0] + (b[0] - a[0]) * j / n, yv = a[1] + (b[1] - a[1]) * j / n;
+        out.push([x(xv), ypx(yv)]);
+      }
+      return out;
+    }
+    var line = d3.line();
     var nodeDrag = d3.drag()
       .on('drag', function (ev, d) {
         var i = nodes.indexOf(d); if (i < 0) return;
         var off = ev.y < -24 || ev.y > h + 24;
         d3.select(this).classed('rf-del', off && nodes.length > 2);
-        var lo = i > 0 ? nodes[i - 1][0] : fm.xmin, hi = i < nodes.length - 1 ? nodes[i + 1][0] : fm.xmax;
-        d[0] = Math.max(lo, Math.min(hi, snapX(clampX(x.invert(ev.x)))));
-        if (!off) d[1] = Math.max(0, Math.min(1, snapY(y.invert(ev.y))));
+        var lo_ = i > 0 ? nodes[i - 1][0] : fm.xmin, hi_ = i < nodes.length - 1 ? nodes[i + 1][0] : fm.xmax;
+        d[0] = Math.max(lo_, Math.min(hi_, snapX(clampX(x.invert(ev.x)))));
+        if (!off) d[1] = yval(ev.y);
         draw();
       })
       .on('end', function (ev, d) {
@@ -201,12 +278,12 @@ window.TgRefine = (function () {
       .on('start', function (ev, i) { this._x0 = ev.x; this._n = [nodes[i].slice(), nodes[i + 1].slice()]; })
       .on('drag', function (ev, i) {
         var a = nodes[i], b = nodes[i + 1], n0 = this._n;
-        if (Math.abs(n0[0][1] - n0[1][1]) < 1e-9) {          // a flat stretch moves up or down
-          a[1] = b[1] = Math.max(0, Math.min(1, snapY(y.invert(ev.y))));
+        if (n0[0][1] === n0[1][1]) {                          // a flat stretch moves up or down
+          a[1] = b[1] = yval(ev.y);
         } else {                                             // a ramp moves sideways
           var dx = x.invert(ev.x) - x.invert(this._x0);
-          var lo = i > 0 ? nodes[i - 1][0] : fm.xmin, hi = i + 2 < nodes.length ? nodes[i + 2][0] : fm.xmax;
-          dx = Math.max(lo - n0[0][0], Math.min(hi - n0[1][0], dx));
+          var lo_ = i > 0 ? nodes[i - 1][0] : fm.xmin, hi_ = i + 2 < nodes.length ? nodes[i + 2][0] : fm.xmax;
+          dx = Math.max(lo_ - n0[0][0], Math.min(hi_ - n0[1][0], dx));
           a[0] = snapX(n0[0][0] + dx); b[0] = snapX(n0[1][0] + dx);
         }
         draw();
@@ -234,22 +311,26 @@ window.TgRefine = (function () {
         gh.selectAll('rect').data(hist.counts).enter().append('rect').attr('class', 'rf-hist')
           .attr('x', function (d, i) { return i * bw; }).attr('width', Math.max(1, bw - 1))
           .attr('y', function (d) { return h - h * d / mx; }).attr('height', function (d) { return h * d / mx; })
-          .append('title').text(function (d) { return n(d, hist.unit === 'm' ? 0 : 0) + ' ' + hist.unit; });
+          .append('title').text(function (d) { return n(d, 0) + ' ' + hist.unit; });
       }
-      var pts = nodes.map(function (q) { return [x(q[0]), y(q[1])]; });
-      path.attr('d', d3.line()([[0, pts[0][1]]].concat(pts, [[w, pts[pts.length - 1][1]]])));
-      var sl = segs.selectAll('line').data(d3.range(nodes.length - 1));
+      var first = nodes[0], last = nodes[nodes.length - 1];
+      var pts = [[0, ypx(first[1])]];
+      for (var i = 0; i < nodes.length - 1; i++) pts = pts.concat(segPts(nodes[i], nodes[i + 1]));
+      if (nodes.length === 1) pts.push([x(first[0]), ypx(first[1])]);
+      pts.push([w, ypx(last[1])]);
+      path.attr('d', line(pts));
+      var sl = segs.selectAll('path').data(d3.range(nodes.length - 1));
       sl.exit().remove();
-      sl.enter().append('line').attr('class', 'rf-seg').call(segDrag).on('dblclick', split)
+      sl.enter().append('path').attr('class', 'rf-seg').call(segDrag).on('dblclick', split)
         .merge(sl)
-        .attr('x1', function (i) { return x(nodes[i][0]); }).attr('y1', function (i) { return y(nodes[i][1]); })
-        .attr('x2', function (i) { return x(nodes[i + 1][0]); }).attr('y2', function (i) { return y(nodes[i + 1][1]); })
-        .classed('rf-flat', function (i) { return Math.abs(nodes[i][1] - nodes[i + 1][1]) < 1e-9; });
+        .attr('d', function (i) { return line(segPts(nodes[i], nodes[i + 1])); })
+        .classed('rf-flat', function (i) { return nodes[i][1] === nodes[i + 1][1]; });
       var dd = dots.selectAll('circle').data(nodes);
       dd.exit().remove();
       dd.enter().append('circle').attr('class', 'rf-node').attr('r', 5).call(nodeDrag).on('dblclick', remove)
-        .merge(dd).attr('cx', function (d) { return x(d[0]); }).attr('cy', function (d) { return y(d[1]); })
+        .merge(dd).attr('cx', function (d) { return x(d[0]); }).attr('cy', function (d) { return ypx(d[1]); })
         .classed('rf-del', false)
+        .classed('rf-clip', function (d) { return d[1] > 0 && (d[1] < lo || d[1] > hi); })
         .each(function (d) { d3.select(this).selectAll('title').remove(); d3.select(this).append('title').text(d[0] + ' ' + fm.unit + ' → ' + d[1]); });
     }
     draw();

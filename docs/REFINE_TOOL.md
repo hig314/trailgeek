@@ -443,3 +443,32 @@ trails, with its own opacity. At most 4 km² a view; 4.4 km² around Lagoon
 Bypass took 91 s, nearly all of it reading the DEM. Filled flats (lakes,
 the sea) read solid blue, striped by the fill's epsilon gradient.
 Recomputed on request only; not in the URL.
+
+## 12. Shares and log curves (owner, 2026-10-17)
+
+- **Weights are shares** adding up to 100 %, one slider per factor. Moving
+  one scales the others to fit, keeping their ratios, and the ratios
+  survive a trip through the extremes (one factor to 100 %, then 0 %,
+  then 50 %): `tg_weights.js` keeps a mass and a level per factor, and a
+  share set to 100 % lifts its factor a level above the rest instead of
+  zeroing them, so nothing is rescaled in place and nothing drifts. Checked
+  by `node tools/weights_check.js`. Only the ratios reach the search: the
+  defaults are the earlier k values (grade 10, corners 5, ...) as shares of
+  100, and older saved settings score the same.
+- **Curves are drawn on a log y axis**, 0.1 to 10 at first; + and − zoom,
+  "fit" frames the curve. 0 has a strip of its own below the axis (drag a
+  node or a flat stretch into it to make that range free). Values may now
+  exceed 1 (up to 10^4). Between nodes the cost stays linear in value, as
+  the search applies it, so ramps are drawn bent.
+- A share lifted out of sight by another factor's 100 % is not saved: Set
+  as my default stores the shares as shown.
+
+**Where this is heading** (owner's framing, 2026-10-17, for later): the
+weights are an intuitive balance of what is really an economic question.
+The true-to-reality model would put build and maintenance costs (with
+discounting) against the benefit, at its core the value a user gets from
+the trail, and the risks (wildfire damage to the statistical value of a
+life lost to a fall). Calibrated against real settings, the ad hoc
+weighting could converge on such a model, founded on explicit monetary
+signals and on revealed value. The evaluator's construction and
+maintenance rubric is the natural meeting point.

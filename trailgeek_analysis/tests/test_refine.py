@@ -28,7 +28,7 @@ class SettingsTests(unittest.TestCase):
         s = merge_settings({"factors": {"grade": {"k": 3}}}, {"params": {"iterations": 99}})
         self.assertEqual(s["factors"]["grade"]["k"], 3)
         self.assertEqual(s["params"]["iterations"], 99)
-        self.assertEqual(s["factors"]["corner"]["k"], 5)           # untouched default
+        self.assertEqual(s["factors"]["corner"]["k"], 13.5)           # untouched default
         part = clean_settings({"factors": {"bend": {"k": 0}}}, partial=True)
         self.assertEqual(part, {"factors": {"bend": {"k": 0.0}}, "params": {}})
 
@@ -37,7 +37,8 @@ class SettingsTests(unittest.TestCase):
             {"factors": {"nope": {"k": 1}}},
             {"factors": {"grade": {"k": -1}}},
             {"factors": {"grade": {"curve": [[0, 0]]}}},
-            {"factors": {"grade": {"curve": [[0, 0], [5, 1.5]]}}},
+            {"factors": {"grade": {"curve": [[0, 0], [5, 2e4]]}}},
+            {"factors": {"grade": {"curve": [[0, 0], [5, -0.5]]}}},
             {"factors": {"grade": {"curve": [[5, 0], [1, 1]]}}},
             {"factors": {"grade": {"curve": [[i, 0] for i in range(10)]}}},
             {"params": {"iterations": 10 ** 9}},
