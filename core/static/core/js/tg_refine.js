@@ -313,7 +313,7 @@ window.TgRefine = (function () {
       n(s.grade_p95, 1) + ' %, ' + s.corners + ' corner' + (s.corners === 1 ? '' : 's') +
       (s.corner_min_r != null ? ' (tightest ' + n(s.corner_min_r, 1) + ' m)' : '') +
       (s.corners ? ': ' + s.climbing_turns + ' climbing turn' + (s.climbing_turns === 1 ? '' : 's') + ', ' + s.switchbacks + ' switchback-like' : '') +
-      ', ' + n(s.fall_m) + ' m of fall-line tread, ' + s.reversals + ' reversal site' + (s.reversals === 1 ? '' : 's') +
+      ', ' + n(s.fall_m) + ' m of fall-line tread, ' + n(s.wet_m) + ' m on wet ground, ' + s.reversals + ' reversal site' + (s.reversals === 1 ? '' : 's') +
       '.<div class="tg-small tg-muted">' + terrainNote(res) + '</div>';
   }
   function run() {
@@ -379,6 +379,7 @@ window.TgRefine = (function () {
     h += row('Climbing turns', function (d) { return d.stats.climbing_turns; }, function (v) { return n(v); }, null, 'Corners that cross the fall line on gentle ground (15 % or less): the trail can climb straight through');
     h += row('Switchback-like corners', function (d) { return d.stats.switchbacks; }, function (v) { return n(v); }, true, 'Corners that cross the fall line on ground of 25 % or more: a landing would have to be cut');
     h += row('Fall-line tread', function (d) { return d.stats.fall_m; }, function (v) { return n(v) + ' m'; }, null, 'Length within the set angle of the fall line, where water cannot leave the tread sideways');
+    h += row('Wet ground', function (d) { return d.stats.wet_m; }, function (v) { return n(v) + ' m'; }, null, 'Length where the topographic wetness index is 10 or more (hollows, benches, channels, filled basins): likely mud');
     h += row('Tightest bend anywhere', function (d) { return d.stats.bend_min_r; }, function (v) { return v == null ? '–' : n(v, 1) + ' m'; }, false, 'Smallest radius over any 5 m of the line, corners included: kinks show here');
     h += row('Reversal sites (stub)', function (d) { return d.stats.reversals; }, function (v) { return n(v); }, null);
     h += '</table></div>';

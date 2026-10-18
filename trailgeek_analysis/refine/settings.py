@@ -30,6 +30,8 @@ FACTOR_META = {
              "xmin": 0, "xmax": 40, "snap": 0.5},
     "slope": {"label": "Terrain slope", "x": "side slope at bench scale", "unit": "%", "per": "metre",
               "xmin": 0, "xmax": 150, "snap": 1},
+"wet": {"label": "Wet ground", "x": "topographic wetness index ln(a / tan b) on a 5 m grid: higher is wetter (mud); light, no culverts", "unit": "TWI", "per": "metre",
+            "xmin": 0, "xmax": 20, "snap": 0.5},
     "cutfill": {"label": "Cut and fill", "x": "|design − ground|", "unit": "m", "per": "metre",
                 "xmin": 0, "xmax": 0.75, "snap": 0.01},
     "offset": {"label": "Distance from your line", "x": "beyond its uncertainty, after the room a sketched corner needs to round", "unit": "m", "per": "metre",
@@ -58,6 +60,9 @@ DEFAULT_SETTINGS = {
         "falltread": {"k": 4, "curve": [[0, 1], [3, 1], [5, 0], [8, 0], [15, 0.3], [30, 0.6]]},
         "bend": {"k": 1, "curve": [[0, 1], [5, 1], [10, 0.3], [20, 0]]},
         "slope": {"k": 3, "curve": [[0, 0], [60, 0], [80, 0.3], [100, 1]]},
+        # A first guess (2026-10-17): open hillside reads ~4-8, hollows and
+        # benches ~9-11, channels and filled basins 12 and up.
+        "wet": {"k": 3, "curve": [[0, 0], [8, 0], [10, 0.3], [12, 0.7], [14, 1]]},
         "cutfill": {"k": 5, "curve": [[0, 0], [0.1, 0], [0.3, 0.3], [0.5, 1]]},
         # x is distance beyond the line's uncertainty (3 m by default), so with
         # the defaults: free to ~5 m off a straight stretch, 0.2 at ~10 m, 1 at ~20 m.

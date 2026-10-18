@@ -299,10 +299,11 @@ class Problem:
     hairpin gets the controls it needs.
     """
 
-    def __init__(self, legs_xy, grid, settings):
+    def __init__(self, legs_xy, grid, settings, twi_grid=None):
         p = settings["params"]
         self.params = p
         self.grid = grid
+        self.twi_grid = twi_grid         # a Grid of TWI (refine.twi), or None: wet ground costs nothing
         self.h = float(p["spacing_m"])
         self.P, self.joints = resample_legs(legs_xy, self.h)
         n = len(self.P)
@@ -607,7 +608,9 @@ class Problem:
 
         off = eff
         f = self.f
-        per = {"grade": grade, "slope": side, "cutfill": cut, "offset": off, "drainage": run}
+        wet = (np.nan_to_num(self.twi_grid.sample(Q[:, 0], Q[:, 1]), nan=0.0)
+               if self.twi_grid is not None else np.zeros(n))
+        per = {"grade": grade, "slope": side, "cutfill": cut, "offset": off, "drainage": run, "wet": wet}
         vals = {name: f[name](x) for name, x in per.items()}
         # Fall-line tread (owner, 2026-10-17): where the trail runs within
         # fall_tsa_deg of the fall line, water cannot leave the tread
@@ -656,7 +659,7 @@ class Problem:
         if detail:
             out.update({
                 "Q": Q, "d": d, "fall": fall, "tsa": tsa, "ground": g, "design": zd, "cut": cut, "grade": grade, "side": side,
-                "offset": eff, "dist": self.dist_grid.sample(Q[:, 0], Q[:, 1]), "bend_r": bend_r, "zone": zone, "run": run, "sites": sites,
+                "twi": wet, "offset": eff, "dist": self.dist_grid.sample(Q[:, 0], Q[:, 1]), "bend_r": bend_r, "zone": zone, "run": run, "sites": sites,
                 "corners": [{"i": c_[0], "d": float(d[c_[0]]), "radius_m": float(c_[3]),
                              "arc_radius_m": float(c_[6]), "side_pct": c_[4], "turn_deg": c_[5],
                              "crossing_pct": c_[7], "tsa_min": c_[8], "kind": c_[9]}
@@ -674,7 +677,7 @@ def histograms(r, bins=30):
     out = {}
     w = r["w"]
     src = {"grade": (r["grade"], w), "slope": (r["side"], w), "cutfill": (r["cut"], w),
-           "offset": (r["offset"], w), "drainage": (r["run"], w),
+           "offset": (r["offset"], w), "drainage": (r["run"], w), "wet": (r["twi"], w),
            "bend": (r["bend_r"], w * ~r["zone"]),
            "corner": (np.array([c["radius_m"] for c in r["corners"]]), None),
            "falltread": (r["grade"], w * r["fall"])}

@@ -157,6 +157,9 @@ def anneal(prob, rng, iters, k, t0, progress=None):
     return best
 
 
+WET_TWI = 10.0                      # the table's "wet ground" metres: TWI at least this
+
+
 def _json_detail(prob, r, legs):
     """A scored line as plain lists, ready for JSON."""
     rd = lambda a, nd: [round(float(v), nd) for v in a]
@@ -186,6 +189,7 @@ def _json_detail(prob, r, legs):
             "fall_m": round(float((r["w"] * r["fall"]).sum()), 1),
             "bend_min_r": round(float(r["bend_r"].min()), 1),
             "reversals": len(r["sites"]),
+            "wet_m": round(float((r["w"] * (r["twi"] >= WET_TWI)).sum()), 1),
         },
     }
 
@@ -199,7 +203,7 @@ def _best_tube(score, k):
     return best
 
 
-def refine(legs_xy, grid, settings, progress=None, seed=None):
+def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None):
     """Refine a stretch made of legs (each an (m, 2) array in a metric CRS).
     `settings` is a full, cleaned settings dict (settings.clean_settings).
     `progress(fraction, best_total)` is called now and then.
@@ -210,7 +214,7 @@ def refine(legs_xy, grid, settings, progress=None, seed=None):
     to it is offered as the candidate "Your line, smoothed", so the gain
     from rounding alone and the gain from fitting the terrain show apart."""
     p = settings["params"]
-    prob = Problem(legs_xy, grid, settings)
+    prob = Problem(legs_xy, grid, settings, twi_grid)
     k = prob.base_k
     found = _best_tube(lambda t, kk: prob.score_line(prob.P, t, kk), k)
     if found is None:
