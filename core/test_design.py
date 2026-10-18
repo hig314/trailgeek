@@ -225,6 +225,23 @@ class AlignmentApiTests(TestCase):
         self.assertTrue(j["project"]["can_edit"])
         self.assertEqual([p["slug"] for p in self.client.get("/api/projects/").json()["projects"]], ["p"])
 
+    def test_project_notes_are_for_editors_only(self):
+        self.assertEqual(self.client.get("/api/projects/p.json").json()["project"]["notes"]["text"], "")
+        r = self.post("/api/projects/p/notes", {"notes": "Check the creek crossing\r\nafter breakup. "})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["text"], "Check the creek crossing\nafter breakup.")
+        self.assertEqual(r.json()["updated_by"], "own")
+        self.assertEqual(self.post("/api/projects/p/notes", {"notes": 3}).status_code, 400)
+        # A public project's notes stay with those who can edit it.
+        Project.objects.filter(pk=self.project.pk).update(visibility=Visibility.PUBLIC)
+        self.client.logout()
+        self.assertIsNone(self.client.get("/api/projects/p.json").json()["project"]["notes"])
+        User.objects.create_user("viewer", password="pw")
+        self.client.login(username="viewer", password="pw")
+        self.assertIsNone(self.client.get("/api/projects/p.json").json()["project"]["notes"])
+        self.assertEqual(self.post("/api/projects/p/notes", {"notes": "x"}).status_code, 403)
+        self.assertEqual(Project.objects.get(slug="p").notes, "Check the creek crossing\nafter breakup.")
+
     def test_legs_tile_layer(self):
         lon, lat = ORIGIN
         z = 15

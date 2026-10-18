@@ -44,6 +44,7 @@ urlpatterns = [
     path("api/refine/jobs/<str:job>/", refine_views.api_refine_job, name="api_refine_job"),
     path("api/projects/", design.api_projects, name="api_projects"),
     path("api/projects/<slug:slug>.json", design.api_project, name="api_project"),
+    path("api/projects/<slug:slug>/notes", design.api_project_notes, name="api_project_notes"),
     # Field exports: GPX for GaiaGPS / phones, GeoJSON of the legs for offline map products.
     path("api/alignments/<int:pk>.gpx", core_exports.api_alignment_gpx, name="api_alignment_gpx"),
     path("api/projects/<slug:slug>.gpx", core_exports.api_project_gpx, name="api_project_gpx"),

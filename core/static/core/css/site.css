@@ -170,3 +170,6 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .rf-results td.tg-better { color: #1f7a33; }
 .rf-results td.tg-worse { color: #b3261e; }
 .rf-prof svg { display: block; }
+.tg-notes { cursor: text; padding: 4px 6px; border: 1px dashed transparent; border-radius: 4px; }
+.tg-notes:hover { border-color: var(--tg-border, #ccc); }
+.tg-notes-edit { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; }

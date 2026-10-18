@@ -168,6 +168,11 @@ server and Django reasoning rather than assume it.
   saves one as a variant (`Alignment.refinement` keeps settings and seed).
   Defaults are per user (`UserSetting`, key `refine`). Design, decisions and
   what changed while building: docs/REFINE_TOOL.md. Migration 0005.
+- **Project notes** (branch `project-notes`, stacked on `refine-design`
+  because its migration 0006 follows 0005; built on the Mac 2026-10-17):
+  `Project.notes` with who and when, shown in the project panel only to
+  those who can edit the project (a public project's notes stay private),
+  click to edit, `POST /api/projects/<slug>/notes`.
 - **Open:** R2 CORS for trailgeek.org is **done on both hosts**, verified
   from the Mac 2026-09-27 with an Origin header: the `landslidescience-lidar`
   bucket (owner) and the lidar-tiles Worker on `tiles.landslidescience.org`

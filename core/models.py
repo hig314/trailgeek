@@ -7,6 +7,7 @@ local UTM zone at save time (core.geo) so list views never need PostGIS
 maths just to show a distance.
 """
 from django.conf import settings
+from django.conf import settings as conf_settings   # Project.settings shadows the name in its class body
 from django.contrib.gis.db import models
 from django.contrib.gis.geos import LineString
 from django.urls import reverse
@@ -251,6 +252,12 @@ class Project(OwnedMixin):
     dem = models.ForeignKey(DemSource, null=True, blank=True, on_delete=models.SET_NULL, related_name="projects")
     members = models.ManyToManyField(settings.AUTH_USER_MODEL, blank=True, related_name="trail_projects")
     settings = models.JSONField(default=dict, blank=True, help_text="Evaluator settings; empty means defaults.")
+    # Working notes for the people who can edit the project, kept apart from
+    # the description because a public project's description is public.
+    notes = models.TextField(blank=True, help_text="Working notes; shown only to those who can edit the project.")
+    notes_updated_at = models.DateTimeField(null=True, blank=True)
+    notes_updated_by = models.ForeignKey(conf_settings.AUTH_USER_MODEL, null=True, blank=True,
+                                         on_delete=models.SET_NULL, related_name="+")
 
     class Meta:
         ordering = ["name"]
