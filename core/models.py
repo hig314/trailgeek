@@ -7,7 +7,6 @@ local UTM zone at save time (core.geo) so list views never need PostGIS
 maths just to show a distance.
 """
 from django.conf import settings
-from django.conf import settings as conf_settings   # Project.settings shadows the name in its class body
 from django.contrib.gis.db import models
 from django.contrib.gis.geos import LineString
 from django.urls import reverse
@@ -252,12 +251,6 @@ class Project(OwnedMixin):
     dem = models.ForeignKey(DemSource, null=True, blank=True, on_delete=models.SET_NULL, related_name="projects")
     members = models.ManyToManyField(settings.AUTH_USER_MODEL, blank=True, related_name="trail_projects")
     settings = models.JSONField(default=dict, blank=True, help_text="Evaluator settings; empty means defaults.")
-    # Working notes for the people who can edit the project, kept apart from
-    # the description because a public project's description is public.
-    notes = models.TextField(blank=True, help_text="Working notes; shown only to those who can edit the project.")
-    notes_updated_at = models.DateTimeField(null=True, blank=True)
-    notes_updated_by = models.ForeignKey(conf_settings.AUTH_USER_MODEL, null=True, blank=True,
-                                         on_delete=models.SET_NULL, related_name="+")
 
     class Meta:
         ordering = ["name"]
@@ -401,6 +394,29 @@ class Leg(models.Model):
     def save(self, *args, **kwargs):
         self.length_m = geo.length_m(self.geom)
         super().save(*args, **kwargs)
+
+
+class ProjectNote(models.Model):
+    """A note at a place, for a project: a creek crossing to check, a
+    flagged corner, a landowner's gate. Seen and edited only by those who can
+    edit the project (core.access.can_edit_project), so a public project's
+    notes stay private; the description is the public text."""
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="notes")
+    geom = models.PointField(srid=4326)
+    text = models.TextField()
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                               on_delete=models.SET_NULL, related_name="+")
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                   on_delete=models.SET_NULL, related_name="+")
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created"]
+
+    def __str__(self):
+        return self.text[:60]
 
 
 class UserSetting(models.Model):

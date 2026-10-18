@@ -428,6 +428,7 @@
   var CLICKABLE = ['trails-line', 'tracks', 'legs-line'];
   map.on('click', function (e) {
     if (window.TgDesign && TgDesign.editing()) return;      // the editor owns clicks
+    if (window.TgNotes && TgNotes.claims(e)) return;        // a note, or placing one
     var fs = map.queryRenderedFeatures(e.point, { layers: CLICKABLE });
     if (!fs.length) return;
     // Prefer an alignment leg over the trail under it: it is on top.
@@ -439,7 +440,9 @@
   });
   map.on('mousemove', function (e) {
     if (window.TgDesign && TgDesign.editing()) return;
-    var hit = map.queryRenderedFeatures(e.point, { layers: CLICKABLE }).length > 0;
+    if (window.TgNotes && TgNotes.placing()) return;         // keeps its crosshair
+    var hit = map.queryRenderedFeatures(e.point, { layers: CLICKABLE }).length > 0 ||
+              (window.TgNotes && TgNotes.claims(e));
     map.getCanvas().style.cursor = hit ? 'pointer' : '';
   });
 
@@ -483,6 +486,7 @@
       }
       lastFeature = f;
       syncProjectPicker();
+      if (kind !== 'align' && window.TgNotes) TgNotes.setProject(null);
       setSelectedData(f.geometry ? f : { type: 'FeatureCollection', features: [] });
       if (fit && f.geometry) map.fitBounds(bboxOf(f.geometry), { padding: 60, maxZoom: 15, duration: 0 });
       if (kind === 'align') { TgDesign.showAlignment(f); return; }
@@ -496,6 +500,7 @@
     if (window.TgDesign && !TgDesign.leave()) return;
     selected = null; lastFeature = null;
     syncProjectPicker();
+    if (window.TgNotes) TgNotes.setProject(null);
     setSelectedData({ type: 'FeatureCollection', features: [] });
     setSourceData('cursor', { type: 'FeatureCollection', features: [] });
     $('panel').classList.remove('open');
@@ -1010,6 +1015,7 @@
     rescaleLines: function () { rescaleLines(true); },
     sideView: sideViewOf
   });
+  if (window.TgNotes) TgNotes.init({ map: map, esc: esc });
 
   // ---- boot -------------------------------------------------------------------
   fillBasemaps();
@@ -1021,6 +1027,7 @@
       .then(function (fc) {
         registerDems(fc);
         addOverlays();
+        if (window.TgNotes) TgNotes.onStyleReload();   // on top of the overlays
         fillDemPicker();
         applyState(state, 'cold');   // 3D terrain and the selection; the rest was read at the top
       });

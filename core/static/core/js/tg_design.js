@@ -135,10 +135,12 @@ window.TgDesign = (function () {
     h += '<div class="tg-links"><a href="#" id="zoomto">Zoom to</a> · <a href="#" id="sideview" title="Look at it (nearly) horizontally, from the side, to see how steady the climb is">Side view</a> · ' +
          '<a href="/api/alignments/' + p.id + '.gpx" title="One track per leg, with waypoints where legs join; opens in GaiaGPS and the field map app">GPX</a> · ' +
          '<a href="/api/alignments/' + p.id + '.geojson" download="alignment-' + p.id + '.geojson">GeoJSON</a></div>';
+    if (p.can_edit) h += '<div id="notes-box"></div>';
     h += '<div class="tg-sub">Profile <span id="profsrc" class="tg-muted"></span></div>';
     $('detail').innerHTML = h;
     $('profstats').innerHTML = p.evaluation ? '<div class="tg-keys">' + app.profile.legend(true) + '</div>' : '';
     wireView(f);
+    TgNotes.setProject(p.can_edit ? { slug: p.project.slug, name: p.project.name } : null, $('notes-box'), false);
     if (p.evaluation) drawProfile(p.evaluation);
     else app.quickProfile(f);
     if (p.evaluation_status === 'queued') pollSaved(p.id);
@@ -263,7 +265,7 @@ window.TgDesign = (function () {
     if (p.description) h += '<p class="tg-desc tg-small">' + esc(p.description) + '</p>';
     if (p.can_edit) h += '<div class="tg-actions"><button id="d-new" class="tg-btn tg-primary">New alignment</button></div>';
     else h += '<div class="tg-muted tg-small">Read-only view: anyone with this page\'s link can see and download it. Editing needs a sign-in with the trail_editors role and membership of the project.</div>';
-    if (p.notes) h += '<div class="tg-sub">Notes <span class="tg-muted tg-small">(only those who can edit see them)</span></div><div id="proj-notes"></div>';
+    if (p.can_edit) h += '<div id="notes-box"></div>';
     if (p.children && p.children.length) {
       h += '<div class="tg-sub">Projects within this one</div><ul class="tg-list">' +
            p.children.map(function (q) { return '<li><a href="#project=' + esc(q.slug) + '">' + esc(q.name) + '</a></li>'; }).join('') + '</ul>';
@@ -307,43 +309,11 @@ window.TgDesign = (function () {
       th.addEventListener('click', function () { var k = th.dataset.k; sortDir = sortK === k ? -sortDir : 1; sortK = k; fill(); });
     });
     var n_ = $('d-new'); if (n_) n_.addEventListener('click', function () { newAlignment(p.id); });
-    if (p.notes) projectNotes($('proj-notes'), p);
+    TgNotes.setProject(p.can_edit ? { slug: p.slug, name: p.name } : null, $('notes-box'), true);
     // Fit to the project unless the caller keeps the view: a link with its own
     // map= (the other kinds have always honoured it), or a save / delete that
     // reopens the panel over the place being worked on.
     if (fit !== false && p.bbox) app.fitTo(null, p.bbox);
-  }
-
-  // Working notes: shown as text, click to edit, Save or Ctrl/Cmd-Enter.
-  function projectNotes(box, p) {
-    function show() {
-      var t = p.notes.text;
-      box.innerHTML = '<div class="tg-desc tg-small tg-notes" title="Click to edit">' +
-        (t ? esc(t) : '<span class="tg-muted">No notes yet. Click to add some.</span>') + '</div>' +
-        (p.notes.updated_at ? '<div class="tg-muted tg-small">Edited ' + esc(p.notes.updated_at.slice(0, 10)) +
-         (p.notes.updated_by ? ' by ' + esc(p.notes.updated_by) : '') + '</div>' : '');
-      box.firstChild.addEventListener('click', edit);
-    }
-    function edit() {
-      box.innerHTML = '<textarea class="tg-notes-edit" rows="8"></textarea><div class="tg-actions">' +
-        '<button class="tg-btn tg-primary">Save</button><button class="tg-btn">Cancel</button>' +
-        '<span class="tg-muted tg-small"></span></div>';
-      var ta = box.querySelector('textarea'), bs = box.querySelectorAll('button'), st = box.querySelector('.tg-actions span');
-      ta.value = p.notes.text; ta.focus();
-      function save() {
-        bs[0].disabled = true; st.textContent = 'Saving…';
-        api('POST', '/api/projects/' + encodeURIComponent(p.slug) + '/notes', { notes: ta.value })
-          .then(function (j) { p.notes = j; show(); })
-          .catch(function (e) { bs[0].disabled = false; st.textContent = e.message; });
-      }
-      bs[0].addEventListener('click', save);
-      bs[1].addEventListener('click', show);
-      ta.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
-        else if (e.key === 'Escape') show();
-      });
-    }
-    show();
   }
 
   // ---- new alignment ------------------------------------------------------
@@ -563,6 +533,6 @@ window.TgDesign = (function () {
     newAlignment: newAlignment,
     editing: function () { return editing; },
     leave: function () { if (window.TgRefine) TgRefine.close(); if (editing) { if (dirty && !confirm('Discard your changes to this alignment?')) return false; stopEdit(); } return true; },
-    onStyleReload: function () { if (ed && editing) ed.reattach(); if (window.TgRefine) TgRefine.onStyleReload(); }
+    onStyleReload: function () { if (ed && editing) ed.reattach(); if (window.TgRefine) TgRefine.onStyleReload(); if (window.TgNotes) TgNotes.onStyleReload(); }
   };
 })();

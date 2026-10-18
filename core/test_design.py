@@ -225,22 +225,35 @@ class AlignmentApiTests(TestCase):
         self.assertTrue(j["project"]["can_edit"])
         self.assertEqual([p["slug"] for p in self.client.get("/api/projects/").json()["projects"]], ["p"])
 
-    def test_project_notes_are_for_editors_only(self):
-        self.assertEqual(self.client.get("/api/projects/p.json").json()["project"]["notes"]["text"], "")
-        r = self.post("/api/projects/p/notes", {"notes": "Check the creek crossing\r\nafter breakup. "})
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["text"], "Check the creek crossing\nafter breakup.")
-        self.assertEqual(r.json()["updated_by"], "own")
-        self.assertEqual(self.post("/api/projects/p/notes", {"notes": 3}).status_code, 400)
+    def test_project_notes_are_points_for_editors_only(self):
+        url = "/api/projects/p/notes.geojson"
+        self.assertEqual(self.client.get(url).json()["features"], [])
+        lon, lat = ORIGIN
+        r = self.post("/api/projects/p/notes/new", {"text": "Creek crossing:\r\ncheck after breakup. ", "lon": lon, "lat": lat})
+        self.assertEqual(r.status_code, 201)
+        nid = r.json()["id"]
+        self.assertEqual(r.json()["properties"]["text"], "Creek crossing:\ncheck after breakup.")
+        self.assertEqual(r.json()["properties"]["author"], "own")
+        self.assertEqual(self.post("/api/projects/p/notes/new", {"text": "  ", "lon": lon, "lat": lat}).status_code, 400)
+        self.assertEqual(self.post("/api/projects/p/notes/new", {"text": "x"}).status_code, 400)
+        # Move it, then change its text.
+        r = self.post(f"/api/notes/{nid}", {"lon": lon + 0.001, "lat": lat})
+        self.assertAlmostEqual(r.json()["geometry"]["coordinates"][0], lon + 0.001)
+        self.assertEqual(r.json()["properties"]["text"], "Creek crossing:\ncheck after breakup.")
+        self.post(f"/api/notes/{nid}", {"text": "Bridge site"})
+        self.assertEqual([f["properties"]["text"] for f in self.client.get(url).json()["features"]], ["Bridge site"])
         # A public project's notes stay with those who can edit it.
         Project.objects.filter(pk=self.project.pk).update(visibility=Visibility.PUBLIC)
         self.client.logout()
-        self.assertIsNone(self.client.get("/api/projects/p.json").json()["project"]["notes"])
+        self.assertEqual(self.client.get(url).status_code, 302)                 # to sign-in
         User.objects.create_user("viewer", password="pw")
         self.client.login(username="viewer", password="pw")
-        self.assertIsNone(self.client.get("/api/projects/p.json").json()["project"]["notes"])
-        self.assertEqual(self.post("/api/projects/p/notes", {"notes": "x"}).status_code, 403)
-        self.assertEqual(Project.objects.get(slug="p").notes, "Check the creek crossing\nafter breakup.")
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.assertEqual(self.post(f"/api/notes/{nid}", {"text": "x"}).status_code, 403)
+        self.assertEqual(self.post(f"/api/notes/{nid}/delete", {}).status_code, 403)
+        self.client.login(username="own", password="pw")
+        self.assertEqual(self.post(f"/api/notes/{nid}/delete", {}).status_code, 200)
+        self.assertEqual(self.client.get(url).json()["features"], [])
 
     def test_legs_tile_layer(self):
         lon, lat = ORIGIN

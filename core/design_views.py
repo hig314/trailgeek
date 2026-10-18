@@ -20,7 +20,6 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
-from django.utils import timezone
 from django.utils.text import slugify
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
@@ -395,36 +394,6 @@ def api_projects(request):
                          "can_create": access.is_trail_editor(request.user)})
 
 
-NOTES_MAX = 20000
-
-
-def _notes_json(p):
-    by = p.notes_updated_by
-    return {"text": p.notes, "updated_at": p.notes_updated_at.isoformat() if p.notes_updated_at else None,
-            "updated_by": (by.get_full_name() or by.get_username()) if by else None}
-
-
-@login_required
-@require_POST
-def api_project_notes(request, slug):
-    """Replace a project's working notes: {"notes": "..."}. Only those who
-    can edit the project read or write them; a public project's notes stay
-    private."""
-    p = get_object_or_404(Project.objects.filter(access.visible_projects_q(request.user)).distinct(), slug=slug)
-    if not access.can_edit_project(request.user, p):
-        raise PermissionDenied("You cannot edit this project's notes.")
-    body = _body(request)
-    if body is None or not isinstance(body.get("notes"), str):
-        return _bad("expected {\"notes\": text}")
-    if len(body["notes"]) > NOTES_MAX:
-        return _bad(f"notes are limited to {NOTES_MAX} characters")
-    p.notes = body["notes"].replace("\r\n", "\n").strip()
-    p.notes_updated_at = timezone.now()
-    p.notes_updated_by = request.user
-    p.save(update_fields=["notes", "notes_updated_at", "notes_updated_by", "updated"])
-    return JsonResponse(_notes_json(p))
-
-
 @require_GET
 def api_project(request, slug):
     p = get_object_or_404(Project.objects.filter(access.visible_projects_q(request.user)).distinct(), slug=slug)
@@ -440,8 +409,7 @@ def api_project(request, slug):
                                 if Project.objects.filter(access.visible_projects_q(request.user), pk=q.pk).exists()],
                     "children": [{"slug": q.slug, "name": q.name} for q in children],
                     "gpx_url": f"/api/projects/{p.slug}.gpx", "zip_url": f"/api/projects/{p.slug}.zip",
-                    "geojson_url": f"/api/projects/{p.slug}.geojson",
-                    "notes": _notes_json(p) if access.can_edit_project(request.user, p) else None},
+                    "geojson_url": f"/api/projects/{p.slug}.geojson"},
         "alignments": [{"id": a.pk, "name": a.name, "priority": a.priority, "parent_id": a.parent_id,
                         "length_m": round(a.length_m, 1), "evaluation_status": a.evaluation_status,
                         "legs": a.legs.count(), "headline": a.headline} for a in als],
