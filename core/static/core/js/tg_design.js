@@ -345,7 +345,7 @@ window.TgDesign = (function () {
 
   // ---- edit mode ------------------------------------------------------------
   var HELP = {
-    edit: 'Drag a point to move it; drag a small white handle to add a point; right-click (or Alt-click) a point to delete it. Points snap to trails; hold Shift to place freely. Click a leg to pick it.',
+    edit: 'Drag a point to move it; click or drag a small white handle to add a point; double-click (or right-click) a point to delete it. Points snap to trails; hold Shift to place freely. Click a leg to pick it.',
     draw: 'Click to extend the end of the line with new construction. Double-click, Enter or Esc to finish.',
     follow: 'Click a point on an existing trail: the path along the trail network from the end of the line is added as an existing-trail leg.',
     split: 'Click a point inside a leg to split it in two there, so the two parts can be different build efforts.'
