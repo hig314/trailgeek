@@ -8,8 +8,8 @@
  *
  * Modes (one at a time, like the tool group in landslidescience's ls_tools):
  *   edit    drag a vertex (plain vertices show from z15.5, add-point handles
- *           from z16.5; ends and leg joints always); drag a midpoint handle to add one; right-click
- *           (or Alt-click) a vertex to delete it; click a leg to pick it
+ *           from z16.5; ends and leg joints always); click or drag a midpoint handle to add one;
+ *           double-click, right-click or Alt-click a vertex to delete it; click a leg to pick it
  *   draw    click to extend the end of the line with new construction;
  *           double-click, Enter or Esc to finish
  *   follow  click a point on an existing trail: the shortest path along the
@@ -269,6 +269,7 @@ window.TgEditor = (function () {
         e.preventDefault();
         var before = snapshot();
         var idx = v ? v.i : insertAfter(mid.after, [e.lngLat.lng, e.lngLat.lat]);
+        if (!v) justAdded = { i: idx, t: Date.now() };
         drag = { i: idx, before: before, moved: !v };
         map.dragPan.disable();
         map.getCanvas().style.cursor = 'grabbing';
@@ -338,7 +339,16 @@ window.TgEditor = (function () {
       }
     }
     function onDblClick(e) {
-      if (active && mode === 'draw') { e.preventDefault(); setMode('edit'); }
+      if (!active) return;
+      if (mode === 'draw') { e.preventDefault(); setMode('edit'); return; }
+      if (mode !== 'edit') return;
+      var v = vertexAt(e.point, 'ed-verts');
+      if (!v) return;
+      e.preventDefault();                  // no double-click zoom over a vertex
+      // The first click of a double-click on a midpoint handle adds a vertex
+      // there; don't let the second take it straight away again.
+      if (justAdded && justAdded.i === v.i && Date.now() - justAdded.t < 600) return;
+      deleteVertex(v.i);
     }
     function onKey(e) {
       if (!active) return;
@@ -360,6 +370,7 @@ window.TgEditor = (function () {
     function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); changed(); }
     function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); restore(redoStack.pop()); changed(); }
 
+    var justAdded = null;
     var handlers = { mousedown: onMouseDown, mousemove: onMouseMove, mouseup: onMouseUp, click: onClick,
                      dblclick: onDblClick, contextmenu: onContextMenu };
     function bind(on) {

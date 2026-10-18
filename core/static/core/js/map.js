@@ -38,10 +38,30 @@
   var $ = function (id) { return document.getElementById(id); };
 
   // ---- state from the URL --------------------------------------------------
+  // A link with a map= part is a VIEW: it says everything, and what it leaves
+  // out is off or default. A link without one is NAVIGATION (#project=…,
+  // #align=…, the panels' own links): it changes the selection and keeps this
+  // viewer's visual settings. In the page that is the current state (the
+  // hashchange handler); on a cold load it is what this browser last used,
+  // remembered under PREFS_KEY (owner, 2026-10-17: moving between projects
+  // or segments must not reset the basemap). Per-browser only; never shared.
+  var PREFS_KEY = 'tg_view_prefs';
+  function loadPrefs() { try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch (e) { return {}; } }
+  function savePrefs(o) { try { localStorage.setItem(PREFS_KEY, JSON.stringify(o)); } catch (e) {} }
   var state = LSHash.parse(location.hash);
   var hadView = state.zoom != null;
-  var baseId = state.base || DEFAULT_BASE;
   var basemaps = LSBasemaps.DEFAULTS.filter(function (b) { return b.id !== 'blank'; });
+  if (!hadView) {
+    var prefs = loadPrefs();
+    if (!state.base && prefs.base) state.base = prefs.base;
+    if (!state.li) {
+      if (state.extras.sh == null && prefs.sh) state.extras.sh = prefs.sh;
+      if (state.extras.op == null && prefs.op != null) state.extras.op = String(prefs.op);
+    }
+    if (state.extras.t3d == null && prefs.t3d) state.extras.t3d = '1';
+    if (state.extras.ve == null && prefs.ve) state.extras.ve = prefs.ve;
+  }
+  var baseId = basemaps.some(function (b) { return b.id === state.base; }) ? state.base : DEFAULT_BASE;
   var baseOf = function (id) {
     return basemaps.filter(function (b) { return b.id === id; })[0] || basemaps.filter(function (b) { return b.id === DEFAULT_BASE; })[0];
   };
@@ -916,6 +936,8 @@
   function syncHash() {
     var o = { extras: {} };
     VIEW_PARAMS.forEach(function (r) { r.collect(o); });
+    savePrefs({ base: o.base, sh: o.extras.sh, op: o.extras.op, t3d: o.extras.t3d === '1',
+                ve: o.extras.ve || (+$('exag').value / 10).toFixed(1) });
     var h = LSHash.encode(o);
     if (location.hash === h) return;
     hashLock = true;
@@ -933,7 +955,13 @@
   }
   window.addEventListener('hashchange', function () {
     if (hashLock) return;
-    applyState(LSHash.parse(location.hash), 'hash');
+    var s = LSHash.parse(location.hash);
+    if (s.zoom == null) {                      // navigation: the selection only (see the top of this file)
+      VIEW_PARAMS.filter(function (r) { return r.key === 'selection'; })[0].apply(s, 'hash');
+      syncHash();
+      return;
+    }
+    applyState(s, 'hash');
   });
   map.on('moveend', function () { fillDemPicker(); syncDem(false); syncHash(); });
 

@@ -4,6 +4,8 @@ never in a web request.
     evaluate_live(payload)     the editor's live evaluation; result kept in
                                Huey's result store for the browser to poll
     evaluate_saved(pk)         evaluation of a saved alignment, stored on it
+    refine_job(job, payload)   the refine tool's search; progress and result
+                               in Huey's key store (core.refine)
 
 `ping` proves the worker is wired up:
     docker compose exec web python manage.py shell -c "from core.tasks import ping; print(ping()(blocking=True, timeout=10))"
@@ -44,3 +46,9 @@ def evaluate_saved(alignment_id):
         return None
     evaluation.evaluate_alignment(a)
     return alignment_id
+
+
+@task()
+def refine_job(job, payload):
+    from . import refine
+    refine.run_job(job, payload)

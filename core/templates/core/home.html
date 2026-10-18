@@ -15,7 +15,7 @@
   <div class="tg-layers-body">
     <label>Project <select id="projects" title="Design projects you can see; a public project's link can be shared with anyone"><option value="">Open a project…</option></select></label>
     <label>Basemap <select id="base"></select></label>
-    <label>Lidar <select id="dem"></select></label>
+    <label title="The elevation model behind the shading, 3D and profiles: lidar where a survey covers the view, the regional DEM elsewhere">DEM <select id="dem"></select></label>
     <div id="demstatus" class="tg-muted tg-small"></div>
     <label>Hillshade opacity <input id="shade-op" type="range" min="0" max="100" value="60"> <output id="shade-op-val" for="shade-op">60 %</output></label>
     <label>Shading <select id="shading" title="Preset is the KBSP look used across the lidar viewers: 5 m elevation bands under a slope ramp, hillshade in hard light">
@@ -72,6 +72,7 @@
 <script src="{% static 'core/js/tg_sample.js' %}"></script>
 <script src="{% static 'core/js/tg_profile.js' %}"></script>
 <script src="{% static 'core/js/tg_editor.js' %}"></script>
+<script src="{% static 'core/js/tg_refine.js' %}"></script>
 <script src="{% static 'core/js/tg_design.js' %}"></script>
 <script src="{% static 'core/js/map.js' %}"></script>
 {% endblock %}

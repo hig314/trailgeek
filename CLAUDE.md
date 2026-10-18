@@ -138,6 +138,13 @@ server and Django reasoning rather than assume it.
   landslidescience commit is on a branch, not shipped there yet**: it
   follows landslidescience's own test-then-push rule. Once it is on its
   `main`, re-pin `tools/shared.json` to that commit (same content).
+  - **View links and navigation links** (owner, 2026-10-17): a hash with
+    `map=` is a view and says everything; one without (`#project=…`,
+    `#align=…`, the panels' links) is navigation and changes only the
+    selection, keeping the viewer's basemap, shading, opacity, 3D and
+    exaggeration (in the page: as they are; on a cold load: as this
+    browser last had them, localStorage `tg_view_prefs`, per viewer only).
+    The Layers panel's survey picker is labelled **DEM**: it is not all lidar.
   - **Hash keys trailgeek owns**, through the shared grammar's extras
     pass-through: `t3d` `ve` `sh` `op` `trail` `track` `align` `project`.
     landslidescience's own extras are listed in ls_hash.js's header
@@ -149,6 +156,18 @@ server and Django reasoning rather than assume it.
     bust `/static/` caches in dev); the first test run showed no pitch and
     4 dp coordinates until a `fetch(url, {cache: 'reload'})` of each script.
     Production is unaffected (WhiteNoise's manifest storage hashes names).
+- **Refine route tool, first draft** (branch `refine-design`, draft PR
+  hig314/trailgeek#10, built on the Mac 2026-10-17 for the owner to try in
+  dev; not merged). An alignment's panel has **Refine…**: pick a continuous
+  stretch of legs, shape a cost curve and weight per factor, run; the worker
+  reads the line as a sketch of a smooth path (± `input_sigma_m`, sketched
+  corners allowed to round), anneals its own smooth curve (a planar B-spline
+  starting from a smooth fit to the line) with a taut-string design grade
+  line through a cut/fill tube, and the panel
+  compares up to three candidates with the input scored the same way and
+  saves one as a variant (`Alignment.refinement` keeps settings and seed).
+  Defaults are per user (`UserSetting`, key `refine`). Design, decisions and
+  what changed while building: docs/REFINE_TOOL.md. Migration 0005.
 - **Open:** R2 CORS for trailgeek.org is **done on both hosts**, verified
   from the Mac 2026-09-27 with an Origin header: the `landslidescience-lidar`
   bucket (owner) and the lidar-tiles Worker on `tiles.landslidescience.org`

@@ -4,6 +4,7 @@ from django.urls import include, path
 
 from core import design_views as design
 from core import exports as core_exports
+from core import refine_views
 from core import tiles as core_tiles
 from core import views as core_views
 
@@ -36,6 +37,11 @@ urlpatterns = [
     path("api/evaluate/", design.api_evaluate, name="api_evaluate"),
     path("api/evaluate/<str:task_id>/", design.api_evaluate_result, name="api_evaluate_result"),
     path("api/route/trails", design.api_trail_route, name="api_trail_route"),
+    path("api/alignments/<int:pk>/refine", refine_views.api_alignment_refine, name="api_alignment_refine"),
+    path("api/alignments/<int:pk>/refine/accept", refine_views.api_alignment_refine_accept,
+         name="api_alignment_refine_accept"),
+    path("api/refine/settings", refine_views.api_refine_settings, name="api_refine_settings"),
+    path("api/refine/jobs/<str:job>/", refine_views.api_refine_job, name="api_refine_job"),
     path("api/projects/", design.api_projects, name="api_projects"),
     path("api/projects/<slug:slug>.json", design.api_project, name="api_project"),
     # Field exports: GPX for GaiaGPS / phones, GeoJSON of the legs for offline map products.
