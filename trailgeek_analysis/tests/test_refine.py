@@ -9,7 +9,7 @@ import numpy as np
 from trailgeek_analysis.refine import Grid, clean_settings, merge_settings, refine
 from trailgeek_analysis.refine import spline
 from trailgeek_analysis.refine.profile import taut_string
-from trailgeek_analysis.refine.score import Problem, intersects, polyline_distance, side_of_downhill
+from trailgeek_analysis.refine.score import Problem, densify, intersects, polyline_distance, side_of_downhill, turning
 
 PLANE = 0.3          # ground rising 30 % to the north
 
@@ -115,6 +115,30 @@ class PieceTests(unittest.TestCase):
         loop = np.array([[0, 0], [10, 0], [10, 10], [5, -5]], float)
         self.assertTrue(intersects(loop, 1))
         self.assertFalse(intersects(np.array([[0, 0], [10, 0], [20, 5], [30, 5]], float), 1))
+
+
+class BendTests(unittest.TestCase):
+    """Bends are measured finely (owner, 2026-10-18): 1 m and 3 m turns read apart."""
+
+    def radius(self, line):
+        _, r = turning(densify(line, 0.5))
+        return float(r.min())
+
+    def test_one_and_three_metre_turns_read_apart_from_a_kink(self):
+        def turn(R):
+            return np.vstack([np.column_stack([np.linspace(-20, 0, 11), np.zeros(11)]),
+                              arc(0, R, R, -math.pi / 2, 0, n=30)[1:],
+                              np.column_stack([np.full(10, R), R + np.linspace(2, 20, 10)])])
+        kink = np.array([[-20.0, 0], [0, 0], [0, 20]])
+        r1, r3, rk = self.radius(turn(1.0)), self.radius(turn(3.0)), self.radius(kink)
+        self.assertTrue(0.8 < r1 < 1.2, r1)
+        self.assertTrue(2.6 < r3 < 3.4, r3)
+        self.assertLess(rk, 0.75)
+
+    def test_a_drawn_arc_reads_its_radius_when_its_vertices_are_close(self):
+        self.assertAlmostEqual(self.radius(arc(0, 0, 10.0, 0, math.pi / 2, n=40)), 10.0, delta=1.0)
+        # Vertices 2.2 m apart: each is a kink at the 1 m scale, so tighter.
+        self.assertLess(self.radius(arc(0, 0, 10.0, 0, math.pi / 2, n=8)), 6.0)
 
 
 class CornerTests(unittest.TestCase):
