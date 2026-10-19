@@ -147,12 +147,24 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .rf-legs label { display: block; font-size: 13px; margin: 1px 0; }
 .rf-factor { border-top: 1px solid #e6e6e0; padding: 6px 0 2px; }
 .rf-fhead { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; font-size: 13px; }
-.rf-fhead .rf-k { margin-left: auto; font-size: 12px; white-space: nowrap; }
-.rf-k input { width: 58px; font: inherit; }
 .rf-svg { display: block; user-select: none; -webkit-user-select: none; }
+.rf-wrow { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+.rf-w { flex: 1; min-width: 120px; accent-color: var(--tg-accent, #2f6b2f); }
+.rf-reach { margin: 6px 0 4px; }
+.rf-reach input { width: 64px; }
+.rf-wn { width: 64px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.rf-zero { stroke: #888; stroke-width: 1; }
+.rf-band { fill: #e8590c; opacity: 0.10; }
+.rf-band-edge { stroke: #e8590c; stroke-width: 6; stroke-opacity: 0.35; cursor: ew-resize; }
+.rf-factor.rf-off .rf-curvebox, .rf-factor.rf-off strong { opacity: 0.45; }
+.rf-curvebox { position: relative; }
+.rf-zoom { position: absolute; right: 12px; top: 4px; display: flex; gap: 2px; z-index: 1; }
+.rf-zoom button { font: inherit; font-size: 11px; line-height: 1; padding: 2px 5px; border: 1px solid #ccc; background: #fff; border-radius: 3px; cursor: pointer; opacity: 0.8; }
+.rf-zoom button:hover { opacity: 1; border-color: #888; }
+.rf-node.rf-clip { stroke-dasharray: 2 2; }
 .rf-hist { fill: #e3e3dc; }
 .rf-line { fill: none; stroke: var(--tg-accent, #2f6b2f); stroke-width: 2; }
-.rf-seg { stroke: transparent; stroke-width: 12; cursor: ew-resize; }
+.rf-seg { fill: none; stroke: transparent; stroke-width: 12; cursor: ew-resize; pointer-events: stroke; }
 .rf-seg.rf-flat { cursor: ns-resize; }
 .rf-node { fill: #fff; stroke: var(--tg-accent, #2f6b2f); stroke-width: 2; cursor: move; }
 .rf-node.rf-del { stroke: #b3261e; fill: #f6d5d2; }

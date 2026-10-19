@@ -28,16 +28,31 @@ class SettingsTests(unittest.TestCase):
         s = merge_settings({"factors": {"grade": {"k": 3}}}, {"params": {"iterations": 99}})
         self.assertEqual(s["factors"]["grade"]["k"], 3)
         self.assertEqual(s["params"]["iterations"], 99)
-        self.assertEqual(s["factors"]["corner"]["k"], 5)           # untouched default
+        self.assertEqual(s["factors"]["corner"]["k"], 167)            # untouched default
         part = clean_settings({"factors": {"bend": {"k": 0}}}, partial=True)
-        self.assertEqual(part, {"factors": {"bend": {"k": 0.0}}, "params": {}})
+        self.assertEqual(part, {"version": 2, "factors": {"bend": {"k": 0.0}}, "params": {}})
+
+    def test_older_settings_are_read_in_metres(self):
+        # Shares of 100 with a length weight (2026-10-17): per-metre weights
+        # become k / length k, per-corner ones k / length k * 100 m; the old
+        # |cut or fill| curve is mirrored to the cut side.
+        s = clean_settings({"factors": {"grade": {"k": 27.1}, "corner": {"k": 13.5}, "length": {"k": 8.1},
+                                        "cutfill": {"k": 13.5, "curve": [[0, 0.01], [0.2, 0.15], [0.5, 1]]}},
+                            "params": {"fall_tsa_deg": 30}})
+        self.assertAlmostEqual(s["factors"]["grade"]["k"], 3.3457, places=3)
+        self.assertAlmostEqual(s["factors"]["corner"]["k"], 166.67, places=1)
+        self.assertEqual(s["factors"]["cutfill"]["curve"], [[-0.5, 1], [-0.2, 0.15], [0, 0.01], [0.2, 0.15], [0.5, 1]])
+        self.assertNotIn("length", s["factors"])
+        self.assertEqual(s["params"]["fall_tsa_deg"], 22)               # the old default gives way to the new
 
     def test_rejects(self):
         bad = [
             {"factors": {"nope": {"k": 1}}},
             {"factors": {"grade": {"k": -1}}},
             {"factors": {"grade": {"curve": [[0, 0]]}}},
-            {"factors": {"grade": {"curve": [[0, 0], [5, 1.5]]}}},
+            {"factors": {"grade": {"curve": [[0, 0], [5, 2e4]]}}},
+            {"factors": {"grade": {"curve": [[0, 0.01], [5, -0.5]]}}},
+            {"factors": {"grade": {"curve": [[0, 1e-6], [5, 1]]}}},
             {"factors": {"grade": {"curve": [[5, 0], [1, 1]]}}},
             {"factors": {"grade": {"curve": [[i, 0] for i in range(10)]}}},
             {"params": {"iterations": 10 ** 9}},
@@ -49,6 +64,16 @@ class SettingsTests(unittest.TestCase):
 
 
 class PieceTests(unittest.TestCase):
+    def test_curves_are_log_linear_between_positive_anchors(self):
+        from trailgeek_analysis.refine.score import curve_fn
+        f = curve_fn([[0, 0.1], [10, 10]])
+        np.testing.assert_allclose(f(np.array([-5.0, 5.0, 20.0])), [0.1, 1.0, 10.0])   # geometric, flat beyond
+        g = curve_fn([[0, 0.01], [10, 1], [20, 4]])
+        np.testing.assert_allclose(g(np.array([5.0, 15.0])), [0.1, 2.0])
+        self.assertIsInstance(g(7.5), float)
+        np.testing.assert_allclose(curve_fn([[0, 0], [10, 1]])(5.0), 0.1)             # an older curve's 0 reads as 0.01
+        self.assertEqual(clean_settings({"factors": {"grade": {"curve": [[0, 0], [5, 1]]}}})["factors"]["grade"]["curve"][0][1], 0.01)
+
     def test_grid_bilinear_is_exact_on_a_plane(self):
         g = plane_grid()
         x, y = np.array([0.3, 10.7, -5.5]), np.array([1.25, 33.3, 7.9])
@@ -97,6 +122,44 @@ class CornerTests(unittest.TestCase):
         s = clean_settings({"params": {"spacing_m": 1.0, **params}})
         prob = Problem(legs, grid, s)
         return prob.score_line(prob.P, 0.1, detail=True)            # the line as given
+
+    def test_a_hairpin_of_any_radius_is_one_corner(self):
+        # Corners up to 45 m used to count and wider ones did not (the turn
+        # had to be tighter than 50 m), so the search widened corners past it.
+        g = Grid.from_function(lambda X, Y: PLANE * Y, -60, -60, 400, 400, 1.0)
+        for R in (5, 20, 45, 60, 120):
+            r = self.score([self.hairpin(R, straight=80)], g)
+            self.assertEqual(len(r["corners"]), 1, R)
+            self.assertTrue(0.8 * R < r["corners"][0]["radius_m"] < 1.25 * R, (R, r["corners"]))
+
+    def test_a_steep_switchback_is_dug_in_and_a_gentle_one_is_not(self):
+        # 180 degrees at 8 m: on 35 % ground the turn climbs 2 r S = 5.6 m in
+        # pi r = 25 m (22 %), so cutting in pays; on 12 % ground (8 % through
+        # the turn) it does not. Grade weighted up, so the trade is clear-cut
+        # (with the defaults a 35 % hairpin is about even: 0.25 m).
+        digs = {}
+        for slope in (0.12, 0.35):
+            g = Grid.from_function(lambda X, Y: slope * Y, -60, -60, 260, 140, 1.0)
+            s = clean_settings({"factors": {"grade": {"k": 10}}, "params": {"spacing_m": 1.0}})
+            prob = Problem([self.hairpin(8.0)], g, s)
+            r = prob.score_line(prob.P, 0.1, detail=True)
+            self.assertEqual(len(r["corners"]), 1, slope)
+            digs[slope] = r["corners"][0]["dig_m"]
+        self.assertLess(digs[0.12], 0.2)
+        self.assertGreater(digs[0.35], 0.4)
+
+    def test_fill_costs_more_than_cut(self):
+        s = clean_settings({"params": {"spacing_m": 1.0}})
+        prob = Problem([self.hairpin(8.0)], plane_grid(), s)
+        f = prob.f["cutfill"]
+        self.assertGreater(f(0.3), 5 * f(-0.3))
+        self.assertTrue(0.2 < prob.fill_for(0.5) < 0.3)               # the fill that costs as much as 0.5 m of cut
+
+    def test_length_is_along_the_slope(self):
+        g = Grid.from_function(lambda X, Y: 0.1 * Y, -60, -60, 60, 160)
+        r = self.score([np.array([[0, 0], [0, 100]], float)], g)
+        self.assertAlmostEqual(r["length_m"], 100 * math.hypot(1, 0.1), delta=0.2)
+        self.assertAlmostEqual(r["costs"]["length"], r["length_m"])
 
     def test_hairpin_is_one_corner_of_about_its_radius(self):
         R = 8.0
@@ -152,10 +215,10 @@ class CornerTests(unittest.TestCase):
         for slope in (0.045, 0.065, 0.14):
             g = Grid.from_function(lambda X, Y: slope * Y, -60, -60, 60, 160)
             down_fall = self.score([np.array([[0, 0], [0, 100]], float)], g)
-            cost[slope] = down_fall["costs"]["falltread"]
+            cost[slope] = down_fall["costs"]["falltread"] / down_fall["length_m"]   # per metre
             contour = self.score([np.array([[-50, 50], [50, 50]], float)], g)
             self.assertEqual(contour["costs"]["falltread"], 0.0)      # across the slope: never fall-line
-        self.assertAlmostEqual(cost[0.065], 0.0, places=3)
+        self.assertLess(cost[0.065], 0.012)                             # the 0.01 floor: next to nothing
         self.assertGreater(cost[0.045], 0.1)                            # pools
         self.assertGreater(cost[0.14], 0.1)                             # erodes
 
@@ -170,7 +233,7 @@ class CornerTests(unittest.TestCase):
 class SketchTests(unittest.TestCase):
     """The person's line as evidence of a smooth intent (2026-10-17): the
     start is a smooth fit to it, rounded more for a loose sketch than for a
-    precise line, and rounding a sketched corner costs no distance."""
+    precise line, inside the search's limit."""
     SQUARE = [np.array([[0, 0], [100, 0], [100, 80]], float)]
 
     def start(self, legs, sigma, grid=None):
@@ -193,14 +256,24 @@ class SketchTests(unittest.TestCase):
             self.assertIsNotNone(r, legs)
             self.assertFalse(prob.folds(prob.start()))
 
-    def test_rounding_a_sketched_corner_to_the_sketch_radius_is_free(self):
-        prob, _ = self.start(self.SQUARE, 0.0)
-        R = prob.R_sketch
-        a = np.linspace(-np.pi / 2, 0, 30)
-        arc = np.column_stack([100 - R + R * np.cos(a), R + R * np.sin(a)])
-        self.assertLess(prob.eff_grid.sample(arc[:, 0], arc[:, 1]).max(), 0.6)
-        far = prob.eff_grid.sample(np.array([50.0]), np.array([-10.0]))[0]
-        self.assertGreater(far, 9)                                    # off a straight stretch it costs
+    def test_a_narrow_search_keeps_a_sketched_corner_tight(self):
+        # No allowance at sketched corners (owner, 2026-10-18): within 2 m of
+        # a square corner, the start rounds it only as far as 2 m allows.
+        prob = Problem(self.SQUARE, plane_grid(-60, -120, 260, 160),
+                       clean_settings({"params": {"input_sigma_m": 3.0, "corridor_m": 2}}))
+        r = prob.score(prob.start(), 0.1, detail=True)
+        self.assertIsNotNone(r)
+        self.assertLessEqual(r["dist"].max(), 2 + 1e-6)
+        wide = Problem(self.SQUARE, plane_grid(-60, -120, 260, 160), clean_settings({"params": {"input_sigma_m": 3.0}}))
+        self.assertLess(r["bend_r"].min(), wide.score(wide.start(), 0.1, detail=True)["bend_r"].min())
+
+    def test_distance_from_the_line_is_a_limit_not_a_cost(self):
+        s = clean_settings({"factors": {"offset": {"k": 5}}, "params": {"corridor_m": 6, "iterations": 300, "chains": 2}})
+        self.assertNotIn("offset", s["factors"])                       # an older layer's weight is ignored
+        r = refine(self.SQUARE, plane_grid(-60, -120, 260, 160), s, seed=3)
+        for c in r["candidates"]:
+            self.assertLessEqual(c["stats"]["offset_max"], 6 + 0.01)
+            self.assertNotIn("offset", c["contrib"])
 
     def test_respacing_keeps_the_shape(self):
         prob, _ = self.start(self.SQUARE, 3.0)
@@ -220,7 +293,7 @@ class SketchTests(unittest.TestCase):
         s = clean_settings({"factors": {"drainage": {"k": 0}}, "params": {"iterations": 400, "chains": 2}})
         r = refine(self.SQUARE, plane_grid(-60, -120, 260, 160), s, seed=6)
         self.assertTrue(r["candidates"])
-        self.assertGreater(r["candidates"][0]["stats"]["bend_min_r"], 3 * r["input"]["stats"]["bend_min_r"])
+        self.assertGreater(r["candidates"][0]["stats"]["bend_min_r"], 2.5 * r["input"]["stats"]["bend_min_r"])
 
 
 class RefineTests(unittest.TestCase):

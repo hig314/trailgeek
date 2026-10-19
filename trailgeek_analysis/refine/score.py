@@ -2,9 +2,10 @@
 cross-sections from the Grid, the design grade line, corners and bends, the
 drainage stub, and every factor's cost (docs/REFINE_TOOL.md §2-3).
 
-Costs: a per-metre factor is the integral of its curve along the line, per
-100 m. A per-corner factor is summed over corners. Length is k per 100 m,
-counted from the input's length. The total is the sum of k * cost.
+Costs are in metres of EQUIVALENT EFFORT (owner, 2026-10-18): the length
+along the slope, plus k extra metres per metre at curve 1 for each
+per-metre factor (the curve integrated along the slope), k metres per
+corner at curve 1, and k metres per right angle turned at curve 1 for bends.
 """
 import math
 
@@ -13,14 +14,14 @@ import numpy as np
 from . import spline
 from .profile import taut_string
 from .terrain import Grid
-from .settings import FACTOR_META
+from .settings import FACTOR_META, ZERO_AS
 
-CORNER_KAPPA = 1 / 50.0     # 1/m: curvature that counts as still turning, around a flip
-CORNER_HALF_M = 25.0        # a corner's turn zone reaches at most this far beyond its flips
-CORNER_CLUSTER_M = 20.0     # side flips closer than this are one event
-CORNER_MIN_TURN_DEG = 60.0  # a side change with less turning than this is a crossing, not a corner
+CORNER_KAPPA = 1 / 500.0    # 1/m: curvature that still counts as the corner's turn (was 1/50: broader corners went uncounted)
+CORNER_REACH_M = 100.0      # a corner's turn reaches at most this far beyond its side change
+CORNER_RUN_MIN_M = 10.0     # a downhill side held for less than this is noise, not a side
+CORNER_RAMP_M = 20.0        # a dug-in corner ramps back to the line's profile over this, either side of its turn
+DIG_DEPTHS = (0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0)   # m: cuts a corner tries, up to corner_cut_max_m
 GRADE_OVER_PER = 10.0       # %: each this much past the input's steepest 10 m adds 1 to the grade cost
-GRADE_PEAK_SHARE = 0.25     # the steepest 10 m adds this times its curve value to the grade cost
 FALL_MIN_SLOPE_PCT = 4.0    # %: flatter ground has no fall line to speak of
 CLIMB_TURN_MAX_PCT = 15.0   # %: a corner crossing the fall line on ground this gentle or gentler is a climbing turn
 SWITCHBACK_MIN_PCT = 25.0   # %: ... this steep or steeper, switchback-like (a landing must be cut)
@@ -29,6 +30,7 @@ SITE_MERGE_M = 15.0         # reversal sites closer than this are one site
 RESPACE_MAX_M = 0.25        # m: a re-spacing that would move the line more than this is skipped
 SIGMA_REF = 3.0             # m: at this uncertainty or more, sketched vertices are filleted at the full sketch radius
 FIT_SMOOTH = 0.5            # the start's curvature penalty per (sample per control) per m^2 of uncertainty
+START_SHRINK = (1.0, 0.5, 0.25, 0.1, 0.0)   # the start's rounding and smoothing, tried in turn until it fits the limit
 DIP_WINDOW_M = 10.0         # a ground dip is measured against the ground this far either side
 
 
@@ -66,9 +68,25 @@ def resample_legs(legs_xy, spacing):
 
 
 def curve_fn(curve):
+    """A cost curve as a function: log-linear between anchors (geometric:
+    halfway from 0.1 to 10 is 1), a straight line on the panel's log axis,
+    and flat beyond the first and last anchor (owner, 2026-10-17). Costs
+    are never 0; a 0 in an older curve reads as ZERO_AS (settings).
+    """
     xs = np.array([c[0] for c in curve], float)
     ys = np.array([c[1] for c in curve], float)
-    return lambda x: np.interp(x, xs, ys)
+    ly = np.log(np.where(ys > 0, ys, ZERO_AS))
+    if len(xs) == 1:
+        return lambda x: float(np.exp(ly[0])) if np.ndim(x) == 0 else np.full(np.shape(x), np.exp(ly[0]))
+    dx = np.diff(xs)
+
+    def f(x):
+        x = np.asarray(x, float)
+        i = np.clip(np.searchsorted(xs, x, side="right") - 1, 0, len(xs) - 2)
+        t = np.clip(np.divide(x - xs[i], dx[i], out=np.ones_like(x), where=dx[i] > 0), 0.0, 1.0)
+        out = np.exp(ly[i] + (ly[i + 1] - ly[i]) * t)
+        return float(out) if out.ndim == 0 else out
+    return f
 
 
 def side_of_downhill(cross, thr):
@@ -253,31 +271,6 @@ def polyline_distance(px, py, xy, chunk=20000):
     return dist, pos
 
 
-def corner_allowance(xy, radius, cap):
-    """How far a line that rounds each sketched vertex to `radius` may stand
-    off the sketch, as a function of arc position along it: at a vertex that
-    turns by D the rounded apex is radius * (sec(D/2) - 1) away, tapering to
-    0 over the tangent length radius * tan(D/2) either side. Returns
-    (vertex positions, allowances, tangent lengths)."""
-    v = np.diff(xy, axis=0)
-    L = np.hypot(v[:, 0], v[:, 1])
-    s_v = np.cumsum(L)[:-1]
-    h = np.arctan2(v[:, 1], v[:, 0])
-    D = np.abs((np.diff(h) + np.pi) % (2 * np.pi) - np.pi)
-    half = np.minimum(D / 2, np.radians(85))
-    A = np.minimum(radius * (1 / np.cos(half) - 1), cap)
-    T = np.minimum(radius * np.tan(half), 3 * radius)
-    keep = A > 0.05
-    return s_v[keep], A[keep], np.maximum(T[keep], 1.0)
-
-
-def allowance_at(pos, s_v, A, T):
-    out = np.zeros(len(pos))
-    for sv, a, t in zip(s_v, A, T):
-        out = np.maximum(out, a * np.clip(1 - np.abs(pos - sv) / t, 0, 1))
-    return out
-
-
 class Problem:
     """The fixed parts of a refinement (docs/REFINE_TOOL.md, "the sketch as
     evidence", 2026-10-17).
@@ -286,10 +279,11 @@ class Problem:
     corners they expect to be rounded, not the frame the answer is built on.
     So a candidate is its own smooth curve, a clamped cubic B-spline through
     control points in the plane with its ends pinned to the line's ends, and
-    the line enters only through the distance cost: distance from it, less a
-    corner allowance at each sketched vertex (what rounding it to
-    `sketch_radius_m` needs), less the line's own uncertainty
-    (`input_sigma_m`). Both are precomputed on the terrain grid's cells.
+    the line enters only as a hard limit: the search stays within
+    `corridor_m` of it, plain distance (owner, 2026-10-18: being further from
+    the sketch is not worse on the ground, so it is not a cost; and no
+    allowance at sketched corners, so a tight corner in a narrow search
+    stays tight). The distance is precomputed on the terrain grid's cells.
 
     The start is a smooth fit to the line: least squares with a curvature
     penalty that grows with the uncertainty ("the smooth idea in your
@@ -313,13 +307,26 @@ class Problem:
         self.d_in = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(self.P, axis=0).T))])
         self.L_in = float(self.d_in[-1])
         self.base_k = {f: float(v["k"]) for f, v in settings["factors"].items()}
+        self.base_k["length"] = 1.0                  # the unit: every metre along the slope is a metre
         self.f = {f: curve_fn(v["curve"]) for f, v in settings["factors"].items()}
+        # Fill matched to a cut: the most fill that costs no more than cut of
+        # the same depth's curve value, read off the cut and fill curve.
+        # Never past the curve's last node: beyond it the curve is flat, which
+        # would make any fill as cheap as the last node.
+        x_end = max(0.0, float(settings["factors"]["cutfill"]["curve"][-1][0]))
+        xs = np.linspace(0, x_end, 401)
+        fv = self.f["cutfill"](xs)
+        self._fill_x, self._fill_cmax = xs, np.maximum.accumulate(fv)
         self.corridor = float(p["corridor_m"])
+        self.limit = self.corridor          # the search's limit; a chain may narrow it
         self.tmax = float(p["cutfill_max_m"])
         self.bench = float(p["bench_m"])
         self.thr = float(p["min_outslope_pct"]) / 100
         self.dip = float(p["reversal_dip_m"])
         self.fall_tsa = float(p["fall_tsa_deg"])
+        self.min_turn = math.radians(float(p["corner_min_turn_deg"]))
+        self.corner_cut_max = float(p["corner_cut_max_m"])
+        self.grade_peak_m = float(p["grade_peak_m"])
         self.sigma = float(p["input_sigma_m"])
         self.R_sketch = float(p["sketch_radius_m"])
         self.smooth_w = max(1, int(round(5 / self.h))) | 1
@@ -334,45 +341,51 @@ class Problem:
         self.ref = ref[keep]
         self._distance_fields()
 
-        # The fit target: the line with its vertices filleted (more for a
-        # loose sketch, less for a precise line), resampled evenly.
-        r_fit = max(1.5, self.R_sketch * min(1.0, self.sigma / SIGMA_REF))
-        X, _ = resample_legs([fillet(self.ref, r_fit, self.h / 2)], self.h)
-        # Weighted arc length: sharp turns get up to 3x the controls.
-        u_in, W = self.weighted_u(X)
-        K = max(4, int(round(W / float(p["knot_m"]))) + 3)
-        self.K = K
-        self.nfree = K - 2
-        B_in = spline.basis(u_in, K)
-        n = len(X)
-        # The start: least squares to the line, second differences of the
-        # controls penalised by the line's uncertainty.
-        lam = FIT_SMOOTH * (n / K) * self.sigma ** 2
-        # Candidates are sampled at even steps of the weighted parameter:
-        # ~spacing_m apart on straight ground, closer through sharp turns.
-        N = max(6, int(round(W / self.h)) + 1)
-        self.u = np.linspace(0, 1, N)
-        self.B = spline.basis(self.u, K)
-        # Each sample depends on 4 controls: keep their indices and weights,
-        # so evaluating a candidate is O(samples), not samples x controls.
-        j0 = np.clip(np.argmax(self.B > 0, axis=1), 0, K - 4)
-        self.B_idx = j0[:, None] + np.arange(4)[None, :]
-        self.B_w = np.take_along_axis(self.B, self.B_idx, axis=1)
-        self.n = N
-        self.Bg = spline.basis(spline.greville(K), K)      # where each control acts on the curve
-        self.ctrl_u = spline.greville(K)[1:K - 1]
-        # Where the smoothing would fold the line (a switchback whose arms are
-        # closer than the smoothing reaches pulls them into a cusp), relax it
-        # there and refit, until the start is a clean line.
-        row_w = np.ones(K - 2)
-        for _ in range(10):
-            self.C0 = fit_controls(B_in, X, lam, row_w)
-            bad = self._bad_samples(self.B @ self.C0)
-            if not len(bad):
+        # The start must lie within the search's limit. With a narrow limit
+        # the rounding of sketched corners and the smoothing are reduced
+        # until it does (a tight corner in a narrow search stays tight).
+        for shrink in START_SHRINK:
+            # The fit target: the line with its vertices filleted (more for a
+            # loose sketch, less for a precise line), resampled evenly.
+            r_fit = max(1.5, shrink * self.R_sketch * min(1.0, self.sigma / SIGMA_REF))
+            X, _ = resample_legs([fillet(self.ref, r_fit, self.h / 2)], self.h)
+            # Weighted arc length: sharp turns get up to 3x the controls.
+            u_in, W = self.weighted_u(X)
+            K = max(4, int(round(W / float(p["knot_m"]))) + 3)
+            self.K = K
+            self.nfree = K - 2
+            B_in = spline.basis(u_in, K)
+            n = len(X)
+            # The start: least squares to the line, second differences of the
+            # controls penalised by the line's uncertainty.
+            lam = FIT_SMOOTH * (n / K) * (shrink * self.sigma) ** 2
+            # Candidates are sampled at even steps of the weighted parameter:
+            # ~spacing_m apart on straight ground, closer through sharp turns.
+            N = max(6, int(round(W / self.h)) + 1)
+            self.u = np.linspace(0, 1, N)
+            self.B = spline.basis(self.u, K)
+            # Each sample depends on 4 controls: keep their indices and weights,
+            # so evaluating a candidate is O(samples), not samples x controls.
+            j0 = np.clip(np.argmax(self.B > 0, axis=1), 0, K - 4)
+            self.B_idx = j0[:, None] + np.arange(4)[None, :]
+            self.B_w = np.take_along_axis(self.B, self.B_idx, axis=1)
+            self.n = N
+            self.Bg = spline.basis(spline.greville(K), K)      # where each control acts on the curve
+            self.ctrl_u = spline.greville(K)[1:K - 1]
+            # Where the smoothing would fold the line (a switchback whose arms are
+            # closer than the smoothing reaches pulls them into a cusp), relax it
+            # there and refit, until the start is a clean line.
+            row_w = np.ones(K - 2)
+            for _ in range(10):
+                self.C0 = fit_controls(B_in, X, lam, row_w)
+                bad = self._bad_samples(self.B @ self.C0)
+                if not len(bad):
+                    break
+                for i in bad:
+                    j = int(np.clip(np.searchsorted(self.ctrl_u, self.u[i]), 0, K - 3))
+                    row_w[max(0, j - 3):j + 4] *= 0.25
+            if np.nanmax(self.dist_grid.sample(*(self.B @ self.C0).T)) <= self.limit:
                 break
-            for i in bad:
-                j = int(np.clip(np.searchsorted(self.ctrl_u, self.u[i]), 0, K - 3))
-                row_w[max(0, j - 3):j + 4] *= 0.25
 
     def _bad_samples(self, Q):
         """Samples where Q folds back, bunches up, or turns tighter than 1 m."""
@@ -419,15 +432,10 @@ class Problem:
         g = self.grid
         ok = np.isfinite(g.z)
         rows, cols = np.nonzero(ok)
-        dist, pos = polyline_distance(g.x0 + cols * g.res, g.y0 + rows * g.res, self.ref)
-        s_v, A, T = corner_allowance(self.ref, self.R_sketch, self.corridor)
-        eff = np.maximum(0.0, dist - allowance_at(pos, s_v, A, T) - self.sigma)
+        dist, _ = polyline_distance(g.x0 + cols * g.res, g.y0 + rows * g.res, self.ref)
         D = np.full(g.z.shape, np.nan)
-        E = np.full(g.z.shape, np.nan)
         D[rows, cols] = dist
-        E[rows, cols] = eff
         self.dist_grid = Grid(D, g.x0, g.y0, g.res)
-        self.eff_grid = Grid(E, g.x0, g.y0, g.res)
 
     def full(self, c):
         """Free controls (K-2, 2) -> all controls, ends pinned."""
@@ -467,6 +475,117 @@ class Problem:
         out.append(Q[a:])
         return out
 
+    def fill_for(self, cut):
+        """The deepest fill whose cost on the cut and fill curve is no more
+        than that of cutting `cut` m (both measured from 0)."""
+        c = float(self.f["cutfill"](-cut))
+        i = int(np.searchsorted(self._fill_cmax, c, side="right"))
+        return float(self._fill_x[max(0, i - 1)])
+
+    def _grade(self, d, zd):
+        """Design |grade| in %, over 10 m (5 m either side, shorter at the ends)."""
+        L = d[-1]
+        dp, dm = np.minimum(d + 5, L), np.maximum(d - 5, 0)
+        return 100 * np.abs(np.interp(dp, d, zd) - np.interp(dm, d, zd)) / np.maximum(dp - dm, 1e-6)
+
+    def _corners(self, d, theta, kap, akap, cross, tsa, side):
+        """Corners by signed TSA (owner, 2026-10-18). The downhill side (+1
+        right, -1 left, from the cross slope over ~10 m) is UNDEFINED in the
+        fall-line band (TSA < fall_tsa_deg) and on ground with less cross
+        slope than min_outslope_pct; a side held for less than
+        CORNER_RUN_MIN_M is noise. A corner is a change of side across an
+        undefined stretch (or none), where the line turns by at least
+        corner_min_turn_deg (less is crossing a crest or a gully). Its turn
+        reaches out from the change for as long as the line keeps curving
+        the same way (radius under 1 / CORNER_KAPPA), up to CORNER_REACH_M,
+        so a broad corner is counted whole; its radius is the tighter of the
+        turn's mean and its tightest 5 m, so a kink inside a broad corner
+        costs as the kink it is. Returns dicts, in order along the line."""
+        n = len(d)
+        cross_s = running_mean(cross, self.side_w)
+        sg = np.where(cross_s > self.thr, 1, np.where(cross_s < -self.thr, -1, 0))
+        sg[np.isfinite(tsa) & (tsa < self.fall_tsa)] = 0
+        sg[~np.isfinite(tsa)] = 0
+        runs = []                                     # (first, last, side), long enough to count
+        i = 0
+        while i < n:
+            j = i
+            while j + 1 < n and sg[j + 1] == sg[i]:
+                j += 1
+            if sg[i] != 0 and d[j] - d[i] >= CORNER_RUN_MIN_M:
+                runs.append((i, j, int(sg[i])))
+            i = j + 1
+        out = []
+        prev_b = -1
+        for (_, a0, s0), (b0, _, s1) in zip(runs[:-1], runs[1:]):
+            if s0 == s1:
+                continue
+            dth0 = theta[b0] - theta[a0]
+            dirn = np.sign(dth0) if abs(dth0) > 1e-3 else np.sign(kap[(a0 + b0) // 2])
+            a, b = a0, b0
+            while a - 1 > prev_b and kap[a - 1] * dirn > CORNER_KAPPA and d[a0] - d[a - 1] <= CORNER_REACH_M:
+                a -= 1
+            while b + 1 < n and kap[b + 1] * dirn > CORNER_KAPPA and d[b + 1] - d[b0] <= CORNER_REACH_M:
+                b += 1
+            dth = abs(theta[b] - theta[a])
+            if dth < self.min_turn:
+                continue
+            r_arc = (d[b] - d[a]) / max(dth, 1e-3)
+            r_tight = 1 / max(float(akap[a:b + 1].max()), 1e-4)
+            # Climbing turn or switchback (owner, 2026-10-17): what matters is
+            # the ground where the turn crosses the fall line. Gentle: the
+            # trail climbs straight through; steep: a landing is dug. A label
+            # only: the digging is costed by _dig.
+            tz = tsa[a:b + 1]
+            cross_at = np.isfinite(tz) & (tz < self.fall_tsa)
+            sz = side[a:b + 1]
+            crossing = float(sz[cross_at].mean()) if cross_at.any() else float(sz.min())
+            out.append({
+                "a": a, "b": b, "mid": (a0 + b0) // 2, "r": min(1000.0, r_arc, r_tight), "r_arc": min(1000.0, r_arc),
+                "side_pct": float(sz.mean()), "turn_deg": math.degrees(dth), "crossing": crossing,
+                "tsa_min": float(np.nanmin(tz)) if np.isfinite(tz).any() else None,
+                "kind": ("climbing turn" if crossing <= CLIMB_TURN_MAX_PCT else
+                         "switchback-like" if crossing >= SWITCHBACK_MIN_PCT else "between"),
+            })
+            prev_b = b
+        return out
+
+    def _dig(self, d, g, zd, c_, k):
+        """Try cutting corner c_ deeper into the slope: over its turn and
+        CORNER_RAMP_M either side, the design line may go down to each of
+        DIG_DEPTHS (up to corner_cut_max_m) below the ground and up to the
+        matching fill, pinned to the line's profile at the window's ends.
+        Keeps the cheapest, in grade plus cut and fill per metre and the
+        window's steepest 10 m (as the grade peak charge), in zd (in place). Returns the deepest cut of the corner as kept, m."""
+        n = len(d)
+        a = int(np.searchsorted(d, d[c_["a"]] - CORNER_RAMP_M))
+        b = min(n - 1, int(np.searchsorted(d, d[c_["b"]] + CORNER_RAMP_M)))
+        if b - a < 3:
+            return float(max(0.0, (g[a:b + 1] - zd[a:b + 1]).max()))
+        dw, gw = d[a:b + 1], g[a:b + 1]
+        wv = np.gradient(dw)
+        fg, fc = self.f["grade"], self.f["cutfill"]
+        kg, kc = k.get("grade", 0), k.get("cutfill", 0)
+
+        def cost(z):
+            gr = self._grade(dw, z)
+            return float(((kg * fg(gr) + kc * fc(z - gw)) * wv).sum() + kg * self.grade_peak_m * float(fg(gr.max())))
+
+        best_z, best = zd[a:b + 1], cost(zd[a:b + 1])
+        cur_cut = float(max(0.0, (gw - best_z).max()))
+        for D in DIG_DEPTHS:
+            if D <= cur_cut + 1e-6 or D > self.corner_cut_max + 1e-6:
+                continue
+            lo, hi = gw - D, gw + self.fill_for(D)
+            lo[0] = hi[0] = zd[a]
+            lo[-1] = hi[-1] = zd[b]
+            z = taut_string(dw, lo, hi)
+            cz = cost(z)
+            if cz < best:
+                best_z, best = z, cz
+        zd[a:b + 1] = best_z
+        return round(float(max(0.0, (g[c_["a"]:c_["b"] + 1] - zd[c_["a"]:c_["b"] + 1]).max())), 2)
+
     def score(self, c, t, k=None, detail=False):
         return self.score_line(self.curve(c), t, k, detail, check_folds=True)
 
@@ -479,8 +598,8 @@ class Problem:
         k = self.base_k if k is None else k
         h = self.h
         n = len(Q)
-        eff = self.eff_grid.sample(Q[:, 0], Q[:, 1])
-        if not np.isfinite(eff).all() or eff.max() > self.corridor + 1e-6:
+        dist = self.dist_grid.sample(Q[:, 0], Q[:, 1])
+        if not np.isfinite(dist).all() or dist.max() > self.limit + 1e-6:
             return None
         dQ = np.diff(Q, axis=0)
         ds = np.hypot(dQ[:, 0], dQ[:, 1])
@@ -512,46 +631,8 @@ class Problem:
 
         theta = np.unwrap(np.arctan2(tq[:, 1], tq[:, 0]))
         kap = running_mean(np.gradient(theta, d), self.smooth_w)
-
-        # Corners (owner's definition: the downhill side changes; a gully
-        # crossed while climbing is not one), read so that a broad corner
-        # through a fall-line stretch is ONE corner (owner, 2026-10-17: noise
-        # there flipped the side back and forth and one smooth corner read as
-        # several, which the search then "fixed" with tight kinks):
-        #   1. the side comes from the cross slope averaged over ~10 m, with
-        #      hysteresis;
-        #   2. flips closer than CORNER_CLUSTER_M are one event, and events
-        #      whose turning zones touch are one zone;
-        #   3. a zone is a corner only if the side AFTER it differs from the
-        #      side BEFORE it (out and back is noise) and the line turns by at
-        #      least CORNER_MIN_TURN_DEG across it (a side change on a
-        #      straight line is crossing a crest or a valley floor, not a turn);
-        #   4. its radius is the TIGHTEST local radius in the zone, so a kink
-        #      inside a broad corner costs as the kink it is.
-        cross_s = running_mean(cross, self.side_w)
-        sgn = side_of_downhill(cross_s, self.thr)
-        flips = (np.flatnonzero((sgn[1:] != sgn[:-1]) & (sgn[1:] != 0) & (sgn[:-1] != 0)) + 1).tolist()
         akap = np.abs(kap)
-        turning = akap > CORNER_KAPPA
-        zones = []
-        k_ = 0
-        while k_ < len(flips):
-            f0 = f1 = flips[k_]
-            while k_ + 1 < len(flips) and d[flips[k_ + 1]] - d[f1] <= CORNER_CLUSTER_M:
-                k_ += 1
-                f1 = flips[k_]
-            k_ += 1
-            a = f0
-            while a > 0 and turning[a - 1] and d[f0] - d[a - 1] <= CORNER_HALF_M:
-                a -= 1
-            b = f1
-            while b < n - 1 and turning[b + 1] and d[b + 1] - d[f1] <= CORNER_HALF_M:
-                b += 1
-            a, b = max(0, min(a, f0 - 1)), min(n - 1, max(b, f1))
-            if zones and a <= zones[-1][1] + 1:
-                zones[-1] = (zones[-1][0], max(b, zones[-1][1]), zones[-1][2] + [f0, f1])
-            else:
-                zones.append((a, b, [f0, f1]))
+
         # Trail-slope alignment (TSA): the angle in plan between the trail and
         # the fall line, from the bench cross-sections averaged over ~5 m;
         # 0 = straight down the fall line, 90 = on the contour. Undefined
@@ -559,44 +640,31 @@ class Problem:
         cs5, al5 = running_mean(cross, self.smooth_w), running_mean(along, self.smooth_w)
         tsa = np.degrees(np.arctan2(np.abs(cs5), np.abs(al5)))
         tsa[100 * np.hypot(cs5, al5) < FALL_MIN_SLOPE_PCT] = np.nan
+        tsa_v = np.nan_to_num(tsa, nan=90.0)          # flat ground: no fall line to run down
+
+        corners = self._corners(d, theta, kap, akap, cross, tsa, side)
         zone = np.zeros(n, bool)
-        corners = []
-        wn = self.side_w
-        for a, b, fl in zones:
-            before = cross_s[max(0, a - wn):a].mean() if a > 0 else cross_s[0]
-            after = cross_s[b + 1:b + 1 + wn].mean() if b < n - 1 else cross_s[-1]
-            if not (abs(before) > self.thr / 2 and abs(after) > self.thr / 2 and np.sign(before) != np.sign(after)):
-                continue
-            dth = abs(theta[b] - theta[a])
-            if math.degrees(dth) < CORNER_MIN_TURN_DEG:
-                continue
-            r_arc = (d[b] - d[a]) / max(dth, 1e-3)
-            r_tight = 1 / max(float(akap[a:b + 1].max()), 1e-4)
-            r = min(1000.0, r_arc, r_tight)
-            mid = (a + b) // 2
-            # Climbing turn or switchback (owner, 2026-10-17). A corner (the
-            # downhill side flips) always crosses the fall line somewhere; what
-            # matters is the ground there. Gentle (a bench, a nose top, a mild
-            # slope): the trail can climb straight through the crossing, a
-            # climbing turn. Steep: crossing the fall line is a steep pitch
-            # unless a landing is excavated, a switchback.
-            tz = tsa[a:b + 1]
-            cross_at = np.isfinite(tz) & (tz < self.fall_tsa)
-            sz = side[a:b + 1]
-            crossing = float(sz[cross_at].mean()) if cross_at.any() else float(sz.min())
-            tsa_min = float(np.nanmin(tz)) if np.isfinite(tz).any() else None
-            kind = ("climbing turn" if crossing <= CLIMB_TURN_MAX_PCT else
-                    "switchback-like" if crossing >= SWITCHBACK_MIN_PCT else "between")
-            corners.append((mid, a, b, r, float(side[a:b + 1].mean()), math.degrees(dth), min(1000.0, r_arc),
-                            crossing, tsa_min, kind))
-            zone[a:b + 1] = True
+        for c_ in corners:
+            zone[c_["a"]:c_["b"] + 1] = True
         bend_r = 1 / np.maximum(akap, 1e-4)
 
-        # The design grade line through the cut/fill tube.
-        zd = taut_string(d, g - t, g + t)
-        cut = np.abs(zd - g)
-        dp, dm = np.minimum(d + 5, L), np.maximum(d - 5, 0)
-        grade = 100 * np.abs(np.interp(dp, d, zd) - np.interp(dm, d, zd)) / np.maximum(dp - dm, 1e-6)
+        # The design grade line through the cut/fill tube: cut down to t,
+        # fill up to what costs the same on the cut and fill curve (owner,
+        # 2026-10-18: fill is the weaker material). Ends on the ground.
+        lo, hi = g - t, g + self.fill_for(t)
+        lo[0] = hi[0] = g[0]
+        lo[-1] = hi[-1] = g[-1]
+        zd = taut_string(d, lo, hi)
+        # Corners dug in (option 2, owner 2026-10-18): where the line turns
+        # across the fall line on steep ground it either climbs steeply
+        # through the turn or is cut into the slope to hold its grade. Each
+        # corner tries deeper cuts over its turn and a ramp either side and
+        # keeps the cheapest in grade plus cut and fill.
+        for c_ in corners:
+            c_["dig_m"] = self._dig(d, g, zd, c_, k)
+        e = zd - g                                    # signed: cut < 0 < fill
+        cut = np.abs(e)
+        grade = self._grade(d, zd)
 
         sites = reversal_sites(d, zd, g, self.dip)
         site_d = d[sites] if sites else np.zeros(0)
@@ -606,20 +674,27 @@ class Problem:
         else:
             run = d.copy()
 
-        off = eff
+        # Length along the slope (owner, 2026-10-18): the design line's own
+        # length, climb included. Per-metre factors are charged per metre of it.
+        d3 = np.concatenate([[0.0], np.cumsum(np.hypot(ds, np.diff(zd)))])
+        L3 = float(d3[-1])
+        w3 = np.gradient(d3)
+
         f = self.f
         wet = (np.nan_to_num(self.twi_grid.sample(Q[:, 0], Q[:, 1]), nan=0.0)
                if self.twi_grid is not None else np.zeros(n))
-        per = {"grade": grade, "slope": side, "cutfill": cut, "offset": off, "drainage": run, "wet": wet}
+        per = {"grade": grade, "slope": side, "cutfill": e, "drainage": run, "wet": wet, "tsa": tsa_v}
         vals = {name: f[name](x) for name, x in per.items()}
-        # Fall-line tread (owner, 2026-10-17): where the trail runs within
-        # fall_tsa_deg of the fall line, water cannot leave the tread
-        # sideways; at 5-8 % it runs off along the trail, flatter it pools,
-        # steeper it erodes. Charged per metre at the design grade, so a
-        # broad corner's long fall-line arc pays for its length, and corners
-        # on convex ground (where the fall line turns with the trail) win
-        # without a rule of their own.
-        fall = np.nan_to_num(tsa, nan=90.0) < self.fall_tsa
+        if self.twi_grid is None:
+            vals["wet"] = np.zeros(n)        # no wetness layer: the factor is off, not at its floor
+        # Fall-line tread (owner, 2026-10-17): where the trail runs in the
+        # fall-line band, water cannot leave the tread sideways; at 5-8 % it
+        # runs off along the trail, flatter it pools, steeper it erodes.
+        # Charged per metre at the design grade, so a broad corner's long
+        # fall-line arc pays for its length, and corners on convex ground
+        # (where the fall line turns with the trail) win without a rule of
+        # their own.
+        fall = tsa_v < self.fall_tsa
         vals["falltread"] = f["falltread"](grade) * fall
         # Bends are charged per right angle TURNED, weighted by the curve at
         # the radius it was turned at, not per metre: a kink is an event, and
@@ -627,42 +702,39 @@ class Problem:
         # Corners are left to the corner factor.
         bend_v = f["bend"](bend_r) * ~zone
         vals["bend"] = bend_v
-        # One scale for every factor (2026-10-17): per-metre factors are
-        # charged PER 100 M of line, not averaged, so a long route's grade
-        # weighs as much against its corners as a short one's. Averaging let
-        # six corners outweigh any grade on a 2.5 km climb, and the search
-        # removed switchbacks to the grade's cost.
-        costs = {name: float((v * w).sum() / PER_M) for name, v in vals.items() if name != "bend"}
+        # Equivalent effort, in metres (owner, 2026-10-18): the length along
+        # the slope, plus for each per-metre factor k extra metres per metre
+        # at curve 1, per corner k metres at curve 1, per right angle k.
+        costs = {name: float((v * w3).sum()) for name, v in vals.items() if name != "bend"}
         costs["bend"] = float((bend_v * akap * w).sum() / (math.pi / 2))
         # "Consistent grade is minimising the maximum grade" (owner): a short
-        # steep pitch is cheap per metre, so the peak is charged as well.
+        # steep pitch is cheap per metre, so the peak is charged again as
+        # grade_peak_m metres of its grade.
         gmax = float(grade.max())
-        costs["grade"] += GRADE_PEAK_SHARE * float(f["grade"](gmax))
+        costs["grade"] += self.grade_peak_m * float(f["grade"](gmax))
         if self.grade_ref is not None and gmax > self.grade_ref:
-            costs["grade"] += (gmax - self.grade_ref) / GRADE_OVER_PER
-        cr = [f["corner"](c_[3]) for c_ in corners]
+            costs["grade"] += (gmax - self.grade_ref) / GRADE_OVER_PER * PER_M
+        cr = [f["corner"](c_["r"]) for c_ in corners]
         costs["corner"] = float(sum(cr))
-        # Every metre alike (owner, 2026-10-17). Counted from the input's
-        # length, so the line as drawn pays 0 and a shorter candidate earns
-        # a credit: totals stay comparable and the per-factor guard is not
-        # loosened by a large constant.
-        costs["length"] = (L - self.L_in) / PER_M
+        costs["length"] = L3
         total = sum(k.get(name, 0) * v for name, v in costs.items())
 
-        density = sum(k.get(name, 0) * v for name, v in vals.items() if name != "bend") * w / PER_M
-        density = density + k.get("bend", 0) * bend_v * akap * w / (math.pi / 2)
+        density = sum(k.get(name, 0) * v for name, v in vals.items() if name != "bend") * w3
+        density = density + k.get("bend", 0) * bend_v * akap * w / (math.pi / 2) + w3
         for c_, x1 in zip(corners, cr):
-            a, b = c_[1], c_[2]
+            a, b = c_["a"], c_["b"]
             density[a:b + 1] += k.get("corner", 0) * x1 / (b - a + 1)
         out = {"total": float(total), "costs": costs, "density": density,
-               "corner_idx": [c_[0] for c_ in corners], "length_m": L}
+               "corner_idx": [c_["mid"] for c_ in corners], "length_m": L3, "length_map_m": L}
         if detail:
             out.update({
-                "Q": Q, "d": d, "fall": fall, "tsa": tsa, "ground": g, "design": zd, "cut": cut, "grade": grade, "side": side,
-                "twi": wet, "offset": eff, "dist": self.dist_grid.sample(Q[:, 0], Q[:, 1]), "bend_r": bend_r, "zone": zone, "run": run, "sites": sites,
-                "corners": [{"i": c_[0], "d": float(d[c_[0]]), "radius_m": float(c_[3]),
-                             "arc_radius_m": float(c_[6]), "side_pct": c_[4], "turn_deg": c_[5],
-                             "crossing_pct": c_[7], "tsa_min": c_[8], "kind": c_[9]}
+                "Q": Q, "d": d, "fall": fall, "tsa": tsa, "tsa_v": tsa_v, "ground": g, "design": zd, "cut": cut, "e": e,
+                "grade": grade, "side": side, "w3": w3,
+                "twi": wet, "dist": dist, "bend_r": bend_r, "zone": zone, "run": run, "sites": sites,
+                "corners": [{"i": c_["mid"], "d": float(d[c_["mid"]]), "radius_m": float(c_["r"]),
+                             "arc_radius_m": float(c_["r_arc"]), "side_pct": c_["side_pct"], "turn_deg": c_["turn_deg"],
+                             "crossing_pct": c_["crossing"], "tsa_min": c_["tsa_min"], "kind": c_["kind"],
+                             "dig_m": c_["dig_m"]}
                             for c_ in corners],
                 "w": w, "t": float(t),
                 "contrib": {name: k.get(name, 0) * v for name, v in costs.items()},
@@ -675,10 +747,10 @@ def histograms(r, bins=30):
     the curve editor's background: metres per bin for per-metre factors,
     counts for per-corner ones."""
     out = {}
-    w = r["w"]
-    src = {"grade": (r["grade"], w), "slope": (r["side"], w), "cutfill": (r["cut"], w),
-           "offset": (r["offset"], w), "drainage": (r["run"], w), "wet": (r["twi"], w),
-           "bend": (r["bend_r"], w * ~r["zone"]),
+    w = r["w3"]
+    src = {"grade": (r["grade"], w), "slope": (r["side"], w), "cutfill": (r["e"], w), "tsa": (r["tsa_v"], w),
+           "drainage": (r["run"], w), "wet": (r["twi"], w),
+           "bend": (r["bend_r"], r["w"] * ~r["zone"]),
            "corner": (np.array([c["radius_m"] for c in r["corners"]]), None),
            "falltread": (r["grade"], w * r["fall"])}
     for name, (x, wt) in src.items():

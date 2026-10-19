@@ -22,23 +22,27 @@ import math
 import numpy as np
 
 from . import spline
-from .score import Problem, fit_controls, histograms
+from .score import PER_M, Problem, fit_controls, histograms
+from .settings import FACTOR_META
 
 SIGMA0, SIGMA_END = 5.0, 0.3        # m: bump amplitude, first and last iteration
 COOL = 1e-3                         # final temperature / initial
 TUBE_MIN = 0.02                     # m
 GRADE_MAX_SLACK = 1.0               # %: never offer a candidate whose steepest 10 m is worse than the input's by more
-MARGIN = 0.10                       # a candidate may be worse on one factor by at most this share of the input's total,
-                                    # or of that factor's own weight k, whichever is larger
+MARGIN = 0.10                       # a candidate may be worse on one factor by at most this share of the input's effort
+                                    # beyond its length, or of that factor's unit (100 m at curve 1, or one corner or
+                                    # right angle at curve 1), whichever is larger
 RESPACE_EVERY = 250
 RESPACE_TOL = 0.01                  # a re-spacing is kept if it changes the total by less than this share
 
+# (key, label, weight multipliers, share of the search distance)
 CHAIN_VARIANTS = [
-    ("best", "Best overall", {}),
-    ("closer", "Closer to your line", {"offset": 2.0, "length": 2.0}),
-    ("steadier", "Steadier grade", {"grade": 2.0}),
-    ("best", "Best overall", {}),
+    ("best", "Best overall", {}, 1.0),
+    ("closer", "Within half the distance", {}, 0.5),
+    ("steadier", "Steadier grade", {"grade": 2.0}, 1.0),
+    ("best", "Best overall", {}, 1.0),
 ]
+EDGE_M = 1.0                        # m: within this of the search's limit counts as "along the edge"
 
 
 def _control_of_sample(prob, i):
@@ -124,7 +128,7 @@ def anneal(prob, rng, iters, k, t0, progress=None):
     t = t0
     cur = prob.score(c, t, k)
     if cur is None:
-        raise ValueError("the smoothed line leaves the corridor or the terrain data")
+        raise ValueError("the smoothed line leaves the search distance or the terrain data")
     best = (cur["total"], c.copy(), t)
     worse = []
     for _ in range(30):
@@ -166,22 +170,26 @@ def _json_detail(prob, r, legs):
     grade = r["grade"]
     dist = r["dist"]
     return {
-        "total": round(r["total"], 4),
-        "costs": {k: round(v, 5) for k, v in r["costs"].items()},
-        "contrib": {k: round(v, 5) for k, v in r["contrib"].items()},
+        "total": round(r["total"], 1),
+        "costs": {k: round(v, 3) for k, v in r["costs"].items()},
+        "contrib": {k: round(v, 2) for k, v in r["contrib"].items()},
         "legs_xy": [L.tolist() for L in legs],
         "t": round(r["t"], 3),
         "length_m": round(r["length_m"], 1),
+        "length_map_m": round(r["length_map_m"], 1),
         "profile": {"d": rd(r["d"], 1), "ground": rd(r["ground"], 2), "design": rd(r["design"], 2)},
         "corners": [{k: (round(v, 1) if isinstance(v, float) else v) for k, v in c.items()} for c in r["corners"]],
         "sites_d": [round(float(r["d"][i]), 1) for i in r["sites"]],
         "stats": {
             "grade_max": round(float(grade.max()), 1),
             "grade_p95": round(float(np.percentile(grade, 95)), 1),
-            "cut_max": round(float(r["cut"].max()), 2),
-            "cut_mean": round(float((r["cut"] * r["w"]).sum() / r["length_m"]), 3),
+            "cut_max": round(float(max(0.0, -r["e"].min())), 2),
+            "fill_max": round(float(max(0.0, r["e"].max())), 2),
+            "cut_mean": round(float((r["cut"] * r["w"]).sum() / r["length_map_m"]), 3),
+            "corner_dig_max": round(max([c["dig_m"] for c in r["corners"]]), 2) if r["corners"] else None,
             "offset_max": round(float(dist.max()), 1),
-            "offset_mean": round(float((dist * r["w"]).sum() / r["length_m"]), 1),
+            "offset_mean": round(float((dist * r["w"]).sum() / r["length_map_m"]), 1),
+            "edge_m": round(float((r["w"] * (dist >= prob.corridor - EDGE_M)).sum()), 1),
             "corners": len(r["corners"]),
             "corner_min_r": round(min([c["radius_m"] for c in r["corners"]]), 1) if r["corners"] else None,
             "climbing_turns": sum(1 for c in r["corners"] if c["kind"] == "climbing turn"),
@@ -218,7 +226,7 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None):
     k = prob.base_k
     found = _best_tube(lambda t, kk: prob.score_line(prob.P, t, kk), k)
     if found is None:
-        raise ValueError("the selected legs run off the terrain data (or outside the corridor read for them), so they cannot be scored")
+        raise ValueError("the selected legs run off the terrain data, so they cannot be scored")
     t_in = min(found[1], prob.tmax)
     inp = prob.score_line(prob.P, t_in, k, detail=True)
     prob.grade_ref = float(inp["grade"].max())
@@ -230,13 +238,21 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None):
     iters, chains = int(p["iterations"]), int(p["chains"])
     results = []
     for ci in range(chains):
-        key, label, mult = CHAIN_VARIANTS[ci % len(CHAIN_VARIANTS)]
+        key, label, mult, reach = CHAIN_VARIANTS[ci % len(CHAIN_VARIANTS)]
         kk = {f: v * mult.get(f, 1.0) for f, v in k.items()}
         crng = np.random.default_rng(rng.integers(1, 2 ** 31 - 1))
         cb = None
         if progress:
             cb = lambda i, b, ci=ci: progress((ci * iters + i) / (chains * iters), b)
-        total, c, t = anneal(prob, crng, iters, kk, min(t0, prob.tmax), cb)
+        prob.limit = prob.corridor * reach
+        try:
+            total, c, t = anneal(prob, crng, iters, kk, min(t0, prob.tmax), cb)
+        except ValueError:
+            if reach == 1.0:
+                raise
+            continue                                  # the start does not fit the narrower limit
+        finally:
+            prob.limit = prob.corridor
         r = prob.score(c, t, k, detail=True)
         if r is not None:
             results.append((key, label, c, r))
@@ -248,8 +264,14 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None):
             return False
         if k.get("grade", 0) > 0 and r["grade"].max() > prob.grade_ref + GRADE_MAX_SLACK:
             return False
-        return all(r["contrib"][f] - inp["contrib"][f] <= MARGIN * max(inp["total"], k.get(f, 0))
+        extra = inp["total"] - inp["contrib"].get("length", 0)
+        return all(r["contrib"][f] - inp["contrib"][f] <= MARGIN * max(extra, unit(f))
                    for f in r["contrib"])
+
+    def unit(f):
+        if f == "length":
+            return PER_M
+        return k.get(f, 0) * (PER_M if FACTOR_META[f]["per"] == "metre" else 1)
 
     order = sorted(results, key=lambda x: x[3]["total"])
     wanted = [("best", "Best overall") + order[0][2:]] if order else []
@@ -280,5 +302,5 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None):
         "candidates": cands,
         "seed": seed,
         "histograms": histograms(inp),
-        "chains": [{"key": key, "label": label, "total": round(r["total"], 4)} for key, label, c, r in results],
+        "chains": [{"key": key, "label": label, "total": round(r["total"], 1)} for key, label, c, r in results],
     }

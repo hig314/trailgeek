@@ -209,3 +209,16 @@ possible with Playwright's bundled Chromium by serving MapLibre and D3 from
 Tests need `DJANGO_SECRET_KEY` set and a PostGIS database. The settings
 switch static storage to plain `StaticFilesStorage` under `manage.py test`,
 so no `collectstatic` is needed.
+
+## Cookies on a workstation running several sites (2026-10-17)
+
+Browsers keep cookies per host, not per port, so `localhost:8001`
+(landslidescience) and `localhost:8002` (trailgeek) see each other's
+cookies. Both used Django's default `sessionid`; a request to
+landslidescience carried trailgeek's, found no such session in its own
+database and deleted it, signing the person out of trailgeek mid-task (a
+refine run then polled a job that was never started). trailgeek now names
+its cookies `tg_sessionid` and `tg_csrftoken`. Deploying that signs
+everyone out of trailgeek.org once. landslidescience could do the same
+(`ls_sessionid`) for symmetry. The panels now say "signed out" when an API
+call is redirected to the sign-in page, instead of hanging.
