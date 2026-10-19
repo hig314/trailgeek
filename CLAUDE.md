@@ -107,7 +107,8 @@ server and Django reasoning rather than assume it.
   - **Password reset** on the sign-in page (`/accounts/password_reset/`,
     Django's views, templates in `templates/registration/`). Email settings
     come from env vars; with no `EMAIL_HOST` the link is printed to the web
-    log. **Production has no SMTP yet** (docs/OPERATIONS.md).
+    log. **Production sends through Brevo** (port 2525, live 2026-10-18;
+    docs/OPERATIONS.md).
   - **Dev data (local only):** `backdoor-trail` programme project (private,
     its description lists the Backdoor Trail in order) with `tutka-tusk` as
     a child (**public**, owner's decision 2026-10-16; a public child never
