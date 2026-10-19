@@ -46,6 +46,7 @@ urlpatterns = [
     path("api/twi/", water.api_twi, name="api_twi"),
     path("api/twi/jobs/<str:job>/", water.api_twi_job, name="api_twi_job"),
     path("api/refine/settings", refine_views.api_refine_settings, name="api_refine_settings"),
+    path("api/factors/", refine_views.api_factors, name="api_factors"),
     path("api/refine/jobs/<str:job>/", refine_views.api_refine_job, name="api_refine_job"),
     path("api/projects/", design.api_projects, name="api_projects"),
     path("api/projects/<slug:slug>.json", design.api_project, name="api_project"),

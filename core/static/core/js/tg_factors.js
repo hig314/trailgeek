@@ -18,7 +18,9 @@
  * Hover anywhere (either panel, or the line on the map's samples) marks the
  * point on the map and in both panels.
  *
- *   TgFactors.show(app, result, index)   // index: candidate, or -1 for the line as drawn
+ *   TgFactors.show(app, result, index, label)   // index: candidate, or -1 for the line itself
+ *   TgFactors.analyse(app, kind, key, label)    // any trail / track / alignment: scored in the
+ *                                               // worker with your refine settings, no search
  *   TgFactors.close() / isOpen() / onStyleReload()
  */
 window.TgFactors = (function () {
@@ -334,11 +336,12 @@ window.TgFactors = (function () {
   }
 
   // ---- API ------------------------------------------------------------------------------
-  function show(a, result, index) {
+  function show(a, result, index, label) {
     if (!a || !result || !result.input.tracks) return;
-    if (app !== a) { app = a; app.map.on('mousemove', onMapMove); }
+    if (!app || app.map !== a.map) { a.map.on('mousemove', onMapMove); }
+    app = a;
     res = result; idx = index;
-    I = line(result.input, 'As drawn');
+    I = line(result.input, label || 'As drawn');
     L = index >= 0 ? line(result.candidates[index], result.candidates[index].label) : I;
     makePanels();
     addLayers();
@@ -357,6 +360,36 @@ window.TgFactors = (function () {
     paintWindow();
     drawSpace();
   }
+  // Any line: a baseline job (core.refine_views.api_factors), polled like a refine job.
+  var analysing = 0;
+  function analyse(a, kind, key, label) {
+    if (!app || app.map !== a.map) { a.map.on('mousemove', onMapMove); }
+    app = a;
+    makePanels();
+    var my = ++analysing;
+    chart.setTitle('Factors along: ' + label);
+    chart.setStatus('reading the terrain and scoring… (a minute or less)');
+    chart.open();
+    var csrf = (document.querySelector('meta[name=csrf-token]') || {}).content || '';
+    function req(method, url, body) {
+      return fetch(url, { method: method, credentials: 'same-origin', body: body ? JSON.stringify(body) : undefined,
+                          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf } })
+        .then(function (r) { return r.json().then(function (j) { if (r.status >= 400) throw new Error(j.error || ('Error ' + r.status)); return j; }); });
+    }
+    req('POST', '/api/factors/', { kind: kind, key: key }).then(function (j) {
+      (function poll() {
+        if (my !== analysing || !isOpen()) return;
+        req('GET', '/api/refine/jobs/' + j.job + '/').then(function (st) {
+          if (my !== analysing) return;
+          if (st.status === 'done') { show(a, st.result, -1, label); return; }
+          if (st.status === 'failed') { chart.setStatus('failed: ' + (st.error || 'unknown error')); return; }
+          chart.setStatus((st.stage || 'queued') + '…');
+          setTimeout(poll, 1500);
+        }).catch(function (e) { chart.setStatus(e.message); });
+      })();
+    }).catch(function (e) { chart.setStatus(e.message); });
+  }
+
   function close() {
     if (chart) chart.close();
     if (spaceFp) spaceFp.close();
@@ -365,6 +398,7 @@ window.TgFactors = (function () {
   function isOpen() { return !!(chart && chart.isOpen()); }
   return {
     show: show,
+    analyse: analyse,
     close: close,
     isOpen: isOpen,
     onStyleReload: function () { if (app && isOpen()) addLayers(); }

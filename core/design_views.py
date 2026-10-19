@@ -81,6 +81,7 @@ def alignment_json(a, user):
             "project": {"slug": a.project.slug, "name": a.project.name, "id": a.project.pk,
                         "visibility": a.project.visibility},
             "parent": {"id": a.parent_id, "name": a.parent.name} if a.parent_id else None,
+            "trail": {"slug": a.trail.slug, "name": a.trail.name} if a.trail_id else None,
             "length_m": a.length_m, "runs_uphill": a.runs_uphill, "has_elevation": False,
             "legs": [_leg_json(leg) for leg in legs],
             "evaluation_status": a.evaluation_status, "evaluation_error": a.evaluation_error,
@@ -252,6 +253,23 @@ def trail_line(trail):
     return LineString(list(best.coords), srid=4326), len(parts)
 
 
+def trail_studies(user, trail):
+    """The alignments `user` may see that study `trail` (Alignment.trail), as a
+    tree: each with its variants under it, so the trail panel lists them
+    below the trail (owner, 2026-10-18)."""
+    qs = list(Alignment.objects.filter(trail=trail).filter(access.visible_q(user, prefix="project__")).distinct()
+              .select_related("project").defer("evaluation").order_by("created"))
+    ids = {a.pk for a in qs}
+    kids = {}
+    for a in qs:
+        kids.setdefault(a.parent_id if a.parent_id in ids else None, []).append(a)
+
+    def node(a):
+        return {"id": a.pk, "name": a.name, "project": a.project.name, "length_m": round(a.length_m, 1),
+                "refined": bool(a.refinement), "variants": [node(b) for b in kids.get(a.pk, [])]}
+    return [node(a) for a in kids.get(None, [])]
+
+
 def study_projects(user, trail):
     """Projects `user` can edit that already have an alignment following
     `trail`: where a refine study of it most likely belongs."""
@@ -281,7 +299,7 @@ def api_trail_study(request, slug):
         return _bad(str(e))
     line, pieces = trail_line(t)
     name = str(body.get("name") or f"{t.name}: refine study").strip()[:200] or f"{t.name}: refine study"
-    a = Alignment(project=project, name=name)
+    a = Alignment(project=project, name=name, trail=t)
     try:
         with transaction.atomic():
             a.save()
@@ -335,7 +353,7 @@ def api_alignment_duplicate(request, pk):
     with transaction.atomic():
         b = Alignment.objects.create(
             project=a.project, name=str(body.get("name") or f"{a.name} (variant {n})")[:200],
-            priority=a.priority, trailhead=a.trailhead, notes=a.notes, parent=a,
+            priority=a.priority, trailhead=a.trailhead, notes=a.notes, parent=a, trail=a.trail,
             evaluation=a.evaluation, headline=a.headline, evaluation_status=a.evaluation_status,
             evaluated_at=a.evaluated_at)
         for leg in a.legs.order_by("order"):

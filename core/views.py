@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 
 from . import access
-from .design_views import study_projects
+from .design_views import study_projects, trail_studies
 from .forms import TrackUploadForm
 from .models import DemSource, Trail, Track
 from .track_import import create_track_from_gpx
@@ -75,6 +75,7 @@ def api_trail(request, slug):
         "builder": t.builder, "region": t.region, "tags": t.tags, "source": t.source, "visibility": t.visibility,
         "length_m": t.length_m, "has_elevation": False,
         "study_projects": study_projects(request.user, t),
+        "studies": trail_studies(request.user, t),
         "tracks": [{"id": x.pk, "name": x.name, "taken": x.taken_at.date().isoformat() if x.taken_at else None}
                    for x in tracks],
     }))

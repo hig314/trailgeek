@@ -115,6 +115,7 @@ window.TgDesign = (function () {
   function showAlignment(f) {
     cur = f;
     var p = f.properties, h = '';
+    if (p.trail) h += '<div class="tg-crumb">Trail <a href="#trail=' + esc(p.trail.slug) + '">' + esc(p.trail.name) + '</a> ›' + (p.parent ? ' <a href="#align=' + p.parent.id + '">' + esc(p.parent.name) + '</a> ›' : '') + '</div>';
     h += '<div class="tg-kind">Alignment · priority ' + p.priority + (p.parent ? ' · variant of <a href="#align=' + p.parent.id + '">' + esc(p.parent.name) + '</a>' : '') + '</div>';
     h += '<h2>' + esc(p.name) + '</h2>';
     h += '<div class="tg-muted">Project: <a href="#project=' + esc(p.project.slug) + '">' + esc(p.project.name) + '</a>' +
@@ -124,8 +125,11 @@ window.TgDesign = (function () {
       h += '<div class="tg-actions"><button id="d-edit" class="tg-btn tg-primary">Edit alignment</button>' +
            '<button id="d-dup" class="tg-btn">Duplicate as variant</button>' +
            (p.legs && p.legs.length ? '<button id="d-refine" class="tg-btn" title="Propose modest tweaks that fit the lidar better: grade, corners, side slope, cut and fill, distance from this line">Refine…</button>' : '') +
+           (p.legs && p.legs.length && window.TG_CONFIG && TG_CONFIG.signedIn ? ' <button id="d-factors" class="tg-btn" title="The refine tool\'s factors along this alignment on the lidar, with your refine settings, without a search">Factors along the line…</button>' : '') +
            '<button id="d-new" class="tg-btn">New alignment</button>' +
            '<button id="d-del" class="tg-btn tg-danger" title="Delete this alignment">Delete</button></div>';
+    } else if (p.legs && p.legs.length && window.TG_CONFIG && TG_CONFIG.signedIn) {
+      h += '<div class="tg-actions"><button id="d-factors" class="tg-btn" title="The refine tool\'s factors along this alignment on the lidar, with your refine settings">Factors along the line…</button></div>';
     }
     h += evalStatusHtml(p);
     if (p.headline) h += statsTable(p.headline);
@@ -226,6 +230,7 @@ window.TgDesign = (function () {
     });
     $('d-new').addEventListener('click', function () { newAlignment(p.project.id); });
     var rf = $('d-refine'); if (rf) rf.addEventListener('click', function () { TgRefine.open(f, app); });
+    var fa = $('d-factors'); if (fa) fa.addEventListener('click', function () { TgFactors.analyse(app, 'align', f.properties.id, f.properties.name); });
     $('d-del').addEventListener('click', function () {
       if (!confirm('Delete "' + p.name + '" and its legs? This cannot be undone.')) return;
       api('POST', '/api/alignments/' + p.id + '/delete').then(function (r) {

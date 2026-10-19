@@ -80,6 +80,45 @@ class RefineApiTests(TestCase):
         self.assertEqual(new[-1], old[-1])
         self.assertNotEqual(len(new), len(old))
 
+    def test_a_refined_trail_study_stays_under_the_trail_and_reroutes_where_it_leaves_it(self):
+        from django.contrib.gis.geos import MultiLineString
+        from core.models import Trail
+        t = Trail.objects.create(slug="kinked", name="Kinked trail", visibility=Visibility.PUBLIC,
+                                 geom=MultiLineString(LineString(list(self.a.geom.coords), srid=4326), srid=4326))
+        self.a.legs.update(kind="existing", trail=t)
+        self.a.trail = t
+        self.a.save()
+        loose = {"params": FAST["params"], "factors": {"drainage": {"k": 0}, "existing": {"k": 0}}}
+        job = self.start(settings=loose)
+        self.assertEqual(self.client.get(f"/api/refine/jobs/{job}/").json()["status"], "done")
+        with self.captureOnCommitCallbacks(execute=True):
+            r = self.post(f"/api/alignments/{self.a.pk}/refine/accept", {"job": job, "candidate": 0})
+        self.assertEqual(r.status_code, 201, r.content)
+        b = Alignment.objects.get(pk=r.json()["properties"]["id"])
+        self.assertEqual(b.trail, t)
+        kinds = list(b.legs.order_by("order").values_list("kind", flat=True))
+        self.assertIn("reroute", kinds, "the kink was rounded by more than 3 m, so that leg left the trail")
+        self.assertTrue(all(leg.trail_id == t.pk for leg in b.legs.all()))
+
+    def test_factors_along_any_line(self):
+        from django.contrib.gis.geos import MultiLineString
+        from core.models import Trail
+        Trail.objects.create(slug="t1", name="T1", visibility=Visibility.PUBLIC,
+                             geom=MultiLineString(LineString(utm_line([(0, 0), (0, 120)]), srid=4326), srid=4326))
+        for kind, key in (("trail", "t1"), ("align", self.a.pk)):
+            r = self.post("/api/factors/", {"kind": kind, "key": key})
+            self.assertEqual(r.status_code, 202, r.content)
+            st = self.client.get(f"/api/refine/jobs/{r.json()['job']}/").json()
+            self.assertEqual(st["status"], "done", st)
+            inp = st["result"]["input"]
+            self.assertEqual(st["result"]["candidates"], [])
+            self.assertEqual(len(inp["tracks"]["lonlat"]), len(inp["profile"]["d"]))
+            self.assertIn("grade", inp["tracks"]["cost"])
+        self.assertAlmostEqual(max(inp["tracks"]["grade"]), 10.3, delta=1)      # 20 % plane, crossed at 60 north per 117 m
+        self.assertEqual(self.post("/api/factors/", {"kind": "trail", "key": "nope"}).status_code, 404)
+        self.client.logout()
+        self.assertEqual(self.post("/api/factors/", {"kind": "trail", "key": "t1"}).status_code, 302)
+
     def test_refusals(self):
         bad = self.post(f"/api/alignments/{self.a.pk}/refine", {"legs": [], "settings": FAST})
         self.assertEqual(bad.status_code, 400)

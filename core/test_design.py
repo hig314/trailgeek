@@ -224,6 +224,12 @@ class AlignmentApiTests(TestCase):
         self.assertEqual([p["id"] for p in sp], [a.project.pk])
         r = self.post("/api/trails/ridge/study", {"project_id": self.project.pk, "name": "Second look"})
         self.assertEqual((r.status_code, Alignment.objects.get(pk=r.json()["properties"]["id"]).project), (201, self.project))
+        # A variant of a study stays under the trail, below its study.
+        v = self.post(f"/api/alignments/{a.pk}/duplicate", {}).json()["properties"]
+        self.assertEqual(v["trail"], {"slug": "ridge", "name": "Ridge"})
+        studies = self.client.get("/api/trails/ridge.geojson").json()["properties"]["studies"]
+        self.assertEqual([s["name"] for s in studies], ["Ridge: refine study", "Second look"])
+        self.assertEqual([x["id"] for x in studies[0]["variants"]], [v["id"]])
 
     def test_trail_study_of_a_trail_in_pieces_takes_the_longest_and_says_so(self):
         t = Trail.objects.create(slug="gappy", name="Gappy", visibility=Visibility.PUBLIC, geom=MultiLineString(
