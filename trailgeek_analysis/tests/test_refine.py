@@ -458,6 +458,13 @@ class RefineTests(unittest.TestCase):
         a, b = self.run_refine(seed=5, iterations=150), self.run_refine(seed=5, iterations=150)
         self.assertEqual([c["total"] for c in a["candidates"]], [c["total"] for c in b["candidates"]])
 
+    def test_best_so_far_starts_at_the_input_and_only_goes_down(self):
+        seen = []
+        s = clean_settings({"factors": {"drainage": {"k": 0}}, "params": {"iterations": 300, "chains": 3}})
+        r = refine(self.LEGS, plane_grid(), s, seed=3, progress=lambda f, b: seen.append(b))
+        self.assertLessEqual(max(seen), r["input"]["total"] + 1e-6)
+        self.assertTrue(all(b2 <= b1 + 1e-9 for b1, b2 in zip(seen, seen[1:])), seen)
+
     def test_a_hand_drawn_hairpin_vertex_is_refined_not_refused(self):
         legs = [np.array([[0, 0], [100, 30], [0, 31]], float)]          # turns back within a metre
         s = clean_settings({"params": {"iterations": 200, "chains": 1}})

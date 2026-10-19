@@ -803,6 +803,19 @@ undo and knotted. A turn is now charged by the corner or bend curve at
 the scoring. A 2 m grid cannot make a 3 m turn: its turns are kinks, or
 arcs of 10 m or more made of small heading changes.
 
+**The route as found is never offered raw** (owner, 2026-10-19: "the tight
+corners are coming out as kinks again"). When it beat its polished chain,
+its grid kinks were the candidate. Its corners are now rounded (`fillet`)
+to each of `ROUTE_ROUND_M` (1, 2, 4, 8 m) as far as its segments allow, each
+is scored, and the cheapest is kept. On the Graduation Peak Trail the 2 m
+rounding won (15,262 m, tightest turn 1.7 m).
+
+**"Best so far"** showed the running chain's own best: each chain starts
+afresh, and the steadier chain scores with grade doubled, so it jumped
+about and often read far worse than the line as drawn. It is now the best
+total under the real weights over every chain so far, starting from the
+line as drawn, so it only goes down.
+
 On that trail, with the owner's settings and the saved run's seed: see the
 PR for the numbers. The route-finder takes about 2.5 minutes on the 7.4 km
 trail, up from 1.5, because dearer turns widen the search.
