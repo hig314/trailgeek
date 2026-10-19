@@ -459,11 +459,19 @@ class RefineTests(unittest.TestCase):
         self.assertEqual([c["total"] for c in a["candidates"]], [c["total"] for c in b["candidates"]])
 
     def test_best_so_far_starts_at_the_input_and_only_goes_down(self):
-        seen = []
+        calls = []
         s = clean_settings({"factors": {"drainage": {"k": 0}}, "params": {"iterations": 300, "chains": 3}})
-        r = refine(self.LEGS, plane_grid(), s, seed=3, progress=lambda f, b: seen.append(b))
+        r = refine(self.LEGS, plane_grid(), s, seed=3, progress=lambda f, b, stage: calls.append((f, b, stage)))
+        seen = [b for _, b, _ in calls if b is not None]
         self.assertLessEqual(max(seen), r["input"]["total"] + 1e-6)
         self.assertTrue(all(b2 <= b1 + 1e-9 for b1, b2 in zip(seen, seen[1:])), seen)
+        # Each step says what it is, and the bar only moves forward, to 1.
+        fr = [f for f, _, _ in calls]
+        self.assertTrue(all(f2 >= f1 - 1e-9 for f1, f2 in zip(fr, fr[1:])), fr)
+        self.assertAlmostEqual(fr[-1], 1.0)
+        stages = {st.split(":")[0] for _, _, st in calls}
+        self.assertTrue({"Scoring your line", "Route-finder", "Search 1 of 3", "Search 3 of 3",
+                         "Polishing the route-finder's line", "Comparing the candidates"} <= stages, stages)
 
     def test_a_hand_drawn_hairpin_vertex_is_refined_not_refused(self):
         legs = [np.array([[0, 0], [100, 30], [0, 31]], float)]          # turns back within a metre

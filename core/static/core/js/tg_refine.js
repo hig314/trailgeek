@@ -414,11 +414,19 @@ window.TgRefine = (function () {
     result = null; $('rf-results').innerHTML = ''; drawMap();
     $('rf-run').disabled = true;
     status('<span class="tg-spin"></span> Starting…');
+    var t0 = Date.now();
     api('POST', '/api/alignments/' + f.properties.id + '/refine', payload('run')).then(function (r) {
       runJob = r.job;
       return poll(r.job, mySeq, function (st) {
+        // The step under way, the whole run's share done, and a clock that
+        // ticks with every poll, so a long step is visibly alive (owner,
+        // 2026-10-19: a whole-trail run sat at "TWI 0 %" for many minutes).
         var pct = Math.round(100 * (st.progress || 0));
-        status((st.stage || 'Searching') + '… ' + pct + ' %' + (st.best != null ? ' · best so far ' + n(st.best) + ' m' : '') +
+        var sec = Math.round((Date.now() - t0) / 1000);
+        var clock = Math.floor(sec / 60) + ':' + ('0' + sec % 60).slice(-2);
+        var what = st.status === 'queued' ? 'Waiting for the worker (another run may be ahead of this one)' : (st.stage || 'Searching');
+        status('<span class="tg-spin"></span> ' + esc(what) + '… ' + pct + ' % · ' + clock +
+               (st.best != null ? ' · best so far ' + n(st.best) + ' m' : '') +
                (baseline ? ' · input ' + n(baseline.input.total) + ' m' : '') +
                '<div class="rf-bar"><i style="width:' + pct + '%"></i></div>');
       });
