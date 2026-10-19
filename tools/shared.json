@@ -1,7 +1,7 @@
 {
   "upstream": "hig314/landslidescience",
-  "ref": "dd09d4981ae5644a98519d1aa6d155d2801b1f84",
-  "synced": "2026-10-17",
+  "ref": "e152641e755a2b0364646398a045feb1bd685435",
+  "synced": "2026-10-18",
   "files": [
     {
       "local": "core/static/core/js/basemaps.js",
@@ -32,6 +32,30 @@
       "upstream": "inventory/static/inventory/js/vendor/maplibre-gl-demshade.iife.js.map",
       "header": false,
       "sha256": "1e40b90a47b3b64f1edc6db38e1f1c13a8fcdab211aa1f73e47c1e7ed65a376e"
+    },
+    {
+      "local": "core/static/core/js/ls_tools.js",
+      "upstream": "inventory/static/inventory/js/ls_tools.js",
+      "header": true,
+      "sha256": "1514b62ef6c42e1b1475b0709450eba8d2b4d9d8270397a46a91d09fc428ec1b"
+    },
+    {
+      "local": "core/static/core/js/ls_float.js",
+      "upstream": "inventory/static/inventory/js/ls_float.js",
+      "header": true,
+      "sha256": "aed0aec2334a0e0d52a020415ae1ec4643d9198809e6e4594a47a767a84e1719"
+    },
+    {
+      "local": "core/static/core/js/profile_chart.js",
+      "upstream": "inventory/static/inventory/js/profile_chart.js",
+      "header": true,
+      "sha256": "b9953ae823a710a4e7964a70c9649d5a5a244ad01533a65e6508068e2f62b015"
+    },
+    {
+      "local": "core/static/core/css/ls_panels.css",
+      "upstream": "inventory/static/inventory/css/ls_panels.css",
+      "header": false,
+      "sha256": "6ad8d9908d34d19f28340d0ca957ed9e9dbbccf82ce1acf9c279a5d09094d8e1"
     }
   ],
   "proposed": [

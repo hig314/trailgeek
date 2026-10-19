@@ -790,7 +790,7 @@ class Problem:
                 "Q": Q, "d": d, "fall": fall, "tsa": tsa, "tsa_v": tsa_v, "ground": g, "design": zd, "cut": cut, "e": e,
                 "grade": grade, "side": side, "w3": w3,
                 "twi": wet, "dist": dist, "bend_r": bend_r, "bend_turn": np.bincount(own, turn_f * free, minlength=n),
-                "bend_v": bend_v, "zone": zone, "run": run, "sites": sites,
+                "bend_v": bend_v, "vals": vals, "zone": zone, "run": run, "sites": sites,
                 "corners": [{"i": c_["mid"], "d": float(d[c_["mid"]]), "radius_m": float(c_["r"]),
                              "arc_radius_m": float(c_["r_arc"]), "side_pct": c_["side_pct"], "turn_deg": c_["turn_deg"],
                              "crossing_pct": c_["crossing"], "tsa_min": c_["tsa_min"], "kind": c_["kind"],

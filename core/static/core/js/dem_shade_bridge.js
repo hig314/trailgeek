@@ -1,5 +1,5 @@
 /* Copied verbatim from landslidescience inventory/static/inventory/js/dem_shade_bridge.js
- * (hig314/landslidescience @ dd09d49, 2026-10-17). One copy of every shared
+ * (hig314/landslidescience @ e152641, 2026-10-18). One copy of every shared
  * thing: do not edit here; change it there and run
  * `python tools/sync_shared.py sync` (tools/shared.json pins the commit). */
 /* dem_shade_bridge.js — the old `window.DemShade` API on top of the

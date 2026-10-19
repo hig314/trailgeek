@@ -245,6 +245,9 @@ def run_job(job, payload):
         res = run_refine(legs_xy, grid, settings, progress=progress, twi_grid=twi_grid)
         for d in [res["input"]] + res["candidates"]:
             d["legs"] = _to_lonlat(d.pop("legs_xy"), srid)
+            xy = np.asarray(d["tracks"].pop("xy"), float)
+            lon, lat = transform_xy(xy[:, 0], xy[:, 1], srid, 4326)
+            d["tracks"]["lonlat"] = [[round(float(a), 7), round(float(b), 7)] for a, b in zip(lon, lat)]
         res.update({"srid": srid, "terrain": terrain, "signature": legs_signature(a),
                     "settings": payload["settings"], "elapsed_s": round(time.time() - t0, 1),
                     "leg_ids": [l.pk for l in sel]})

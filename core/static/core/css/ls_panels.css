@@ -1,0 +1,70 @@
+/* ls_panels.css — floating panels (ls_float.js) and the profile chart
+ * (profile_chart.js), shared by /inventory/ (via base.html) and /lidar/.
+ * Moved out of main.css 2026-10-11 so /lidar/, which does not load main.css,
+ * gets the same panels. */
+
+.float-panel {
+    position: absolute;
+    z-index: 12;
+    min-width: 240px; min-height: 200px;
+    display: flex;
+    flex-direction: column;
+    background: rgba(255,255,255,0.97);
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.22);
+    resize: both;
+    overflow: hidden;
+}
+.float-panel.hidden { display: none; }
+.float-header { cursor: move; user-select: none; }
+
+.profile-header { display: flex; align-items: center; gap: 6px; padding: 5px 8px 5px 10px;
+                  border-bottom: 1px solid #eee; font-size: 11px; color: #555; }
+.profile-header .profile-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-header button { font-size: 11px; padding: 1px 7px; border: 1px solid #ccc; border-radius: 3px;
+                         background: #fff; cursor: pointer; color: #444; }
+.profile-header button:hover { background: #f0ebe9; }
+.profile-header button.profile-lock.active { background: #5D4037; color: #fff; border-color: #5D4037; }
+.profile-header button.profile-close { border: none; font-size: 15px; line-height: 1; padding: 0 4px; }
+.profile-body { flex: 1; min-height: 0; position: relative; }
+.profile-body svg { display: block; width: 100%; height: 100%; }
+.profile-tip { display: none; position: absolute; z-index: 2; pointer-events: none; background: rgba(255,255,255,0.96);
+               border: 1px solid #bbb; border-radius: 3px; box-shadow: 0 1px 6px rgba(0,0,0,.18);
+               padding: 4px 8px; font-size: 11px; color: #333; white-space: nowrap; }
+.profile-tip .profile-tip-d { color: #777; font-size: 10px; margin-bottom: 2px; }
+.profile-tip div { display: flex; align-items: center; gap: 6px; line-height: 1.5; }
+.profile-tip b { margin-left: auto; padding-left: 12px; font-weight: 600; }
+.profile-tip-sw { display: inline-block; width: 12px; height: 3px; border-radius: 2px; }
+.profile-body svg { cursor: col-resize; }
+.profile-stats { display: none; font-size: 11px; color: #333; padding: 4px 10px 2px; border-top: 1px solid #eee;
+                 max-height: 40%; overflow: auto; }
+.profile-stats-head { display: flex; align-items: center; gap: 8px; color: #666; font-size: 10px; margin-bottom: 2px; }
+.profile-stats-x { margin-left: auto; border: none; background: none; cursor: pointer; color: #888; font-size: 13px; line-height: 1; }
+.profile-stats table { border-collapse: collapse; width: 100%; }
+.profile-stats th { font-weight: 600; color: #666; font-size: 10px; text-align: right; padding: 1px 6px; white-space: nowrap; }
+.profile-stats td { text-align: right; padding: 1px 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.profile-stats th:first-child, .profile-stats td:first-child { text-align: left; }
+.profile-stats td:first-child .profile-tip-sw { margin-right: 6px; vertical-align: middle; }
+.profile-stats-none { color: #999; text-align: center !important; }
+.profile-read { font-size: 10px; color: #555; padding: 2px 10px 4px; border-top: 1px solid #eee;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 16px; }
+.profile-header .profile-title { font-weight: 600; color: #444; white-space: nowrap; }
+.profile-tip .profile-tip-h { color: #333; font-weight: 600; }
+.profile-body svg.nearest { cursor: crosshair; }
+
+/* Go to lat, lon (ls_goto.js): one button; the input slides out toward the
+ * middle of the map. */
+.ls-goto { display: flex; align-items: center; overflow: visible; position: relative; }
+.ls-goto .ls-goto-btn { font-size: 17px; line-height: 1; color: #333; }
+.ls-goto .ls-goto-in { display: none; position: absolute; top: 0; left: 100%; margin-left: 4px;
+                       width: 170px; height: 29px; box-sizing: border-box; padding: 0 8px;
+                       border: 1px solid #bbb; border-radius: 4px; font: 12px/1 system-ui, sans-serif;
+                       background: #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.08); outline: none; }
+.ls-goto.right .ls-goto-in { left: auto; right: 100%; margin: 0 4px 0 0; }
+.ls-goto.open .ls-goto-in { display: block; }
+.ls-goto.open .ls-goto-btn { background: #eee; }
+.ls-goto.bad .ls-goto-in { border-color: #c62828; box-shadow: 0 0 0 2px rgba(198,40,40,.2); }
+.ls-goto-mark { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #fff;
+                box-shadow: 0 0 0 2px #d32f2f, 0 0 6px rgba(0,0,0,.5); background: rgba(211,47,47,.25);
+                pointer-events: none; }

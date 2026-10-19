@@ -478,20 +478,22 @@ window.TgRefine = (function () {
     h += row('Switchback-like corners', function (d) { return d.stats.switchbacks; }, function (v) { return n(v); }, true, 'Corners that cross the fall line on ground of 25 % or more: a landing would have to be cut');
     h += row('Fall-line tread', function (d) { return d.stats.fall_m; }, function (v) { return n(v) + ' m'; }, null, 'Length within the set angle of the fall line, where water cannot leave the tread sideways');
     h += row('Wet ground', function (d) { return d.stats.wet_m; }, function (v) { return n(v) + ' m'; }, null, 'Length where the topographic wetness index is 10 or more (hollows, benches, channels, filled basins): likely mud');
-    h += row('Tightest bend anywhere', function (d) { return d.stats.bend_min_r; }, function (v) { return v == null ? '–' : n(v, 1) + ' m'; }, false, 'Smallest radius over any 5 m of the line, corners included: kinks show here');
+    h += row('Tightest bend anywhere', function (d) { return d.stats.bend_min_r; }, function (v) { return v == null ? '–' : n(v, 1) + ' m'; }, false, 'Smallest radius anywhere on the line, corners included, measured over 1 m: a sketched kink reads about 0.6 m');
     h += row('Reversal sites (stub)', function (d) { return d.stats.reversals; }, function (v) { return n(v); }, null);
     h += '</table></div>';
     h += '<div class="tg-small tg-muted">' + terrainNote(res) + ' Your line is scored as drawn with the same cut/fill tube as the candidates. "Your line, smoothed" is the smooth reading of it every search starts from: the gain from rounding alone.</div>';
     if (cs.length) {
       h += '<div class="tg-sub">Profile <span class="tg-muted">ground thin, design grade line thick, cut and fill shaded; the input dashed</span></div><div id="rf-prof" class="rf-prof"></div>';
-      h += '<div class="tg-actions"><button id="rf-save" class="tg-btn tg-primary">Save as variant</button> <a href="#" id="rf-zoom">Zoom to</a></div>';
+      h += '<div class="tg-actions"><button id="rf-save" class="tg-btn tg-primary">Save as variant</button> <button id="rf-panel" class="tg-btn" title="A floating panel over the map: the profile with a track per factor, a cost space, and the point traced on the map">Factors along the line…</button> <a href="#" id="rf-zoom">Zoom to</a></div>';
     }
     $('rf-results').innerHTML = h;
     Array.prototype.forEach.call(document.querySelectorAll('input[name=rf-cand]'), function (r) {
-      r.addEventListener('change', function () { chosen = +r.value; drawMap(); drawProfile(); });
+      r.addEventListener('change', function () { chosen = +r.value; drawMap(); drawProfile(); if (TgFactors.isOpen()) TgFactors.show(app, result, chosen); });
     });
     if (!cs.length) return;
     drawProfile();
+    if (TgFactors.isOpen()) TgFactors.show(app, result, chosen);
+    $('rf-panel').addEventListener('click', function () { TgFactors.show(app, result, chosen); });   // not rf-factors: that is the weights
     $('rf-zoom').addEventListener('click', function (e) { e.preventDefault(); app.fitTo(candGeom(cs[chosen])); });
     $('rf-save').addEventListener('click', function () {
       var b = $('rf-save'); b.disabled = true;

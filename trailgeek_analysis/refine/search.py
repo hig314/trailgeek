@@ -164,6 +164,25 @@ def anneal(prob, rng, iters, k, t0, progress=None):
 WET_TWI = 10.0                      # the table's "wet ground" metres: TWI at least this
 
 
+TRACK_KEYS = {"grade": "grade", "slope": "side", "tsa": "tsa_v", "cutfill": "e", "wet": "twi", "drainage": "run"}
+
+
+def _tracks(prob, r):
+    """Per sample, for the factor panel: each factor's value, the extra
+    effort per metre it charges there (k x curve; bends: their metres over the
+    sample's length), the bend radius, and the sample's position (xy, turned
+    into lon/lat by the caller)."""
+    k = prob.base_k
+    rd = lambda a, nd: [round(float(v), nd) for v in a]
+    out = {name: rd(r[key], 2) for name, key in TRACK_KEYS.items()}
+    out["bend"] = rd(np.minimum(r["bend_r"], 1000.0), 2)
+    cost = {name: rd(k.get(name, 0) * r["vals"][name], 4) for name in r["vals"]}
+    cost["bend"] = rd(k.get("bend", 0) * r["bend_v"] / np.maximum(r["w"], 1e-6), 4)
+    out["cost"] = cost
+    out["xy"] = [[round(float(x), 2), round(float(y), 2)] for x, y in r["Q"]]
+    return out
+
+
 def _json_detail(prob, r, legs):
     """A scored line as plain lists, ready for JSON."""
     rd = lambda a, nd: [round(float(v), nd) for v in a]
@@ -178,6 +197,7 @@ def _json_detail(prob, r, legs):
         "length_m": round(r["length_m"], 1),
         "length_map_m": round(r["length_map_m"], 1),
         "profile": {"d": rd(r["d"], 1), "ground": rd(r["ground"], 2), "design": rd(r["design"], 2)},
+        "tracks": _tracks(prob, r),
         "corners": [{k: (round(v, 1) if isinstance(v, float) else v) for k, v in c.items()} for c in r["corners"]],
         "sites_d": [round(float(r["d"][i]), 1) for i in r["sites"]],
         "stats": {

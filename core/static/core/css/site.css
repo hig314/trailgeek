@@ -192,3 +192,17 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .tg-twi-ramp { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #666; }
 .tg-twi-ramp i { flex: 1; height: 8px; border-radius: 2px;
   background: linear-gradient(to right, rgba(198,233,245,0), rgba(160,215,240,.35) 12%, rgba(79,163,217,.6) 38%, rgba(31,95,191,.8) 75%, rgba(11,42,128,.9)); }
+
+/* Refine factor panels (tg_factors.js) on the shared float panels (ls_panels.css). */
+.tgf-prof { left: min(420px, 2vw); top: max(16px, calc(100% - 556px)); width: min(900px, calc(100vw - 32px)); height: 540px; }   /* left/top anchored: ls_float.js */
+.tgf-space { left: min(420px, 2vw); top: 16px; width: min(520px, calc(100vw - 32px)); height: 360px; }
+.tgf-window { display: none; font-size: 11px; color: #333; padding: 4px 10px 4px; border-top: 1px solid #eee; max-height: 34%; overflow: auto; flex: none; }
+.tgf-window table { border-collapse: collapse; width: 100%; }
+.tgf-window th { font-weight: 600; color: #666; font-size: 10px; text-align: right; padding: 1px 6px; white-space: nowrap; }
+.tgf-window td { text-align: right; padding: 1px 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tgf-window th:first-child, .tgf-window td:first-child { text-align: left; }
+.tgf-space-body { flex: 1; min-height: 0; }
+.tgf-space-body svg { display: block; width: 100%; height: 100%; cursor: crosshair; }
+.tgf-ax { font-size: 11px; color: #555; display: inline-flex; gap: 4px; align-items: center; }
+.tgf-ax select { font-size: 11px; padding: 0 2px; }
+.profile-header .tgf-space-btn { margin-left: auto; }
