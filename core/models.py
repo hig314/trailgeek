@@ -306,6 +306,11 @@ class Alignment(models.Model):
         "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="variants",
         help_text="The alignment this one was duplicated from, when it is a variant.",
     )
+    trail = models.ForeignKey(
+        Trail, null=True, blank=True, on_delete=models.SET_NULL, related_name="studies",
+        help_text="The existing trail this alignment is a study or variant of (refine study of a trail; "
+                  "its variants inherit it), so it is listed under that trail.",
+    )
     source = models.CharField(max_length=300, blank=True, help_text="Import provenance, if imported.")
     geom = models.LineStringField(srid=4326, null=True, blank=True, editable=False)
     runs_uphill = models.BooleanField(null=True, blank=True, editable=False, help_text="Set by the evaluator.")

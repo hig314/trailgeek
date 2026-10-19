@@ -115,6 +115,7 @@ window.TgDesign = (function () {
   function showAlignment(f) {
     cur = f;
     var p = f.properties, h = '';
+    if (p.trail) h += '<div class="tg-crumb">Trail <a href="#trail=' + esc(p.trail.slug) + '">' + esc(p.trail.name) + '</a> ›' + (p.parent ? ' <a href="#align=' + p.parent.id + '">' + esc(p.parent.name) + '</a> ›' : '') + '</div>';
     h += '<div class="tg-kind">Alignment · priority ' + p.priority + (p.parent ? ' · variant of <a href="#align=' + p.parent.id + '">' + esc(p.parent.name) + '</a>' : '') + '</div>';
     h += '<h2>' + esc(p.name) + '</h2>';
     h += '<div class="tg-muted">Project: <a href="#project=' + esc(p.project.slug) + '">' + esc(p.project.name) + '</a>' +
@@ -124,8 +125,11 @@ window.TgDesign = (function () {
       h += '<div class="tg-actions"><button id="d-edit" class="tg-btn tg-primary">Edit alignment</button>' +
            '<button id="d-dup" class="tg-btn">Duplicate as variant</button>' +
            (p.legs && p.legs.length ? '<button id="d-refine" class="tg-btn" title="Propose modest tweaks that fit the lidar better: grade, corners, side slope, cut and fill, distance from this line">Refine…</button>' : '') +
+           (p.legs && p.legs.length && window.TG_CONFIG && TG_CONFIG.signedIn ? ' <button id="d-factors" class="tg-btn" title="The refine tool\'s factors along this alignment on the lidar, with your refine settings, without a search">Factors along the line…</button>' : '') +
            '<button id="d-new" class="tg-btn">New alignment</button>' +
            '<button id="d-del" class="tg-btn tg-danger" title="Delete this alignment">Delete</button></div>';
+    } else if (p.legs && p.legs.length && window.TG_CONFIG && TG_CONFIG.signedIn) {
+      h += '<div class="tg-actions"><button id="d-factors" class="tg-btn" title="The refine tool\'s factors along this alignment on the lidar, with your refine settings">Factors along the line…</button></div>';
     }
     h += evalStatusHtml(p);
     if (p.headline) h += statsTable(p.headline);
@@ -217,6 +221,7 @@ window.TgDesign = (function () {
       tr.addEventListener('mouseleave', function () { app.highlight(null); });
       tr.addEventListener('click', function () { app.fitTo(legFeature(p.legs[+tr.dataset.leg]).geometry); });
     });
+    var fa = $('d-factors'); if (fa) fa.addEventListener('click', function () { TgFactors.analyse(app, 'align', p.id, p.name); });
     if (!p.can_edit) return;
     $('d-edit').addEventListener('click', function () { startEdit(f); });
     $('d-dup').addEventListener('click', function () {
@@ -344,6 +349,50 @@ window.TgDesign = (function () {
           app.setSelected('align', f.properties.id);
           startEdit(f);
         }).catch(function (e) { alert(e.message); });
+      });
+    }).catch(function (e) { alert(e.message); });
+  }
+
+  // ---- refine study of an existing trail (owner, 2026-10-18) ----------------
+  // One existing-trail leg along the trail, in a project: the one that
+  // already follows the trail if there is one, any editable one, or a new
+  // one. The refine tool then opens on it; "Off existing tread" weighs
+  // leaving the trail (weight 0 ignores it).
+  function trailStudy(tf) {
+    var tp = tf.properties, already = tp.study_projects || [];
+    api('GET', '/api/projects/').then(function (r) {
+      var mine = r.projects.filter(function (p) { return p.can_edit; });
+      var first = already.length ? already[0].id : null;
+      var ids = {}; already.forEach(function (p) { ids[p.id] = true; });
+      var h = '<div class="tg-kind">Refine study</div><h2>' + esc(tp.name) + '</h2><div class="tg-form">';
+      h += '<p class="tg-small">A new alignment that follows this trail as one existing-trail leg, then the refine tool on it. A candidate you keep is saved as a reroute variant of it.</p>';
+      h += '<div class="tg-field"><label>Name</label><input id="ts-name" type="text" value="' + esc(tp.name + ': refine study') + '"></div>';
+      h += '<div class="tg-field"><label>Project</label><select id="ts-proj">' +
+           mine.map(function (p) {
+             return '<option value="' + p.id + '"' + (p.id === first ? ' selected' : '') + '>' + esc(p.name) + (ids[p.id] ? ' (already follows this trail)' : '') + '</option>';
+           }).join('') + (r.can_create ? '<option value=""' + (!first && !mine.length ? ' selected' : '') + '>New project…</option>' : '') + '</select></div>';
+      h += '<div class="tg-field" id="ts-newproj" style="display:none"><label>New project name</label><input id="ts-pname" type="text" value="' + esc(tp.name) + '">' +
+           '<div class="tg-help">Private: only you and the members you add in /admin/ can see it.</div></div>';
+      h += '<div class="tg-actions"><button id="ts-go" class="tg-btn tg-primary">Create and refine</button><button id="ts-cancel" class="tg-btn">Cancel</button></div>';
+      h += '<div id="ts-msg" class="tg-small"></div></div>';
+      $('panel').classList.add('open');
+      $('detail').innerHTML = h; $('profstats').innerHTML = ''; app.profile.clear();
+      var sel = $('ts-proj');
+      function toggle() { $('ts-newproj').style.display = sel.value ? 'none' : ''; }
+      sel.addEventListener('change', toggle); toggle();
+      $('ts-cancel').addEventListener('click', function () { app.select('trail', tp.slug, false); });
+      $('ts-go').addEventListener('click', function () {
+        var body = { name: $('ts-name').value }, b = $('ts-go');
+        if (sel.value) body.project_id = +sel.value; else body.project_name = $('ts-pname').value;
+        b.disabled = true;
+        api('POST', '/api/trails/' + encodeURIComponent(tp.slug) + '/study', body).then(function (f) {
+          app.refreshTiles();
+          app.setSelected('align', f.properties.id);
+          app.setSelectedGeometry(f);
+          showAlignment(f);
+          TgRefine.open(f, app);
+          if (f.properties.note) setTimeout(function () { alert(f.properties.note); }, 0);
+        }).catch(function (e) { b.disabled = false; $('ts-msg').innerHTML = '<span class="tg-error">' + esc(e.message) + '</span>'; });
       });
     }).catch(function (e) { alert(e.message); });
   }
@@ -532,6 +581,7 @@ window.TgDesign = (function () {
     showAlignment: showAlignment,
     showProject: showProject,
     newAlignment: newAlignment,
+    trailStudy: trailStudy,
     editing: function () { return editing; },
     leave: function () { if (window.TgRefine) TgRefine.close(); if (editing) { if (dirty && !confirm('Discard your changes to this alignment?')) return false; stopEdit(); } return true; },
     onStyleReload: function () { if (ed && editing) ed.reattach(); if (window.TgRefine) TgRefine.onStyleReload(); if (window.TgNotes) TgNotes.onStyleReload(); }

@@ -548,6 +548,18 @@
       p.tracks.forEach(function (t) { h += '<li><a href="#track=' + t.id + '">' + esc(t.name) + '</a>' + (t.taken ? ' <span class="tg-muted">' + t.taken + '</span>' : '') + '</li>'; });
       h += '</ul>';
     }
+    if (p.studies && p.studies.length) {
+      // Refine studies of this trail and their variants, as a tree under it.
+      h += '<div class="tg-sub">Studies and variants of this trail</div><ul class="tg-list tg-tree">';
+      (function tree(list) {
+        list.forEach(function (s) {
+          h += '<li><a href="#align=' + s.id + '">' + esc(s.name) + '</a> <span class="tg-muted">' + (s.length_m / 1000).toFixed(2) + ' km · ' + esc(s.project) + (s.refined ? ' · refined' : '') + '</span>';
+          if (s.variants.length) { h += '<ul class="tg-list tg-tree">'; tree(s.variants); h += '</ul>'; }
+          h += '</li>';
+        });
+      })(p.studies);
+      h += '</ul>';
+    }
     if (p.siblings && p.siblings.length) {
       h += '<div class="tg-sub">Other alignments in this project</div><ul class="tg-list">';
       p.siblings.forEach(function (s) { h += '<li><a href="#align=' + s.id + '">' + esc(s.name) + '</a> <span class="tg-muted">priority ' + s.priority + '</span></li>'; });
@@ -559,6 +571,8 @@
       var adminUrl = p.kind === 'trail' ? '/admin/core/trail/' + p.id + '/change/' : p.kind === 'track' ? '/admin/core/track/' + p.id + '/change/' : '/admin/core/alignment/' + p.id + '/change/';
       links.push('<a href="' + adminUrl + '">Edit</a>');
     }
+    if ((p.kind === 'trail' || p.kind === 'track') && CFG.signedIn) links.push('<a href="#" id="factors-go" title="The refine tool\'s factors along this line on the lidar, with your refine settings: a profile with a track per factor, a cost space, and the point traced on the map">Factors along the line…</a>');
+    if (p.kind === 'trail' && CFG.canEdit) links.push('<a href="#" id="trail-refine" title="Look for a better line near this trail: a refine study of it, in a project">Refine…</a>');
     links.push('<a href="#" id="zoomto">Zoom to</a>');
     links.push('<a href="#" id="sideview" title="Look at it (nearly) horizontally, from the side, to see how steady the climb is">Side view</a>');
     h += '<div class="tg-links">' + links.join(' · ') + '</div>';
@@ -570,6 +584,10 @@
            '<label><input type="radio" name="psrc" value="terrain"> Terrain tiles</label></div>';
     }
     $('detail').innerHTML = h;
+    if ($('factors-go')) $('factors-go').addEventListener('click', function (ev) {
+      ev.preventDefault(); TgFactors.analyse({ map: map }, p.kind, p.kind === 'trail' ? p.slug : p.id, p.name);
+    });
+    if ($('trail-refine')) $('trail-refine').addEventListener('click', function (ev) { ev.preventDefault(); if (TgDesign.leave()) TgDesign.trailStudy(f); });
     $('zoomto').addEventListener('click', function (ev) { ev.preventDefault(); map.fitBounds(bboxOf(f.geometry), { padding: 60, maxZoom: 15 }); });
     $('sideview').addEventListener('click', function (ev) { ev.preventDefault(); sideViewOf(f.geometry); });
     Array.prototype.forEach.call(document.querySelectorAll('input[name=psrc]'), function (r) {

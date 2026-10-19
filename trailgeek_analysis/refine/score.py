@@ -329,11 +329,12 @@ class Problem:
     hairpin gets the controls it needs.
     """
 
-    def __init__(self, legs_xy, grid, settings, twi_grid=None):
+    def __init__(self, legs_xy, grid, settings, twi_grid=None, existing_xy=None):
         p = settings["params"]
         self.params = p
         self.grid = grid
         self.twi_grid = twi_grid         # a Grid of TWI (refine.twi), or None: wet ground costs nothing
+        self.existing_xy = [np.asarray(L, float) for L in (existing_xy or []) if len(L) >= 2]   # existing tread, or none: no charge
         self.h = float(p["spacing_m"])
         self.P, self.joints = resample_legs(legs_xy, self.h)
         n = len(self.P)
@@ -479,6 +480,15 @@ class Problem:
         D = np.full(g.z.shape, np.nan)
         D[rows, cols] = dist
         self.dist_grid = Grid(D, g.x0, g.y0, g.res)
+        self.existing_grid = None
+        if self.existing_xy:
+            E = np.full(len(rows), np.inf)
+            for L in self.existing_xy:
+                e, _ = polyline_distance(g.x0 + cols * g.res, g.y0 + rows * g.res, L)
+                E = np.minimum(E, e)
+            G = np.full(g.z.shape, np.nan)
+            G[rows, cols] = E
+            self.existing_grid = Grid(G, g.x0, g.y0, g.res)
 
     def full(self, c):
         """Free controls (K-2, 2) -> all controls, ends pinned."""
@@ -741,10 +751,14 @@ class Problem:
         f = self.f
         wet = (np.nan_to_num(self.twi_grid.sample(Q[:, 0], Q[:, 1]), nan=0.0)
                if self.twi_grid is not None else np.zeros(n))
-        per = {"grade": grade, "slope": side, "cutfill": e, "drainage": run, "wet": wet, "tsa": tsa_v}
+        off = (np.nan_to_num(self.existing_grid.sample(Q[:, 0], Q[:, 1]), nan=0.0)
+               if self.existing_grid is not None else np.zeros(n))
+        per = {"grade": grade, "slope": side, "cutfill": e, "drainage": run, "wet": wet, "tsa": tsa_v, "existing": off}
         vals = {name: f[name](x) for name, x in per.items()}
         if self.twi_grid is None:
             vals["wet"] = np.zeros(n)        # no wetness layer: the factor is off, not at its floor
+        if self.existing_grid is None:
+            vals["existing"] = np.zeros(n)   # no existing trail selected: nothing to stay on
         # Fall-line tread (owner, 2026-10-17): where the trail runs in the
         # fall-line band, water cannot leave the tread sideways; at 5-8 % it
         # runs off along the trail, flatter it pools, steeper it erodes.
@@ -789,7 +803,7 @@ class Problem:
             out.update({
                 "Q": Q, "d": d, "fall": fall, "tsa": tsa, "tsa_v": tsa_v, "ground": g, "design": zd, "cut": cut, "e": e,
                 "grade": grade, "side": side, "w3": w3,
-                "twi": wet, "dist": dist, "bend_r": bend_r, "bend_turn": np.bincount(own, turn_f * free, minlength=n),
+                "twi": wet, "existing": off, "dist": dist, "bend_r": bend_r, "bend_turn": np.bincount(own, turn_f * free, minlength=n),
                 "bend_v": bend_v, "vals": vals, "zone": zone, "run": run, "sites": sites,
                 "corners": [{"i": c_["mid"], "d": float(d[c_["mid"]]), "radius_m": float(c_["r"]),
                              "arc_radius_m": float(c_["r_arc"]), "side_pct": c_["side_pct"], "turn_deg": c_["turn_deg"],
@@ -809,7 +823,7 @@ def histograms(r, bins=30):
     out = {}
     w = r["w3"]
     src = {"grade": (r["grade"], w), "slope": (r["side"], w), "cutfill": (r["e"], w), "tsa": (r["tsa_v"], w),
-           "drainage": (r["run"], w), "wet": (r["twi"], w),
+           "drainage": (r["run"], w), "wet": (r["twi"], w), "existing": (r["existing"], w),
            "bend": (r["bend_r"], r["bend_turn"] / (math.pi / 2)),
            "corner": (np.array([c["radius_m"] for c in r["corners"]]), None),
            "falltread": (r["grade"], w * r["fall"])}

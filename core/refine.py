@@ -202,31 +202,43 @@ def _to_lonlat(legs_xy, srid):
 
 def run_job(job, payload):
     """payload: alignment_id, legs [first, last] (indices, inclusive),
-    settings (full, cleaned), mode "run" | "baseline", user_id."""
+    settings (full, cleaned), mode "run" | "baseline", user_id. Or, to score
+    any one line (Factors along the line on a trail or a track): `line`
+    (lon/lat) and `existing` (is it existing tread?) in place of the
+    alignment, with mode "baseline"."""
     from .evaluation import choose_sources
     from .models import Alignment
 
-    base = {"user": payload["user_id"], "alignment": payload["alignment_id"], "mode": payload["mode"],
-            "legs": payload["legs"]}
+    base = {"user": payload["user_id"], "alignment": payload.get("alignment_id"), "mode": payload["mode"],
+            "legs": payload.get("legs")}
     state = dict(base, status="running", stage="Reading terrain for the corridor", progress=0.0)
     put_state(job, state)
     t0 = time.time()
     try:
-        a = Alignment.objects.select_related("project").get(pk=payload["alignment_id"])
-        legs = list(a.legs.order_by("order"))
-        i0, i1 = payload["legs"]
-        sel = legs[i0:i1 + 1]
-        lines = [LineString(list(l.geom.coords), srid=4326) for l in sel]
+        if payload.get("line"):
+            a, project = None, None
+            lines = [LineString(payload["line"], srid=4326)]
+            kinds = ["existing" if payload.get("existing") else "new"]
+        else:
+            a = Alignment.objects.select_related("project").get(pk=payload["alignment_id"])
+            project = a.project
+            legs = list(a.legs.order_by("order"))
+            i0, i1 = payload["legs"]
+            sel = legs[i0:i1 + 1]
+            lines = [LineString(list(l.geom.coords), srid=4326) for l in sel]
+            kinds = [l.kind for l in sel]
         whole = MultiLineString(*lines, srid=4326)
         c = whole.centroid
         srid = geo.utm_srid(c.x, c.y)
-        legs_xy = []
-        for line in lines:
+        legs_xy, existing_xy = [], []
+        for kind, line in zip(kinds, lines):
             cs = np.asarray(line.coords, float)
             x, y = transform_xy(cs[:, 0], cs[:, 1], 4326, srid)
             legs_xy.append(np.column_stack([x, y]))
+            if kind == "existing":
+                existing_xy.append(legs_xy[-1])         # the tread "Off existing tread" prefers
         settings = payload["settings"]
-        grid, terrain = build_grid(legs_xy, srid, choose_sources(whole, a.project),
+        grid, terrain = build_grid(legs_xy, srid, choose_sources(whole, project),
                                    float(settings["params"]["corridor_m"]))
         if payload["mode"] == "baseline":
             settings = dict(settings, params=dict(settings["params"], chains=0))
@@ -241,16 +253,16 @@ def run_job(job, payload):
 
         put_state(job, dict(base, status="running", stage="Searching", progress=0.0))
         put_state(job, dict(base, status="running", stage="Wetness index (TWI)", progress=0.0))
-        twi_grid = build_twi(legs_xy, srid, choose_sources(whole, a.project), float(settings["params"]["corridor_m"]))
-        res = run_refine(legs_xy, grid, settings, progress=progress, twi_grid=twi_grid)
+        twi_grid = build_twi(legs_xy, srid, choose_sources(whole, project), float(settings["params"]["corridor_m"]))
+        res = run_refine(legs_xy, grid, settings, progress=progress, twi_grid=twi_grid, existing_xy=existing_xy)
         for d in [res["input"]] + res["candidates"]:
             d["legs"] = _to_lonlat(d.pop("legs_xy"), srid)
             xy = np.asarray(d["tracks"].pop("xy"), float)
             lon, lat = transform_xy(xy[:, 0], xy[:, 1], srid, 4326)
             d["tracks"]["lonlat"] = [[round(float(a), 7), round(float(b), 7)] for a, b in zip(lon, lat)]
-        res.update({"srid": srid, "terrain": terrain, "signature": legs_signature(a),
+        res.update({"srid": srid, "terrain": terrain, "signature": legs_signature(a) if a else None,
                     "settings": payload["settings"], "elapsed_s": round(time.time() - t0, 1),
-                    "leg_ids": [l.pk for l in sel]})
+                    "leg_ids": [l.pk for l in sel] if a else []})
         put_state(job, dict(base, status="done", progress=1.0, result=res))
     except ValueError as e:
         put_state(job, dict(base, status="failed", error=str(e)))

@@ -164,7 +164,8 @@ def anneal(prob, rng, iters, k, t0, progress=None):
 WET_TWI = 10.0                      # the table's "wet ground" metres: TWI at least this
 
 
-TRACK_KEYS = {"grade": "grade", "slope": "side", "tsa": "tsa_v", "cutfill": "e", "wet": "twi", "drainage": "run"}
+TRACK_KEYS = {"grade": "grade", "slope": "side", "tsa": "tsa_v", "cutfill": "e", "wet": "twi", "drainage": "run",
+              "existing": "existing"}
 
 
 def _tracks(prob, r):
@@ -231,7 +232,7 @@ def _best_tube(score, k):
     return best
 
 
-def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None):
+def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, existing_xy=None):
     """Refine a stretch made of legs (each an (m, 2) array in a metric CRS).
     `settings` is a full, cleaned settings dict (settings.clean_settings).
     `progress(fraction, best_total)` is called now and then.
@@ -242,7 +243,7 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None):
     to it is offered as the candidate "Your line, smoothed", so the gain
     from rounding alone and the gain from fitting the terrain show apart."""
     p = settings["params"]
-    prob = Problem(legs_xy, grid, settings, twi_grid)
+    prob = Problem(legs_xy, grid, settings, twi_grid, existing_xy)
     k = prob.base_k
     found = _best_tube(lambda t, kk: prob.score_line(prob.P, t, kk), k)
     if found is None:

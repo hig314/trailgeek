@@ -81,6 +81,7 @@ def alignment_json(a, user):
             "project": {"slug": a.project.slug, "name": a.project.name, "id": a.project.pk,
                         "visibility": a.project.visibility},
             "parent": {"id": a.parent_id, "name": a.parent.name} if a.parent_id else None,
+            "trail": {"slug": a.trail.slug, "name": a.trail.name} if a.trail_id else None,
             "length_m": a.length_m, "runs_uphill": a.runs_uphill, "has_elevation": False,
             "legs": [_leg_json(leg) for leg in legs],
             "evaluation_status": a.evaluation_status, "evaluation_error": a.evaluation_error,
@@ -219,6 +220,100 @@ def api_alignment_save(request, pk):
     return JsonResponse(alignment_json(a, request.user))
 
 
+def _project_for(user, body):
+    """The project a new alignment goes in: an editable existing one
+    (project_id), or a new private one (project_name) for a trail editor."""
+    if body.get("project_id"):
+        project = Project.objects.filter(access.visible_projects_q(user)).filter(pk=body["project_id"]).first()
+        if project is None:
+            raise LookupError("no such project")
+        if not access.can_edit_project(user, project):
+            raise PermissionDenied("You cannot add alignments to this project.")
+        return project
+    if not access.is_trail_editor(user):
+        raise PermissionDenied("You need the trail_editors role to start a design project.")
+    pname = str(body.get("project_name") or "").strip()[:200]
+    if not pname:
+        raise ValueError("give a project, or a name for a new one")
+    base = slugify(pname)[:45] or "project"
+    slug, n = base, 2
+    while Project.objects.filter(slug=slug).exists():
+        slug, n = f"{base}-{n}", n + 1
+    vis = body.get("visibility") if body.get("visibility") in dict(Visibility.choices) else Visibility.PRIVATE
+    return Project.objects.create(slug=slug, name=pname, owner=user, visibility=vis)
+
+
+def trail_line(trail):
+    """A trail's line as one LineString: its parts joined where they meet
+    (GEOS line merge). Returns (line, pieces): with several pieces that do
+    not meet, the longest, and how many there were."""
+    merged = trail.geom.merged
+    parts = [merged] if merged.geom_type == "LineString" else list(merged)
+    best = max(parts, key=lambda g: g.length)
+    return LineString(list(best.coords), srid=4326), len(parts)
+
+
+def trail_studies(user, trail):
+    """The alignments `user` may see that study `trail` (Alignment.trail), as a
+    tree: each with its variants under it, so the trail panel lists them
+    below the trail (owner, 2026-10-18)."""
+    qs = list(Alignment.objects.filter(trail=trail).filter(access.visible_q(user, prefix="project__")).distinct()
+              .select_related("project").defer("evaluation").order_by("created"))
+    ids = {a.pk for a in qs}
+    kids = {}
+    for a in qs:
+        kids.setdefault(a.parent_id if a.parent_id in ids else None, []).append(a)
+
+    def node(a):
+        return {"id": a.pk, "name": a.name, "project": a.project.name, "length_m": round(a.length_m, 1),
+                "refined": bool(a.refinement), "variants": [node(b) for b in kids.get(a.pk, [])]}
+    return [node(a) for a in kids.get(None, [])]
+
+
+def study_projects(user, trail):
+    """Projects `user` can edit that already have an alignment following
+    `trail`: where a refine study of it most likely belongs."""
+    if not user.is_authenticated:
+        return []
+    qs = (Project.objects.filter(access.visible_projects_q(user), alignments__legs__trail=trail).distinct()
+          .order_by("name"))
+    return [{"id": p.pk, "name": p.name} for p in qs if access.can_edit_project(user, p)]
+
+
+@login_required
+@require_POST
+def api_trail_study(request, slug):
+    """A refine study of an existing trail (owner, 2026-10-18): a new
+    alignment of one existing-trail leg along it, in an editable project or a
+    new one. The panel then opens the refine tool on it; a kept candidate is
+    a reroute variant, and "Off existing tread" weighs leaving the trail."""
+    t = get_object_or_404(Trail.objects.filter(access.visible_q(request.user)).distinct(), slug=slug)
+    body = _body(request)
+    if body is None:
+        return _bad("body is not JSON")
+    try:
+        project = _project_for(request.user, body)
+    except LookupError as e:
+        return _bad(str(e), 404)
+    except ValueError as e:
+        return _bad(str(e))
+    line, pieces = trail_line(t)
+    name = str(body.get("name") or f"{t.name}: refine study").strip()[:200] or f"{t.name}: refine study"
+    a = Alignment(project=project, name=name, trail=t)
+    try:
+        with transaction.atomic():
+            a.save()
+            _write_legs(a, clean_legs(request.user, [{"coords": [list(c[:2]) for c in line.coords], "kind": Leg.Kind.EXISTING,
+                                                      "trail_id": t.pk, "name": t.name}]))
+    except ValueError as e:
+        return _bad(str(e))
+    out = alignment_json(a, request.user)
+    if pieces > 1:
+        out["properties"]["note"] = (f"{t.name} is in {pieces} pieces that do not meet; the study follows the longest. "
+                                     "Join the pieces in /admin/ to study the whole trail.")
+    return JsonResponse(out, status=201)
+
+
 @login_required
 @require_POST
 def api_alignment_create(request):
@@ -228,24 +323,12 @@ def api_alignment_create(request):
     body = _body(request)
     if body is None:
         return _bad("body is not JSON")
-    if body.get("project_id"):
-        project = Project.objects.filter(access.visible_projects_q(request.user)).filter(pk=body["project_id"]).first()
-        if project is None:
-            return _bad("no such project", 404)
-        if not access.can_edit_project(request.user, project):
-            raise PermissionDenied("You cannot add alignments to this project.")
-    else:
-        if not access.is_trail_editor(request.user):
-            raise PermissionDenied("You need the trail_editors role to start a design project.")
-        pname = str(body.get("project_name") or "").strip()[:200]
-        if not pname:
-            return _bad("give a project, or a name for a new one")
-        base = slugify(pname)[:45] or "project"
-        slug, n = base, 2
-        while Project.objects.filter(slug=slug).exists():
-            slug, n = f"{base}-{n}", n + 1
-        vis = body.get("visibility") if body.get("visibility") in dict(Visibility.choices) else Visibility.PRIVATE
-        project = Project.objects.create(slug=slug, name=pname, owner=request.user, visibility=vis)
+    try:
+        project = _project_for(request.user, body)
+    except LookupError as e:
+        return _bad(str(e), 404)
+    except ValueError as e:
+        return _bad(str(e))
     a = Alignment(project=project, name="New alignment")
     try:
         with transaction.atomic():
@@ -270,7 +353,7 @@ def api_alignment_duplicate(request, pk):
     with transaction.atomic():
         b = Alignment.objects.create(
             project=a.project, name=str(body.get("name") or f"{a.name} (variant {n})")[:200],
-            priority=a.priority, trailhead=a.trailhead, notes=a.notes, parent=a,
+            priority=a.priority, trailhead=a.trailhead, notes=a.notes, parent=a, trail=a.trail,
             evaluation=a.evaluation, headline=a.headline, evaluation_status=a.evaluation_status,
             evaluated_at=a.evaluated_at)
         for leg in a.legs.order_by("order"):
