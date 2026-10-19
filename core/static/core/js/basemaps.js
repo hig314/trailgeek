@@ -1,5 +1,5 @@
 /* Copied verbatim from landslidescience inventory/static/inventory/js/basemaps.js
- * (hig314/landslidescience @ dd09d49, 2026-10-17). One copy of every shared
+ * (hig314/landslidescience @ e152641, 2026-10-18). One copy of every shared
  * thing: do not edit here; change it there and run
  * `python tools/sync_shared.py sync` (tools/shared.json pins the commit). */
 /* Shared basemap handling — the single source of truth for the built-in basemap

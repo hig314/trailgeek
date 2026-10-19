@@ -622,3 +622,34 @@ unchanged.
 The candidates are unchanged, still no tighter than about 7 m, because the
 spline's controls are about `knot_m` (10 m) apart. Candidates that hold
 1–3 m turns need finer controls near a turn: a later change.
+
+## 16. Factor panels over the map (owner, 2026-10-18)
+
+**Factors along the line…** in the refine results opens two floating panels
+over the full map (`tg_factors.js`).
+
+- **The profile:** landslidescience's profile chart (`profile_chart.js`, with
+  `ls_float.js`, `ls_tools.js` and `ls_panels.css`), synced through
+  `tools/shared.json` and not rewritten. It has a 1:1 switch, hover, a
+  brushed window with fitted statistics, SVG and CSV.
+- **Factor tracks under the profile:** one per factor, sharing its x axis,
+  guide and window. Each track draws the value the cost reads, over a band
+  shaded by the extra effort per metre the factor charges there. Its label
+  gives the factor's total. The window also shows the effort inside it per
+  factor, for the line and for the line as drawn.
+- **Cost space:** pick any two factors as axes. The background is what the
+  two charge per metre together. Over it is the line's length per cell, a
+  density weighted by length. Hover a cell to show where on the map those
+  metres are.
+
+Hovering in either panel, or near the line on the map, puts the tracking
+dot on the map and marks the point in both panels.
+
+landslidescience gained the chart's `tracks` option and `hoverAt(d)` for
+this, on its branch `profile-chart-tracks` (hig314/landslidescience#4).
+`tools/shared.json` is pinned to that branch's commit until it is on
+landslidescience's `main`. Then re-pin it to the same content.
+
+Results now carry `tracks` per line: each factor's value, the cost per
+metre, the bend radius, and lon/lat per sample. That is about 720 kB for
+four candidates on a 1.9 km line.

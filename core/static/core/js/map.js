@@ -650,6 +650,7 @@
       setSky(false);                          // a new style has no sky, whatever the switch last set
       addOverlays(); if (terrainOn) rebuildTerrain(); if (window.TgDesign) TgDesign.onStyleReload();
       if (window.TgTwi) TgTwi.onStyleReload();
+      if (window.TgFactors) TgFactors.onStyleReload();
       rescaleLines(true);
     });
     map.setStyle(LSBasemaps.styleFor(baseOf(id)));
