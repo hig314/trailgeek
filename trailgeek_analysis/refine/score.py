@@ -329,7 +329,10 @@ class Problem:
     hairpin gets the controls it needs.
     """
 
-    def __init__(self, legs_xy, grid, settings, twi_grid=None, existing_xy=None):
+    def __init__(self, legs_xy, grid, settings, twi_grid=None, existing_xy=None, like=None):
+        """`like`: another Problem on the same stretch whose search limit and
+        existing tread this one keeps (the route-finder's chain starts from
+        the route, but is limited by distance from the person's line)."""
         p = settings["params"]
         self.params = p
         self.grid = grid
@@ -377,7 +380,10 @@ class Problem:
         keep = np.concatenate([[True], np.hypot(*np.diff(ref, axis=0).T) > 1e-6])
         self.ref = ref[keep]
         self.Pf = densify(self.ref, BEND_STEP_M)     # the input as drawn, finely, for its bends
-        self._distance_fields()
+        if like is not None:
+            self.dist_grid, self.existing_grid = like.dist_grid, like.existing_grid
+        else:
+            self._distance_fields()
 
         # The start must lie within the search's limit. With a narrow limit
         # the rounding of sketched corners and the smoothing are reduced

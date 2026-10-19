@@ -159,6 +159,33 @@ class ExistingTreadTests(unittest.TestCase):
         self.assertEqual(none["costs"]["existing"], 0.0)
 
 
+class RouteTests(unittest.TestCase):
+    """The route-finder (owner, 2026-10-18) winds up a slope the line goes
+    straight up, when the grade curve makes steep ground dear."""
+
+    def test_a_straight_line_up_a_steep_face_becomes_switchbacks(self):
+        from trailgeek_analysis.refine.route import route_line
+        g = Grid.from_function(lambda X, Y: 0.4 * Y, -80, -40, 80, 160)
+        s = clean_settings({"params": {"corridor_m": 40}, "factors": {
+            "grade": {"k": 4, "curve": [[0, 0.01], [12, 0.01], [16, 1], [25, 10], [60, 100]]}}})
+        prob = Problem([np.array([[0, 0], [0, 100]], float)], g, s)
+        R = route_line(prob)
+        self.assertIsNotNone(R)
+        seg = np.diff(R, axis=0)
+        L = np.hypot(*seg.T)
+        self.assertGreater(L.sum(), 250)                                  # 40 m up at <= ~16 %: at least 250 m of trail
+        self.assertLess((40 * np.abs(seg[:, 1]) / np.maximum(L, 1e-9)).max(), 20)   # no step climbs steeper than ~20 %
+        self.assertTrue((np.hypot(*(R[[0, -1]] - [[0, 0], [0, 100]]).T) < 1e-6).all())   # same ends
+        self.assertLessEqual(prob.dist_grid.sample(*R.T).max(), 40)
+
+    def test_on_gentle_ground_the_route_is_nearly_straight(self):
+        from trailgeek_analysis.refine.route import route_line
+        g = Grid.from_function(lambda X, Y: 0.05 * Y, -60, -40, 60, 160)
+        prob = Problem([np.array([[0, 0], [0, 100]], float)], g, clean_settings({}))
+        R = route_line(prob)
+        self.assertLess(np.hypot(*np.diff(R, axis=0).T).sum(), 110)
+
+
 class CornerTests(unittest.TestCase):
     def score(self, legs, grid, **params):
         s = clean_settings({"params": {"spacing_m": 1.0, **params}})

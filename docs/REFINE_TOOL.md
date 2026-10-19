@@ -694,3 +694,48 @@ scoring with no search: `POST /api/factors/ {kind, key}` starts a baseline
 job with your refine settings. The terrain is read only 5 m either side of
 the line, and a trail counts as existing tread. Lines up to 20 km. A 1.5 km
 trail took 13 s in dev.
+
+## 19. The route-finder: a seed that can wind (owner, 2026-10-18)
+
+The annealer only nudges a smooth curve fitted to the person's line. On
+"Between", a line drawn deliberately straight up a slope, it never wound.
+Even with a grade curve charging 77 extra metres per metre at 35 %, its best
+line climbed at 35 % and stayed within 18 m of the sketch.
+
+`route.py` finds the cheapest path between the line's ends within the
+search limit, on a 2 m grid of the terrain:
+- **Search:** A*, over states of (cell, heading) with 32 headings, so turns
+  can be charged.
+- **Steps:** charged by the same per-metre factors on the ground.
+- **Turns:** charged as corners (60° or more, the corner curve at 4 m,
+  shared out by the angle turned) or as bends.
+
+It runs as one more chain:
+- the annealer polishes it, using controls at most 4 m apart so switchbacks
+  survive the fit;
+- the route as found is scored too, and the better of the two is the
+  chain's result;
+- the real scoring then judges it with the other candidates.
+
+When it wins, the best candidate is labelled "Best overall (route-finder)".
+
+**"Between", same seed (dev, 2026-10-18):**
+
+| Settings | Old best | Route-finder | Notes |
+|---|---|---|---|
+| Owner's | 2677 m | 2271 m | Steepest 10 m: 39 → 32 % |
+| Strict grade curve | 20434 m | 4493 m | 17 corners; 95th-percentile grade 37 → 16 %; 1314 m long |
+
+The route takes about half a second, and a whole run about 25 s.
+
+**Two things are still open:**
+- The polish rarely improves on the route as found, so the line offered is
+  often the grid route itself, simplified to 0.5 m. It is somewhat jagged,
+  with a tightest bend of 0.4 m.
+- A route can only turn at grid cells, every 2 m. A hairpin's real radius is
+  the scoring's call once a smoother fit holds it.
+
+**Climbing break-even:** for a target grade g, the grade charge k·f(G) at a
+steeper grade G must be at least G/g − 1, or climbing steeper is cheaper per
+metre of height. With the owner's curve, 25–30 % was the cheapest way up.
+That is a property of the settings, not the search.

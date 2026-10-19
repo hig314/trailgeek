@@ -22,7 +22,8 @@ import math
 import numpy as np
 
 from . import spline
-from .score import PER_M, Problem, fit_controls, histograms
+from .route import route_line
+from .score import BEND_STEP_M, PER_M, Problem, densify, fit_controls, histograms, resample_legs
 from .settings import FACTOR_META
 
 SIGMA0, SIGMA_END = 5.0, 0.3        # m: bump amplitude, first and last iteration
@@ -43,6 +44,9 @@ CHAIN_VARIANTS = [
     ("best", "Best overall", {}, 1.0),
 ]
 EDGE_M = 1.0                        # m: within this of the search's limit counts as "along the edge"
+ROUTE_SKETCH_R_M = 3.0              # m: the route's own corners are rounded this much for its chain's start
+ROUTE_SIGMA_M = 0.5                 # m: ... and it is fitted closely (it is a path, not a sketch)
+ROUTE_KNOT_M = 4.0                  # m: at most this between its controls, so switchbacks survive the fit
 
 
 def _control_of_sample(prob, i):
@@ -258,13 +262,18 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
     rng = np.random.default_rng(seed)
     iters, chains = int(p["iterations"]), int(p["chains"])
     results = []
+    # The route-finder's chain (owner, 2026-10-18): the cheapest path over a
+    # grid of the terrain within the limit, which can wind where the line goes
+    # straight up, polished by the annealer like any other chain.
+    route = route_line(prob, k) if chains > 0 else None
+    runs = chains + (1 if route is not None else 0)
     for ci in range(chains):
         key, label, mult, reach = CHAIN_VARIANTS[ci % len(CHAIN_VARIANTS)]
         kk = {f: v * mult.get(f, 1.0) for f, v in k.items()}
         crng = np.random.default_rng(rng.integers(1, 2 ** 31 - 1))
         cb = None
         if progress:
-            cb = lambda i, b, ci=ci: progress((ci * iters + i) / (chains * iters), b)
+            cb = lambda i, b, ci=ci: progress((ci * iters + i) / (runs * iters), b)
         prob.limit = prob.corridor * reach
         try:
             total, c, t = anneal(prob, crng, iters, kk, min(t0, prob.tmax), cb)
@@ -277,6 +286,29 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
         r = prob.score(c, t, k, detail=True)
         if r is not None:
             results.append((key, label, c, r))
+    if route is not None:
+        pr = Problem([route], prob.grid, dict(settings, params=dict(p, sketch_radius_m=ROUTE_SKETCH_R_M,
+                                                                     input_sigma_m=ROUTE_SIGMA_M,
+                                                                     knot_m=min(float(p["knot_m"]), ROUTE_KNOT_M))),
+                     prob.twi_grid, like=prob)
+        pr.existing_xy, pr.grade_ref = prob.existing_xy, prob.grade_ref
+        crng = np.random.default_rng(rng.integers(1, 2 ** 31 - 1))
+        cb = (lambda i, b: progress((chains * iters + i) / (runs * iters), b)) if progress else None
+        routed = []
+        try:
+            total, c, t = anneal(pr, crng, iters, k, min(t0, prob.tmax), cb)
+            r = pr.score(c, t, k, detail=True)
+            if r is not None:
+                routed.append(r)
+        except ValueError:
+            pass                                      # its smooth start strays past the limit
+        # The route itself, as found: a smooth curve can lose a tight turn it had.
+        Qr, _ = resample_legs([route], prob.h)
+        found_r = _best_tube(lambda tt, kk: pr.score_line(Qr, min(tt, prob.tmax), kk, Qf=densify(route, BEND_STEP_M)), k)
+        if found_r is not None:
+            routed.append(pr.score_line(Qr, min(found_r[1], prob.tmax), k, detail=True, Qf=densify(route, BEND_STEP_M)))
+        if routed:
+            results.append(("routed", "From the route-finder", None, min(routed, key=lambda r: r["total"])))
     if progress:
         progress(1.0, min([r["total"] for *_, r in results], default=inp["total"]))
 
@@ -295,8 +327,8 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
         return k.get(f, 0) * (PER_M if FACTOR_META[f]["per"] == "metre" else 1)
 
     order = sorted(results, key=lambda x: x[3]["total"])
-    wanted = [("best", "Best overall") + order[0][2:]] if order else []
-    for key in ("closer", "steadier"):
+    wanted = [("best", "Best overall" + (" (route-finder)" if order[0][0] == "routed" else "")) + order[0][2:]] if order else []
+    for key in ("closer", "steadier", "routed"):
         mine = [x for x in order if x[0] == key]
         if mine:
             wanted.append(mine[0])
@@ -309,7 +341,7 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
     for key, label, c, r in wanted:
         if not acceptable(r):
             continue
-        if any(np.hypot(*(r["Q"] - q[3]["Q"]).T).max() < 0.5 for q in picked):
+        if any(r["Q"].shape == q[3]["Q"].shape and np.hypot(*(r["Q"] - q[3]["Q"]).T).max() < 0.5 for q in picked):
             continue
         picked.append((key, label, c, r))
     cands = []
