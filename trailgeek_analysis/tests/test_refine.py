@@ -186,6 +186,23 @@ class RouteTests(unittest.TestCase):
         self.assertLess(np.hypot(*np.diff(R, axis=0).T).sum(), 110)
 
 
+class AdaptiveSpacingTests(unittest.TestCase):
+    """Curvature-dependent spacing (owner, 2026-10-18): samples close up
+    where the line turns, so a tight corner is resolved."""
+
+    def test_samples_close_up_in_a_hairpin_and_spread_on_the_straight(self):
+        from trailgeek_analysis.refine.score import adaptive_resample
+        line = np.vstack([np.column_stack([np.zeros(21), np.linspace(0, 40, 21)]),
+                          arc(2, 40, 2.0, math.pi, 0, n=30)[1:],
+                          np.column_stack([np.full(20, 4.0), np.linspace(38, 0, 20)])])
+        Q = adaptive_resample(line, 2.0)
+        ds = np.hypot(*np.diff(Q, axis=0).T)
+        in_turn = Q[:-1, 1] > 40.5
+        self.assertLess(ds[in_turn].max(), 0.5)            # 10 degrees of a 2 m radius is 0.35 m
+        self.assertGreater(ds[Q[:-1, 1] < 30].min(), 1.5)  # straight: about the usual 2 m
+        self.assertTrue(np.allclose(Q[[0, -1]], line[[0, -1]]))
+
+
 class CornerTests(unittest.TestCase):
     def score(self, legs, grid, **params):
         s = clean_settings({"params": {"spacing_m": 1.0, **params}})

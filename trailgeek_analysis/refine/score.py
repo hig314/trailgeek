@@ -33,6 +33,8 @@ FIT_SMOOTH = 0.5            # the start's curvature penalty per (sample per cont
 START_SHRINK = (1.0, 0.5, 0.25, 0.1, 0.0)   # the start's rounding and smoothing, tried in turn until it fits the limit
 BEND_STEP_M = 0.5           # m: bends are measured on the line resampled this finely, so 1 m and 3 m turns read apart
 BEND_WINDOW_M = 1.0         # m: ... as the turn over this much of it (a kink reads ~0.6 m)
+ADAPT_TURN_DEG = 10.0       # degrees: with adaptive spacing (the route-finder's chain), at most this turn per sample ...
+ADAPT_MIN_M = 0.3           # m: ... but samples no closer than this (a 2 m hairpin gets ~0.35 m)
 DIP_WINDOW_M = 10.0         # a ground dip is measured against the ground this far either side
 
 
@@ -79,6 +81,21 @@ def densify(xy, step):
         f = np.arange(1, m + 1)[:, None] / m
         out.append(p + f * (q - p))
     return np.vstack(out)
+
+
+def adaptive_resample(xy, h, turn_deg=ADAPT_TURN_DEG, ds_min=ADAPT_MIN_M):
+    """xy resampled with spacing that follows its curvature (owner,
+    2026-10-18: resolve tight corners): each sample turns at most turn_deg,
+    with spacing between ds_min and h; both ends kept."""
+    D = densify(xy, min(ds_min, h) / 2)
+    _, r = turning(D)
+    spacing = np.clip(r * math.radians(turn_deg), ds_min, h)
+    seg = np.hypot(*np.diff(D, axis=0).T)
+    n = np.concatenate([[0.0], np.cumsum(seg / ((spacing[:-1] + spacing[1:]) / 2))])   # samples so far
+    m = max(1, int(math.ceil(n[-1])))
+    s = np.concatenate([[0.0], np.cumsum(seg)])
+    t = np.interp(np.linspace(0, n[-1], m + 1), n, s)
+    return np.column_stack([np.interp(t, s, D[:, 0]), np.interp(t, s, D[:, 1])])
 
 
 def turning(Q, window=BEND_WINDOW_M):
@@ -329,10 +346,16 @@ class Problem:
     hairpin gets the controls it needs.
     """
 
-    def __init__(self, legs_xy, grid, settings, twi_grid=None, existing_xy=None, like=None):
+    def __init__(self, legs_xy, grid, settings, twi_grid=None, existing_xy=None, like=None, adaptive=False):
         """`like`: another Problem on the same stretch whose search limit and
         existing tread this one keeps (the route-finder's chain starts from
-        the route, but is limited by distance from the person's line)."""
+        the route, but is limited by distance from the person's line).
+        `adaptive`: samples and controls follow the line's curvature
+        (adaptive_resample), so tight corners are resolved: the route-finder's
+        chain."""
+        self.adaptive = adaptive
+        # Samples closer than this read as the curve bunching up (a fold).
+        self.min_ds = 0.3 * ADAPT_MIN_M if adaptive else 0.1 * float(settings["params"]["spacing_m"])
         p = settings["params"]
         self.params = p
         self.grid = grid
@@ -392,7 +415,10 @@ class Problem:
             # The fit target: the line with its vertices filleted (more for a
             # loose sketch, less for a precise line), resampled evenly.
             r_fit = max(1.5, shrink * self.R_sketch * min(1.0, self.sigma / SIGMA_REF))
-            X, _ = resample_legs([fillet(self.ref, r_fit, self.h / 2)], self.h)
+            if self.adaptive:
+                X = adaptive_resample(fillet(self.ref, r_fit, ADAPT_MIN_M / 2), self.h)
+            else:
+                X, _ = resample_legs([fillet(self.ref, r_fit, self.h / 2)], self.h)
             # Weighted arc length: sharp turns get up to 3x the controls.
             u_in, W = self.weighted_u(X)
             K = max(4, int(round(W / float(p["knot_m"]))) + 3)
@@ -442,7 +468,7 @@ class Problem:
         dQ = np.diff(Q, axis=0)
         ds = np.hypot(dQ[:, 0], dQ[:, 1])
         bad = set(np.flatnonzero((dQ[1:] * dQ[:-1]).sum(1) < 0).tolist())
-        bad |= set(np.flatnonzero(ds < 0.1 * self.h).tolist())
+        bad |= set(np.flatnonzero(ds < self.min_ds).tolist())
         th = np.unwrap(np.arctan2(dQ[:, 1], dQ[:, 0]))
         kap = np.abs(np.diff(th)) / np.maximum((ds[1:] + ds[:-1]) / 2, 1e-6)
         bad |= set(np.flatnonzero(kap > 1.0).tolist())
@@ -452,8 +478,17 @@ class Problem:
 
     def weighted_u(self, X):
         """Parameter along X by arc length weighted up to 3x where X turns
-        sharply (smoothed over twice the sketch radius). Returns (u, total)."""
+        sharply (smoothed over twice the sketch radius). Adaptive: weighted by
+        the local curvature instead, so that each sample turns at most
+        ADAPT_TURN_DEG (down to ADAPT_MIN_M apart); controls follow, as they
+        are spread evenly in the same parameter. Returns (u, total)."""
         seg = np.hypot(*np.diff(X, axis=0).T)
+        if self.adaptive:
+            _, r = turning(X)
+            spacing = np.clip(r * math.radians(ADAPT_TURN_DEG), ADAPT_MIN_M, self.h)
+            dw = seg * self.h / ((spacing[:-1] + spacing[1:]) / 2)
+            W = np.concatenate([[0.0], np.cumsum(dw)])
+            return W / W[-1], W[-1]
         n = len(X)
         turn = np.zeros(n)
         hd = np.unwrap(np.arctan2(*np.diff(X, axis=0).T[::-1]))
@@ -668,7 +703,7 @@ class Problem:
         ds = np.hypot(dQ[:, 0], dQ[:, 1])
         if (ds < 1e-3).any():
             return None
-        if check_folds and (((dQ[1:] * dQ[:-1]).sum(1) < 0).any() or (ds < 0.1 * h).any()):
+        if check_folds and (((dQ[1:] * dQ[:-1]).sum(1) < 0).any() or (ds < self.min_ds).any()):
             return None
         d = np.concatenate([[0.0], np.cumsum(ds)])
         L = float(d[-1])

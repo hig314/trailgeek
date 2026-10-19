@@ -23,7 +23,7 @@ import numpy as np
 
 from . import spline
 from .route import route_line
-from .score import BEND_STEP_M, PER_M, Problem, densify, fit_controls, histograms, resample_legs
+from .score import BEND_STEP_M, PER_M, Problem, adaptive_resample, densify, fit_controls, histograms
 from .settings import FACTOR_META
 
 SIGMA0, SIGMA_END = 5.0, 0.3        # m: bump amplitude, first and last iteration
@@ -45,7 +45,7 @@ CHAIN_VARIANTS = [
 ]
 EDGE_M = 1.0                        # m: within this of the search's limit counts as "along the edge"
 ROUTE_SKETCH_R_M = 3.0              # m: the route's own corners are rounded this much for its chain's start
-ROUTE_SIGMA_M = 0.5                 # m: ... and it is fitted closely (it is a path, not a sketch)
+ROUTE_SIGMA_M = 3.0                 # m: ... and fitted loosely enough to smooth its 2 m grid steps (closer fits make cusps)
 ROUTE_KNOT_M = 4.0                  # m: at most this between its controls, so switchbacks survive the fit
 
 
@@ -266,6 +266,7 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
     # grid of the terrain within the limit, which can wind where the line goes
     # straight up, polished by the annealer like any other chain.
     route = route_line(prob, k) if chains > 0 else None
+    route_info = None
     runs = chains + (1 if route is not None else 0)
     for ci in range(chains):
         key, label, mult, reach = CHAIN_VARIANTS[ci % len(CHAIN_VARIANTS)]
@@ -290,23 +291,25 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
         pr = Problem([route], prob.grid, dict(settings, params=dict(p, sketch_radius_m=ROUTE_SKETCH_R_M,
                                                                      input_sigma_m=ROUTE_SIGMA_M,
                                                                      knot_m=min(float(p["knot_m"]), ROUTE_KNOT_M))),
-                     prob.twi_grid, like=prob)
+                     prob.twi_grid, like=prob, adaptive=True)
         pr.existing_xy, pr.grade_ref = prob.existing_xy, prob.grade_ref
         crng = np.random.default_rng(rng.integers(1, 2 ** 31 - 1))
         cb = (lambda i, b: progress((chains * iters + i) / (runs * iters), b)) if progress else None
-        routed = []
+        routed, route_info = [], {"polished": None, "as_found": None, "vertices": int(len(route))}
         try:
             total, c, t = anneal(pr, crng, iters, k, min(t0, prob.tmax), cb)
             r = pr.score(c, t, k, detail=True)
             if r is not None:
                 routed.append(r)
+                route_info["polished"] = round(r["total"], 1)
         except ValueError:
             pass                                      # its smooth start strays past the limit
         # The route itself, as found: a smooth curve can lose a tight turn it had.
-        Qr, _ = resample_legs([route], prob.h)
+        Qr = adaptive_resample(route, prob.h)
         found_r = _best_tube(lambda tt, kk: pr.score_line(Qr, min(tt, prob.tmax), kk, Qf=densify(route, BEND_STEP_M)), k)
         if found_r is not None:
             routed.append(pr.score_line(Qr, min(found_r[1], prob.tmax), k, detail=True, Qf=densify(route, BEND_STEP_M)))
+            route_info["as_found"] = round(routed[-1]["total"], 1)
         if routed:
             results.append(("routed", "From the route-finder", None, min(routed, key=lambda r: r["total"])))
     if progress:
@@ -356,4 +359,5 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
         "seed": seed,
         "histograms": histograms(inp),
         "chains": [{"key": key, "label": label, "total": round(r["total"], 1)} for key, label, c, r in results],
+        "route": route_info,                     # the route-finder's chain: polished and as-found totals
     }

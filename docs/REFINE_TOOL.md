@@ -739,3 +739,34 @@ The route takes about half a second, and a whole run about 25 s.
 steeper grade G must be at least G/g − 1, or climbing steeper is cheaper per
 metre of height. With the owner's curve, 25–30 % was the cheapest way up.
 That is a property of the settings, not the search.
+
+### Curvature-dependent spacing on the route-finder's chain (owner, 2026-10-18)
+
+The routed chain samples and controls by curvature, so tight corners are
+resolved:
+- **Samples:** each turns at most `ADAPT_TURN_DEG` (10°). They come no
+  closer than `ADAPT_MIN_M` (0.3 m) and no further apart than `spacing_m`.
+  A 2 m hairpin gets samples about 0.35 m apart.
+- **Controls:** spread evenly in the same weighted parameter, so they
+  concentrate in turns too.
+- **The route as found:** scored on `adaptive_resample` samples rather than
+  even 2 m steps, which cut its corners.
+- **Fold check:** the check for samples bunching up scales to the adaptive
+  spacing.
+- **Route fit:** fitted with σ 3 m, since closer fits to its 2 m grid steps
+  made cusps.
+- **Diagnostic:** results carry `route`: the polished and as-found totals.
+
+On "Between", with the owner's settings at the time, scoring the route as
+found adaptively gave 3679 m against 3864 m on even 2 m samples. It held
+one more corner and had less grade and TSA cost. The polished chain now
+starts (3894 m) but still loses to the route as found. Under the strict
+grade curve its start still fails.
+
+**Open: the route's hairpins are grid kinks, about 0.4 m in radius.** The
+route-finder charges a turn at `ROUTE_TURN_R_M` (4 m), but its path turns
+at single cells. The scoring measures them truly now, so a kink costs
+whatever the corner curve says at 0.4 m. Rounding the route's corners to
+2–4 m before scoring makes it more realistic. It also makes it dearer
+(4314–4646 m against 3679 m), because rounding a hairpin shortens it and
+steepens it.
