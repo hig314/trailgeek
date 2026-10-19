@@ -176,3 +176,7 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .tg-note-pop .maplibregl-popup-content { padding: 10px 12px; }
 .tg-note-text { white-space: pre-wrap; font-size: 13px; margin-bottom: 4px; }
 .tg-note-acts { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.tg-twi { border-top: 1px solid #ddd; border-bottom: 1px solid #ddd; padding: 6px 0; margin: 6px 0; }
+.tg-twi-ramp { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #666; }
+.tg-twi-ramp i { flex: 1; height: 8px; border-radius: 2px;
+  background: linear-gradient(to right, rgba(198,233,245,0), rgba(160,215,240,.35) 12%, rgba(79,163,217,.6) 38%, rgba(31,95,191,.8) 75%, rgba(11,42,128,.9)); }

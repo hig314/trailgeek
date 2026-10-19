@@ -6,6 +6,7 @@ never in a web request.
     evaluate_saved(pk)         evaluation of a saved alignment, stored on it
     refine_job(job, payload)   the refine tool's search; progress and result
                                in Huey's key store (core.refine)
+    twi_job(job, payload)      the map's wetness overlay for a view (core.water)
 
 `ping` proves the worker is wired up:
     docker compose exec web python manage.py shell -c "from core.tasks import ping; print(ping()(blocking=True, timeout=10))"
@@ -52,3 +53,9 @@ def evaluate_saved(alignment_id):
 def refine_job(job, payload):
     from . import refine
     refine.run_job(job, payload)
+
+
+@task()
+def twi_job(job, payload):
+    from . import water
+    water.run_job(job, payload)

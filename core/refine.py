@@ -23,6 +23,7 @@ from django.contrib.gis.geos import LineString, MultiLineString
 from trailgeek_analysis.refine import Grid
 from trailgeek_analysis.refine import refine as run_refine
 from trailgeek_analysis.refine.score import resample_legs
+from trailgeek_analysis.refine.twi import twi
 
 from . import geo
 from .dem import transform_xy
@@ -33,6 +34,10 @@ GRID_RES_M = 1.0
 BLOCK = 32                 # grid samples per block side
 MARGIN_M = 8.0             # beyond the corridor: bench cross-sections and slide probes
 MAX_GRID_SAMPLES = 4_000_000
+TWI_RES_M = 5.0            # TWI on raw 1 m lidar maps ruts and logs, not wetness
+TWI_SUB = 3                # each TWI cell averages 3 x 3 samples
+TWI_BUFFER_M = 150.0       # upslope area is counted this far past the corridor
+TWI_CACHE = 8
 SIMPLIFY_M = 0.1           # output lines lose vertices that move them less than this
 JOB_KEY = "refine:{}"
 
@@ -82,8 +87,11 @@ def sample_first(x, y, srid, sources):
     return z, src, warnings
 
 
-def build_grid(legs_xy, srid, sources, corridor_m, res=GRID_RES_M):
-    reach = corridor_m + MARGIN_M
+def build_grid(legs_xy, srid, sources, corridor_m, res=GRID_RES_M, margin_m=MARGIN_M, sub=1):
+    """The terrain within corridor_m + margin_m of the legs at `res`; with
+    sub > 1 each cell is the mean of sub x sub samples across it (a coarse
+    grid that averages the lidar rather than picking points off it)."""
+    reach = corridor_m + margin_m
     pts, _ = resample_legs(legs_xy, 5.0)
     x0 = math.floor((pts[:, 0].min() - reach) / res) * res
     y0 = math.floor((pts[:, 1].min() - reach) / res) * res
@@ -108,7 +116,18 @@ def build_grid(legs_xy, srid, sources, corridor_m, res=GRID_RES_M):
         rows.append(rr[ok])
         cols.append(cc[ok])
     rows, cols = np.concatenate(rows), np.concatenate(cols)
-    z, src, warnings = sample_first(x0 + cols * res, y0 + rows * res, srid, sources)
+    if sub > 1:
+        o = (np.arange(sub) + 0.5) / sub - 0.5
+        ox, oy = [a.ravel() * res for a in np.meshgrid(o, o)]
+        xs = (x0 + cols * res)[:, None] + ox[None, :]
+        ys = (y0 + rows * res)[:, None] + oy[None, :]
+        zz, ss, warnings = sample_first(xs.ravel(), ys.ravel(), srid, sources)
+        zz = zz.reshape(len(cols), -1)
+        with np.errstate(all="ignore"):
+            z = np.where(np.isfinite(zz).any(1), np.nanmean(np.where(np.isfinite(zz), zz, np.nan), 1), np.nan)
+        src = ss.reshape(len(cols), -1)[:, 0]
+    else:
+        z, src, warnings = sample_first(x0 + cols * res, y0 + rows * res, srid, sources)
     grid = np.full((H, W), np.nan)
     grid[rows, cols] = z
     used = {}
@@ -120,6 +139,27 @@ def build_grid(legs_xy, srid, sources, corridor_m, res=GRID_RES_M):
             "lidar_pct": round(sum(u["pct"] for u in used.values() if u["kind"] == "lidar"), 1),
             "warnings": warnings}
     return Grid(grid, x0, y0, res), info
+
+
+_twi_cache = {}             # signature -> Grid; the worker is long-lived, so the panel's
+                           # baseline and the run that follows read the window once
+
+
+def build_twi(legs_xy, srid, sources, corridor_m):
+    """The wet-ground layer for the refine tool: TWI on a TWI_RES_M grid
+    reaching TWI_BUFFER_M past the corridor, so upslope area that close is
+    counted (trailgeek_analysis.refine.twi; deliberately light)."""
+    h = hashlib.sha1(json.dumps([srid, round(corridor_m, 2), [s.key for s in sources],
+                                 [np.round(L, 2).tolist() for L in legs_xy]]).encode()).hexdigest()
+    if h in _twi_cache:
+        return _twi_cache[h]
+    g, _ = build_grid(legs_xy, srid, sources, corridor_m, res=TWI_RES_M, margin_m=TWI_BUFFER_M, sub=TWI_SUB)
+    t, _, _ = twi(g.z, g.res)
+    out = Grid(t, g.x0, g.y0, g.res)
+    while len(_twi_cache) >= TWI_CACHE:
+        _twi_cache.pop(next(iter(_twi_cache)))
+    _twi_cache[h] = out
+    return out
 
 
 def simplify(xy, tol=SIMPLIFY_M):
@@ -200,7 +240,9 @@ def run_job(job, payload):
                                 best=round(float(best), 4), elapsed_s=round(time.time() - t0, 1)))
 
         put_state(job, dict(base, status="running", stage="Searching", progress=0.0))
-        res = run_refine(legs_xy, grid, settings, progress=progress)
+        put_state(job, dict(base, status="running", stage="Wetness index (TWI)", progress=0.0))
+        twi_grid = build_twi(legs_xy, srid, choose_sources(whole, a.project), float(settings["params"]["corridor_m"]))
+        res = run_refine(legs_xy, grid, settings, progress=progress, twi_grid=twi_grid)
         for d in [res["input"]] + res["candidates"]:
             d["legs"] = _to_lonlat(d.pop("legs_xy"), srid)
         res.update({"srid": srid, "terrain": terrain, "signature": legs_signature(a),

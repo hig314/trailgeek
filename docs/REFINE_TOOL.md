@@ -403,3 +403,43 @@ credit. The panel shows only its k. Default k 3: 100 m more costs as much
 as 30 m at full grade cost. At k 5 the test sketch's search cut its corner
 by ~40 m for the credit and every chain was refused by the offset guard,
 leaving only "Your line, smoothed".
+
+## 11. Wet ground: a light TWI (owner, 2026-10-17)
+
+The foundational water work (flow accumulation with culverts and closed
+basins edited by hand, lidar intensity for surface water and snow, drought
+spectral stability, calibration against field observations) belongs in
+topobathy, the shared base map other projects build on; trailgeek will read
+its products with light interpretation. Meanwhile the refine tool has a
+quick topographic wetness index as one more factor, for mud: soil wetness
+is the chronic problem (mud), surface flow the acute one (erosion), and
+TWI speaks to the first.
+
+- `trailgeek_analysis/refine/twi.py`: TWI = ln(a / tan b), with a from
+  multiple-flow-direction routing (Freeman, p 1.1) over a pit-filled DEM
+  (priority-flood + epsilon) and tan b floored at 0.01. Closed basins are
+  filled, so they read as wet flats; nothing knows about culverts.
+- `core/refine.py build_twi`: the DEM stack on a 5 m grid, each cell the
+  mean of 3 x 3 samples (TWI on 1 m lidar maps ruts and logs), reaching
+  150 m past the corridor. Upslope area beyond that is not counted, so
+  cells near the window's edge read drier than they are. Cached in the
+  worker, since the panel's baseline and the run read the same window.
+- Factor **Wet ground**, per 100 m, curve on TWI: free to 8, 0.3 at 10,
+  0.7 at 12, 1 at 14; k 3. The table's "Wet ground" row is the metres at
+  TWI 10 or more.
+
+**On the Tutka lines** (5 m, 2026-10-17): open hillside reads ~5 (line
+medians 3.7-5.6), each window's wettest 1 % from 10.3 to 13.5; metres at
+TWI >= 10: Lagoon Bypass 54, Link option A 12, Upper ascent A 4, Backdoor
+loop connection 264, the rest 0. Reading the window took 6-35 s per line
+(117 s for the 10 km loop).
+
+**Map overlay** (2026-10-17): the Layers panel's **Wetness (TWI)** (signed
+in) computes the same TWI for the current view in the worker
+(`core/water.py`, `tg_twi.js`): 5 m cells of 2 x 2 samples, 150 m buffer
+for upslope area, cropped to the view, coloured clear (TWI < 6) through
+pale to deep blue (14) and drawn as an image over the shading, under the
+trails, with its own opacity. At most 4 km² a view; 4.4 km² around Lagoon
+Bypass took 91 s, nearly all of it reading the DEM. Filled flats (lakes,
+the sea) read solid blue, striped by the fill's epsilon gradient.
+Recomputed on request only; not in the URL.

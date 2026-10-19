@@ -41,7 +41,7 @@ class RefineApiTests(TestCase):
         r = self.client.get("/api/refine/settings").json()
         self.assertIsNone(r["mine"])
         self.assertEqual(r["effective"]["factors"]["grade"]["k"], 10)
-        self.assertEqual(len(r["factors"]), 9)
+        self.assertEqual(len(r["factors"]), 10)
         r = self.post("/api/refine/settings", {"settings": {"factors": {"grade": {"k": 4}}, "params": {"seed": 9}}})
         self.assertEqual(r.json()["effective"]["factors"]["grade"]["k"], 4)
         self.assertNotIn("seed", UserSetting.objects.get(user=self.owner, key="refine").value["params"])

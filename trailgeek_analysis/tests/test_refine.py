@@ -261,3 +261,46 @@ class RefineTests(unittest.TestCase):
         s = clean_settings({"params": {"iterations": 50, "chains": 1}})
         with self.assertRaises(ValueError):
             refine(self.LEGS, small, s, seed=1)
+
+
+class TwiTests(unittest.TestCase):
+    """The light wetness index: a V valley draining south, with a pit."""
+
+    def valley(self):
+        x = np.arange(0, 400, 5.0)
+        X, Y = np.meshgrid(x, x)
+        z = 0.3 * np.abs(X - 200) + 0.1 * Y
+        return z
+
+    def test_valley_floor_is_wetter_than_its_sides_and_the_pit_is_filled(self):
+        from trailgeek_analysis.refine.twi import fill_pits, twi
+        z = self.valley()
+        z[40, 10] -= 3
+        f = fill_pits(z)
+        self.assertGreater(f[40, 10], z[40, 10] + 0.9)                      # filled to its spill point
+        self.assertGreater(f[40, 10], f[39, 11])                            # and drains
+        t, a, _ = twi(z, 5.0)
+        self.assertGreater(t[2, 40], 11)                                    # the floor, low end
+        self.assertLess(t[40, 70], 7)                                       # a side slope
+        self.assertGreater(a[2, 40], a[70, 40])                             # area grows downstream
+
+    def test_no_data_is_left_out(self):
+        from trailgeek_analysis.refine.twi import twi
+        z = self.valley()
+        z[:, :20] = np.nan
+        t, _, _ = twi(z, 5.0)
+        self.assertTrue(np.isnan(t[:, :20]).all())
+        self.assertTrue(np.isfinite(t[:, 20:]).all())
+
+    def test_refine_charges_wet_ground(self):
+        from trailgeek_analysis.refine.twi import twi
+        g = plane_grid()
+        wet = Grid(np.full_like(g.z, 13.0), g.x0, g.y0, g.res)
+        s = clean_settings({})
+        s["params"]["chains"] = 0                                           # score the input only, as the baseline does
+        line = [np.array([[0.0, 0.0], [200.0, 40.0]])]
+        dry = refine(line, g, s)["input"]
+        soaked = refine(line, g, s, twi_grid=wet)["input"]
+        self.assertEqual(dry["contrib"]["wet"], 0)
+        self.assertGreater(soaked["contrib"]["wet"], 0)
+        self.assertGreater(soaked["stats"]["wet_m"], 190)

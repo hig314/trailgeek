@@ -649,6 +649,7 @@
       baseWidth = {};                         // the layers come back unscaled
       setSky(false);                          // a new style has no sky, whatever the switch last set
       addOverlays(); if (terrainOn) rebuildTerrain(); if (window.TgDesign) TgDesign.onStyleReload();
+      if (window.TgTwi) TgTwi.onStyleReload();
       rescaleLines(true);
     });
     map.setStyle(LSBasemaps.styleFor(baseOf(id)));
@@ -1016,6 +1017,7 @@
     sideView: sideViewOf
   });
   if (window.TgNotes) TgNotes.init({ map: map, esc: esc });
+  if (window.TgTwi) TgTwi.init({ map: map });
 
   // ---- boot -------------------------------------------------------------------
   fillBasemaps();
