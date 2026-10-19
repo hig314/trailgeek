@@ -484,7 +484,7 @@ window.TgRefine = (function () {
     h += '<div class="tg-small tg-muted">' + terrainNote(res) + ' Your line is scored as drawn with the same cut/fill tube as the candidates. "Your line, smoothed" is the smooth reading of it every search starts from: the gain from rounding alone.</div>';
     if (cs.length) {
       h += '<div class="tg-sub">Profile <span class="tg-muted">ground thin, design grade line thick, cut and fill shaded; the input dashed</span></div><div id="rf-prof" class="rf-prof"></div>';
-      h += '<div class="tg-actions"><button id="rf-save" class="tg-btn tg-primary">Save as variant</button> <button id="rf-factors" class="tg-btn" title="A floating panel over the map: the profile with a track per factor, a cost space, and the point traced on the map">Factors along the line…</button> <a href="#" id="rf-zoom">Zoom to</a></div>';
+      h += '<div class="tg-actions"><button id="rf-save" class="tg-btn tg-primary">Save as variant</button> <button id="rf-panel" class="tg-btn" title="A floating panel over the map: the profile with a track per factor, a cost space, and the point traced on the map">Factors along the line…</button> <a href="#" id="rf-zoom">Zoom to</a></div>';
     }
     $('rf-results').innerHTML = h;
     Array.prototype.forEach.call(document.querySelectorAll('input[name=rf-cand]'), function (r) {
@@ -493,7 +493,7 @@ window.TgRefine = (function () {
     if (!cs.length) return;
     drawProfile();
     if (TgFactors.isOpen()) TgFactors.show(app, result, chosen);
-    $('rf-factors').addEventListener('click', function () { TgFactors.show(app, result, chosen); });
+    $('rf-panel').addEventListener('click', function () { TgFactors.show(app, result, chosen); });   // not rf-factors: that is the weights
     $('rf-zoom').addEventListener('click', function (e) { e.preventDefault(); app.fitTo(candGeom(cs[chosen])); });
     $('rf-save').addEventListener('click', function () {
       var b = $('rf-save'); b.disabled = true;
