@@ -186,6 +186,55 @@ class RouteTests(unittest.TestCase):
         self.assertLess(np.hypot(*np.diff(R, axis=0).T).sum(), 110)
 
 
+class GullyTests(unittest.TestCase):
+    """A gully narrower than the 10 m grade window (owner, 2026-10-19, the
+    Graduation Peak Trail): down one wall and up the other used to read as
+    level, in the scoring and in the route-finder's long steps."""
+    STEEP = {"grade": {"k": 4, "curve": [[0, 0.01], [12, 0.01], [25, 10], [60, 100]]}}
+
+    def test_a_dip_through_a_gully_reads_as_both_its_walls(self):
+        # Level ground with a V gully 3 m deep and 6 m wide along y = 50.
+        g = Grid.from_function(lambda X, Y: -3 * np.clip(1 - np.abs(Y - 50) / 3, 0, None), -40, -20, 40, 120)
+        prob = Problem([np.array([[0, 0], [0, 100]], float)], g, clean_settings({"params": {"spacing_m": 1.0}}))
+        r = prob.score_line(prob.P, 0.02, detail=True)
+        self.assertGreater(r["grade"].max(), 50)          # 6 m down and up within 10 m; read as ~0 before
+        self.assertLess(r["grade"][r["d"] < 30].max(), 1)  # level ground stays level
+
+    def test_the_route_does_not_leap_a_gully_it_can_go_round(self):
+        from trailgeek_analysis.refine.route import route_line
+        # A trench 3 m deep and 3 m wide along y = 50, with a causeway at
+        # x 28-34; a 6 m step from rim to rim read it as level.
+        g = Grid.from_function(lambda X, Y: np.where((np.abs(Y - 50) < 1.5) & ((X < 28) | (X > 34)), -3.0, 0.0),
+                               -60, -20, 60, 120)
+        only_grade = dict(self.STEEP, slope={"k": 0}, tsa={"k": 0}, falltread={"k": 0})
+        prob = Problem([np.array([[0, 0], [0, 100]], float)], g,
+                       clean_settings({"params": {"corridor_m": 40}, "factors": only_grade}))
+        Q = densify(route_line(prob), 0.5)
+        at = Q[np.abs(Q[:, 1] - 50) < 1.5, 0]
+        self.assertTrue(((at > 26) & (at < 36)).all(), at)  # over the causeway (the leap was at x = 0)
+
+
+class TurnChargeTests(unittest.TestCase):
+    """The route-finder charges a turn at the radius the scoring will read
+    for it (owner, 2026-10-19: hairpins charged as 4 m turns came out as
+    0.6 m kinks the scoring charged far more, and the polish knotted them)."""
+
+    def test_where_tight_corners_are_dear_the_route_makes_fewer(self):
+        from trailgeek_analysis.refine.route import route_line
+        g = Grid.from_function(lambda X, Y: 0.4 * Y, -80, -40, 80, 160)
+        sharp = []
+        for curve in ([[0, 0.01], [30, 0.01]], [[0, 10], [2.5, 10], [3, 0.01]]):
+            s = clean_settings({"params": {"corridor_m": 40}, "factors": dict(GullyTests.STEEP, corner={
+                "k": 50, "curve": curve})})
+            R = route_line(Problem([np.array([[0, 0], [0, 100]], float)], g, s))
+            self.assertGreater(np.hypot(*np.diff(R, axis=0).T).sum(), 200)    # it winds up the face either way
+            turn, _ = turning(densify(R, 0.5))
+            sharp.append(np.degrees(turn[turn > math.radians(60)]).sum())
+        # Turns on the 2 m grid read as kinks under 1.3 m; charged as 4 m
+        # turns, both curves gave the same route (1588 degrees of them).
+        self.assertLess(sharp[1], 0.8 * sharp[0])
+
+
 class AdaptiveSpacingTests(unittest.TestCase):
     """Curvature-dependent spacing (owner, 2026-10-18): samples close up
     where the line turns, so a tight corner is resolved."""
@@ -408,6 +457,13 @@ class RefineTests(unittest.TestCase):
     def test_seeded_runs_repeat(self):
         a, b = self.run_refine(seed=5, iterations=150), self.run_refine(seed=5, iterations=150)
         self.assertEqual([c["total"] for c in a["candidates"]], [c["total"] for c in b["candidates"]])
+
+    def test_best_so_far_starts_at_the_input_and_only_goes_down(self):
+        seen = []
+        s = clean_settings({"factors": {"drainage": {"k": 0}}, "params": {"iterations": 300, "chains": 3}})
+        r = refine(self.LEGS, plane_grid(), s, seed=3, progress=lambda f, b: seen.append(b))
+        self.assertLessEqual(max(seen), r["input"]["total"] + 1e-6)
+        self.assertTrue(all(b2 <= b1 + 1e-9 for b1, b2 in zip(seen, seen[1:])), seen)
 
     def test_a_hand_drawn_hairpin_vertex_is_refined_not_refused(self):
         legs = [np.array([[0, 0], [100, 30], [0, 31]], float)]          # turns back within a metre

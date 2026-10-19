@@ -14,14 +14,23 @@ knight's move away, and those at (3, 1) and (3, 2): DIRS). The state is
 metres as score.py:
 
   a step     its length along the slope x (1 + the per-metre factors there):
-             grade on the ground (the route has no cut and fill), terrain
+             grade on the ground (the route has no cut and fill; the climb
+             and the descent along the step, read every SUB_M, over its
+             length, as score.py reads grade, so a step cannot leap a
+             gully narrower than itself), terrain
              slope, TSA and fall-line tread from the slope's direction
              against the step's, wet ground, off existing tread, and cut
              and fill at 0 (its floor)
   a turn     part of a corner (turns of corner_min_turn_deg or more: the
-             corner curve at ROUTE_TURN_R_M, times the share of 180 degrees
-             turned, so a hairpin made of two turns is one corner), or a
-             bend (the bend curve at ROUTE_TURN_R_M per right angle)
+             corner curve at the turn's radius, times the share of 180
+             degrees turned, so a hairpin made of two turns is one corner),
+             or a bend (the bend curve at its radius per right angle). The
+             radius is the one the scoring will read at that vertex of the
+             route, BEND_WINDOW_M over the turn (a 90 degree turn on the
+             grid reads 0.64 m), so the route pays for a tight turn what the
+             scoring will charge it (owner, 2026-10-19: when the route
+             charged every turn as a 4 m one, it made hairpins the scoring
+             charged 14 times as much, and the polish knotted them)
 
 What it leaves out, because a path search cannot add them up step by step:
 the steepest-pitch charge, drainage, and the cut/fill tube. Those are the
@@ -33,10 +42,12 @@ import math
 
 import numpy as np
 
+from .score import BEND_WINDOW_M
+
 CELL_M = 2.0              # m between grid cells
-ROUTE_TURN_R_M = 4.0      # m: the radius a turn on the grid stands for when it is charged
 MAX_TURN_DEG = 135.0      # a sharper turn at one cell is not allowed (a hairpin takes two)
 SMOOTH_M = 1.0            # m: elevations are averaged over this either side (lidar noise)
+SUB_M = 1.0               # m: a step's ground is read at least this often along it
 SIMPLIFY_M = 0.5          # m: the route keeps vertices that move it more than this
 LIMIT_MARGIN_M = 1.5      # m: the route keeps this far inside the limit, so the smooth curve fitted to it fits too
 FLAT_PCT = 4.0            # %: flatter ground has no fall line (score.FALL_MIN_SLOPE_PCT)
@@ -72,6 +83,17 @@ def _simplify(xy, tol):
     return xy[keep]
 
 
+def _smoothed(g, m):
+    """The grid with each elevation averaged with the four m away (the
+    route's lidar-noise smoothing, done once rather than per sample)."""
+    from .terrain import Grid
+    o = max(1, int(round(m / g.res)))
+    z = np.pad(g.z, o, mode="edge")
+    n, w = g.z.shape
+    zs = (g.z + z[o:o + n, 2 * o:] + z[o:o + n, :w] + z[2 * o:, o:o + w] + z[:n, o:o + w]) / 5
+    return Grid(zs, g.x0, g.y0, g.res)
+
+
 def route_line(prob, k=None, cell=CELL_M):
     """The cheapest path from the line's start to its end within prob.limit,
     as an (m, 2) array in the line's metric CRS, or None if the ends cannot
@@ -89,9 +111,8 @@ def route_line(prob, k=None, cell=CELL_M):
     X, Y = X.ravel(), Y.ravel()
     dist = prob.dist_grid.sample(X, Y)
     ok = np.isfinite(dist) & (dist <= prob.limit - LIMIT_MARGIN_M)
-    s = SMOOTH_M
-    zs = [g.sample(X + dx, Y + dy) for dx, dy in ((0, 0), (s, 0), (-s, 0), (0, s), (0, -s))]
-    z = np.mean(zs, axis=0)
+    gs = _smoothed(g, SMOOTH_M)
+    z = gs.sample(X, Y)
     b2 = prob.bench / 2
     gx = (g.sample(X + b2, Y) - g.sample(X - b2, Y)) / prob.bench
     gy = (g.sample(X, Y + b2) - g.sample(X, Y - b2)) / prob.bench
@@ -125,8 +146,15 @@ def route_line(prob, k=None, cell=CELL_M):
         i = np.flatnonzero(good)
         jj = j[good]
         L2 = cell * math.hypot(dc, dr)
-        dz = nz[jj] - nz[i]
-        grade = 100 * np.abs(dz) / L2
+        m = max(1, math.ceil(L2 / SUB_M - 1e-9))
+        prev, up_down, slope_len = nz[i], np.zeros(len(i)), np.zeros(len(i))
+        for q in range(1, m + 1):
+            zq = nz[jj] if q == m else gs.sample(nx[i] + q / m * dc * cell, ny[i] + q / m * dr * cell)
+            up_down += np.abs(zq - prev)
+            slope_len += np.hypot(L2 / m, zq - prev)
+            prev = zq
+        ok_step = np.isfinite(up_down)
+        grade = 100 * np.nan_to_num(up_down, nan=0.0) / L2
         tx, ty = dc / math.hypot(dc, dr), dr / math.hypot(dc, dr)
         Gx, Gy = (ngx[i] + ngx[jj]) / 2, (ngy[i] + ngy[jj]) / 2
         along, cross = Gx * tx + Gy * ty, -Gx * ty + Gy * tx
@@ -134,13 +162,14 @@ def route_line(prob, k=None, cell=CELL_M):
         tsa[100 * np.hypot(Gx, Gy) < FLAT_PCT] = 90.0
         per = (1 + (base[i] + base[jj]) / 2 + k.get("grade", 0) * f["grade"](grade) + k.get("tsa", 0) * f["tsa"](tsa)
                + k.get("falltread", 0) * f["falltread"](grade) * (tsa < prob.fall_tsa))
-        nb[d, i] = jj
-        ec[d, i] = np.hypot(L2, dz) * per
+        nb[d, i] = np.where(ok_step, jj, -1)
+        ec[d, i] = np.where(ok_step, slope_len * per, np.inf)
     # Turn costs between headings.
     ang = np.array([math.atan2(dr, dc) for dc, dr in DIRS])
     turn = np.abs((ang[None, :] - ang[:, None] + math.pi) % (2 * math.pi) - math.pi)
-    corner = k.get("corner", 0) * float(f["corner"](ROUTE_TURN_R_M))
-    bend = k.get("bend", 0) * float(f["bend"](ROUTE_TURN_R_M))
+    r = BEND_WINDOW_M / np.maximum(turn, 1e-9)
+    corner = k.get("corner", 0) * f["corner"](r)
+    bend = k.get("bend", 0) * f["bend"](r)
     T = np.where(turn >= prob.min_turn, corner * turn / math.pi, bend * turn / (math.pi / 2))
     T[turn > math.radians(MAX_TURN_DEG)] = np.inf
     T = T.tolist()
