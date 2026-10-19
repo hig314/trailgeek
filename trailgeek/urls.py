@@ -28,6 +28,7 @@ urlpatterns = [
     path("tiles/trails/<int:z>/<int:x>/<int:y>.mvt", core_tiles.trails_mvt, name="trails_mvt"),
     path("api/dems.geojson", core_views.api_dems, name="api_dems"),
     path("api/trails/<slug:slug>.geojson", core_views.api_trail, name="api_trail"),
+    path("api/trails/<slug:slug>/study", design.api_trail_study, name="api_trail_study"),
     path("api/tracks/<int:pk>.geojson", core_views.api_track, name="api_track"),
     # Trail design: alignments made of legs, evaluations, following trails.
     path("api/alignments/", design.api_alignment_create, name="api_alignment_create"),

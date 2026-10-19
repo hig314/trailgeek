@@ -220,11 +220,13 @@ def run_job(job, payload):
         whole = MultiLineString(*lines, srid=4326)
         c = whole.centroid
         srid = geo.utm_srid(c.x, c.y)
-        legs_xy = []
-        for line in lines:
+        legs_xy, existing_xy = [], []
+        for leg, line in zip(sel, lines):
             cs = np.asarray(line.coords, float)
             x, y = transform_xy(cs[:, 0], cs[:, 1], 4326, srid)
             legs_xy.append(np.column_stack([x, y]))
+            if leg.kind == "existing":
+                existing_xy.append(legs_xy[-1])         # the tread "Off existing tread" prefers
         settings = payload["settings"]
         grid, terrain = build_grid(legs_xy, srid, choose_sources(whole, a.project),
                                    float(settings["params"]["corridor_m"]))
@@ -242,7 +244,7 @@ def run_job(job, payload):
         put_state(job, dict(base, status="running", stage="Searching", progress=0.0))
         put_state(job, dict(base, status="running", stage="Wetness index (TWI)", progress=0.0))
         twi_grid = build_twi(legs_xy, srid, choose_sources(whole, a.project), float(settings["params"]["corridor_m"]))
-        res = run_refine(legs_xy, grid, settings, progress=progress, twi_grid=twi_grid)
+        res = run_refine(legs_xy, grid, settings, progress=progress, twi_grid=twi_grid, existing_xy=existing_xy)
         for d in [res["input"]] + res["candidates"]:
             d["legs"] = _to_lonlat(d.pop("legs_xy"), srid)
             xy = np.asarray(d["tracks"].pop("xy"), float)

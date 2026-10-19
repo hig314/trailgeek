@@ -559,6 +559,7 @@
       var adminUrl = p.kind === 'trail' ? '/admin/core/trail/' + p.id + '/change/' : p.kind === 'track' ? '/admin/core/track/' + p.id + '/change/' : '/admin/core/alignment/' + p.id + '/change/';
       links.push('<a href="' + adminUrl + '">Edit</a>');
     }
+    if (p.kind === 'trail' && CFG.canEdit) links.push('<a href="#" id="trail-refine" title="Look for a better line near this trail: a refine study of it, in a project">Refine…</a>');
     links.push('<a href="#" id="zoomto">Zoom to</a>');
     links.push('<a href="#" id="sideview" title="Look at it (nearly) horizontally, from the side, to see how steady the climb is">Side view</a>');
     h += '<div class="tg-links">' + links.join(' · ') + '</div>';
@@ -570,6 +571,7 @@
            '<label><input type="radio" name="psrc" value="terrain"> Terrain tiles</label></div>';
     }
     $('detail').innerHTML = h;
+    if ($('trail-refine')) $('trail-refine').addEventListener('click', function (ev) { ev.preventDefault(); if (TgDesign.leave()) TgDesign.trailStudy(f); });
     $('zoomto').addEventListener('click', function (ev) { ev.preventDefault(); map.fitBounds(bboxOf(f.geometry), { padding: 60, maxZoom: 15 }); });
     $('sideview').addEventListener('click', function (ev) { ev.preventDefault(); sideViewOf(f.geometry); });
     Array.prototype.forEach.call(document.querySelectorAll('input[name=psrc]'), function (r) {

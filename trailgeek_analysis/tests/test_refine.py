@@ -141,6 +141,24 @@ class BendTests(unittest.TestCase):
         self.assertLess(self.radius(arc(0, 0, 10.0, 0, math.pi / 2, n=8)), 6.0)
 
 
+class ExistingTreadTests(unittest.TestCase):
+    """Off existing tread (owner, 2026-10-18): a line on the existing trail
+    pays the floor, one beside it pays for new tread, and with no existing
+    trail selected the factor is off."""
+
+    def test_new_tread_costs_and_the_existing_trail_does_not(self):
+        g = Grid.from_function(lambda X, Y: 0.05 * Y, -60, -60, 60, 160)
+        trail = np.array([[0, 0], [0, 100]], float)
+        s = clean_settings({"params": {"spacing_m": 2.0}})
+        prob = Problem([trail], g, s, existing_xy=[trail])
+        on = prob.score_line(prob.P, 0.1)
+        beside = prob.score_line(prob.P + np.array([8.0, 0.0]), 0.1)
+        self.assertLess(on["costs"]["existing"], 2.0)             # the 0.01 floor over ~100 m
+        self.assertGreater(beside["costs"]["existing"], 90.0)     # curve 1 for every metre
+        none = Problem([trail], g, s).score_line(Problem([trail], g, s).P, 0.1)
+        self.assertEqual(none["costs"]["existing"], 0.0)
+
+
 class CornerTests(unittest.TestCase):
     def score(self, legs, grid, **params):
         s = clean_settings({"params": {"spacing_m": 1.0, **params}})

@@ -34,16 +34,17 @@ window.TgFactors = (function () {
     { key: 'cutfill', label: 'Cut and fill', unit: 'm', dom: [-1, 0.5], zero: true },
     { key: 'wet', label: 'Wet ground', unit: 'TWI', dom: [0, 16] },
     { key: 'drainage', label: 'Drainage run', unit: 'm', dom: [0, 300] },
-    { key: 'bend', label: 'Bend radius', unit: 'm', dom: [0.5, 100], log: true }
+    { key: 'bend', label: 'Bend radius', unit: 'm', dom: [0.5, 100], log: true },
+    { key: 'existing', label: 'Off existing tread', unit: 'm', dom: [0, 25], only: 'existing' }
   ];
-  var SPACE = ['grade', 'slope', 'tsa', 'cutfill', 'wet', 'drainage'];
-  var SPACE_DOM = { grade: [0, 60], slope: [0, 100], tsa: [0, 90], cutfill: [-1, 0.5], wet: [0, 16], drainage: [0, 300] };
-  var EXTRA = ['grade', 'falltread', 'slope', 'tsa', 'cutfill', 'wet', 'drainage', 'bend'];
+  var SPACE = ['grade', 'slope', 'tsa', 'cutfill', 'wet', 'drainage', 'existing'];
+  var SPACE_DOM = { grade: [0, 60], slope: [0, 100], tsa: [0, 90], cutfill: [-1, 0.5], wet: [0, 16], drainage: [0, 300], existing: [0, 25] };
+  var EXTRA = ['grade', 'falltread', 'slope', 'tsa', 'cutfill', 'wet', 'drainage', 'bend', 'existing'];
   var LABEL = { grade: 'Grade', falltread: 'Fall-line tread', slope: 'Terrain slope', tsa: 'TSA', cutfill: 'Cut and fill',
-                wet: 'Wet ground', drainage: 'Drainage', bend: 'Bends' };
+                wet: 'Wet ground', drainage: 'Drainage', bend: 'Bends', existing: 'Off existing tread' };
 
   var app = null, res = null, idx = 0, L = null, I = null;
-  var chart = null, profPanel = null, spacePanel = null, spaceFp = null, winEl = null;
+  var chart = null, profOpts = null, profPanel = null, spacePanel = null, spaceFp = null, winEl = null;
   var spX = 'grade', spY = 'slope', spGeom = null, hoverI = null;
 
   function esc(t) { return LSProfileChart.esc(t); }
@@ -83,7 +84,7 @@ window.TgFactors = (function () {
     profPanel = document.createElement('div');
     profPanel.className = 'float-panel tgf-prof hidden';
     host().appendChild(profPanel);
-    chart = LSProfileChart.create({
+    profOpts = {
       panel: profPanel,
       makePanel: function (el, o) { return LSFloat.make(el, o); },
       title: 'Factors along the line',
@@ -92,14 +93,15 @@ window.TgFactors = (function () {
       marginRight: 112,
       buttons: [{ cls: 'tgf-space-btn', label: 'Cost space', title: 'Any two factors as axes: what they charge, and where this line spends its length',
                   onClick: function () { openSpace(); } }],
-      tracks: { height: TRACKS.length * (TRACK_H + TRACK_GAP), draw: drawTracks },
+      tracks: { height: TRACKS.length * (TRACK_H + TRACK_GAP), draw: drawTracks },   // set per line in show()
       tip: tip,
       onHover: function (hit) { setHover(hit ? nearest(L, hit.d) : null, 'chart'); },
       onChange: paintWindow,
       onClose: function () { clearMap(); if (spaceFp) spaceFp.close(); },
       csv: csv,
       svgName: function () { return 'refine_factors.svg'; }
-    });
+    };
+    chart = LSProfileChart.create(profOpts);       // it reads profOpts.tracks at every draw
     chart.setLocked(false);              // exaggerated: the profile fills its part of the panel; 1:1 is a click away
     winEl = document.createElement('div');
     winEl.className = 'tgf-window';
@@ -132,11 +134,14 @@ window.TgFactors = (function () {
 
   // ---- the stack ------------------------------------------------------------------------
   var costColor = null;
+  function shown() {
+    return TRACKS.filter(function (T) { return !T.only || (L && L.t[T.key] && L.t[T.key].some(function (v) { return v > 0; })); });
+  }
   function drawTracks(g) {
     if (!L) return '';
     costColor = costColor || d3.scaleSequentialLog(d3.interpolateYlOrBr).domain([0.05, 5]).clamp(true);
     var parts = [], y = g.top, X = function (d) { return g.ox + d * g.sx; }, nS = L.d.length;
-    TRACKS.forEach(function (T) {
+    shown().forEach(function (T) {
       var ys = (T.log ? d3.scaleLog() : d3.scaleLinear()).domain(T.dom).range([y + TRACK_H, y]).clamp(true);
       parts.push('<rect x="' + g.ox + '" y="' + y + '" width="' + g.width + '" height="' + TRACK_H + '" fill="#fafaf8" stroke="#e4e4e0"/>');
       var cost = L.t.cost[T.key] || [], bw = Math.max(1, g.width / nS + 0.6);
@@ -263,7 +268,7 @@ window.TgFactors = (function () {
     spGeom = { m: m, w: w, h: h, gw: gw, gh: gh, dx: dx, dy: dy, cells: cells, X: X, Y: Y };
     paintSpaceHover();
   }
-  function unit(k) { return { grade: '%', slope: '%', tsa: '°', cutfill: 'm', wet: 'TWI', drainage: 'm' }[k]; }
+  function unit(k) { return { grade: '%', slope: '%', tsa: '°', cutfill: 'm', wet: 'TWI', drainage: 'm', existing: 'm' }[k]; }
   function spaceMove(e) {
     if (!spGeom) return;
     var svg = spacePanel.querySelector('svg'), r = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
@@ -345,6 +350,7 @@ window.TgFactors = (function () {
     ];
     if (I !== L) series.push({ id: 'input', label: 'As drawn', color: '#999', dash: '4 3', width: 1.2,
                                runs: [I.d.map(function (d, i) { return { d: d, z: I.design[i] }; })] });
+    profOpts.tracks.height = shown().length * (TRACK_H + TRACK_GAP);
     chart.setStatus('equivalent effort ' + n(L.c.total) + ' m for ' + n(L.c.length_m) + ' m (×' + n(L.c.total / L.c.length_m, 2) + ')');
     chart.open();
     chart.setData({ length: Math.max(L.d[L.d.length - 1], I.d[I.d.length - 1]), series: series });

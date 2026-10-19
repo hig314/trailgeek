@@ -207,6 +207,40 @@ class AlignmentApiTests(TestCase):
         self.assertEqual((a.project.slug, a.project.visibility, a.project.owner), ("ram-valley", "private", self.owner))
         self.assertEqual(a.legs.count(), 2)
 
+    def test_trail_study_follows_the_trail_in_a_new_or_existing_project(self):
+        cs = utm_line([(0, 0), (0, 100), (50, 150)])
+        t = Trail.objects.create(slug="ridge", name="Ridge", visibility=Visibility.PUBLIC,
+                                 geom=MultiLineString(LineString(cs[:2], srid=4326), LineString(cs[1:], srid=4326), srid=4326))
+        self.assertEqual(self.client.get("/api/trails/ridge.geojson").json()["properties"]["study_projects"], [])
+        r = self.post("/api/trails/ridge/study", {"project_name": "Ridge reroutes"})
+        self.assertEqual(r.status_code, 201)
+        a = Alignment.objects.get(pk=r.json()["properties"]["id"])
+        leg = a.legs.get()
+        self.assertEqual((leg.kind, leg.trail, a.project.visibility, a.name), ("existing", t, "private", "Ridge: refine study"))
+        self.assertAlmostEqual(leg.length_m, 100 + 50 * math.sqrt(2), delta=1)    # both parts, joined
+        self.assertNotIn("note", r.json()["properties"])
+        # The project that now follows the trail is offered first next time.
+        sp = self.client.get("/api/trails/ridge.geojson").json()["properties"]["study_projects"]
+        self.assertEqual([p["id"] for p in sp], [a.project.pk])
+        r = self.post("/api/trails/ridge/study", {"project_id": self.project.pk, "name": "Second look"})
+        self.assertEqual((r.status_code, Alignment.objects.get(pk=r.json()["properties"]["id"]).project), (201, self.project))
+
+    def test_trail_study_of_a_trail_in_pieces_takes_the_longest_and_says_so(self):
+        t = Trail.objects.create(slug="gappy", name="Gappy", visibility=Visibility.PUBLIC, geom=MultiLineString(
+            LineString(utm_line([(0, 0), (0, 100)]), srid=4326), LineString(utm_line([(0, 300), (0, 340)]), srid=4326), srid=4326))
+        r = self.post("/api/trails/gappy/study", {"project_id": self.project.pk})
+        self.assertEqual(r.status_code, 201)
+        self.assertIn("2 pieces", r.json()["properties"]["note"])
+        self.assertAlmostEqual(Alignment.objects.get(pk=r.json()["properties"]["id"]).length_m, 100, delta=1)
+
+    def test_trail_study_needs_an_editable_project(self):
+        Trail.objects.create(slug="r2", name="R2", visibility=Visibility.PUBLIC,
+                             geom=MultiLineString(LineString(utm_line([(0, 0), (0, 100)]), srid=4326), srid=4326))
+        self.client.login(username="ed", password="pw")
+        self.assertEqual(self.post("/api/trails/r2/study", {"project_id": self.project.pk}).status_code, 404)
+        self.client.logout()
+        self.assertEqual(self.post("/api/trails/r2/study", {"project_name": "X"}).status_code, 302)
+
     def test_live_evaluation(self):
         r = self.post("/api/evaluate/", {"legs": self.two_legs(), "project_id": self.project.pk, "seq": 3})
         self.assertEqual(r.status_code, 200)

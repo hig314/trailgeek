@@ -653,3 +653,26 @@ landslidescience's `main`. Then re-pin it to the same content.
 Results now carry `tracks` per line: each factor's value, the cost per
 metre, the bend radius, and lon/lat per sample. That is about 720 kB for
 four candidates on a 1.9 km line.
+
+## 17. Refining existing trails (owner, 2026-10-18)
+
+A trail's panel has **Refine…** for trail editors. It makes a new alignment
+of one existing-trail leg along the trail (`POST /api/trails/<slug>/study`).
+The trail's parts are joined where they meet. If they don't all meet, the
+study follows the longest piece and says so.
+
+It goes in a project you pick:
+- one that already has an alignment following the trail, offered first;
+- any project you can edit;
+- or a new private one.
+
+Then the refine tool opens on it. A candidate you keep is saved as a
+variant, as usual.
+
+**Off existing tread** is a new per-metre factor: distance from the existing
+tread, meaning the selected legs of kind "existing". With its default curve,
+the first 1.5 m is the same tread (floor), and beyond 3 m every metre is new
+tread (curve 1). The default weight is 1. Set it to 0 to ignore the existing
+trail. It charges nothing when the selected legs have no existing trail, so
+it doesn't change refinements of proposed lines. The panel shows its track
+only when the line leaves existing tread.

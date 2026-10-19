@@ -61,6 +61,8 @@ FACTOR_META = {
                 "xmin": -2, "xmax": 0.6, "snap": 0.01},
     "drainage": {"label": "Drainage (stub)", "x": "distance since the last grade reversal", "unit": "m",
                  "per": "metre", "xmin": 0, "xmax": 300, "snap": 5, "stub": True},
+    "existing": {"label": "Off existing tread", "x": "distance from the existing trail (the selected legs that follow one): new tread costs this much per metre; weight 0 ignores the existing trail", "unit": "m",
+                 "per": "metre", "xmin": 0, "xmax": 30, "snap": 0.5},
 }
 FACTOR_ORDER = list(FACTOR_META)
 # Factors that were dropped: ignored where an older saved layer has them.
@@ -106,6 +108,11 @@ DEFAULT_SETTINGS = {
         "cutfill": {"k": 1.67, "curve": [[-2, 8], [-1, 2], [-0.5, 0.5], [-0.25, 0.125], [-0.1, 0.02], [0, 0.01],
                                          [0.1, 0.05], [0.2, 0.2], [0.4, 5]]},
         "drainage": {"k": 0.33, "curve": [[0, 0.01], [60, 0.01], [90, 0.25], [120, 0.5], [200, 1]]},
+        # Prefer the existing trail (owner, 2026-10-18): within a metre or so
+        # of it is the same tread; beyond 3 m, every metre is new tread. A
+        # first guess at 1: a metre of new tread is as much as a metre more
+        # trail. Charged only where the selected legs include existing trail.
+        "existing": {"k": 1.0, "curve": [[0, 0.01], [1.5, 0.01], [3, 1], [30, 1]]},
     },
     "params": {
         "corridor_m": 25, "cutfill_max_m": 0.75, "corner_cut_max_m": 2.0, "bench_m": 2.5, "spacing_m": 2.0, "knot_m": 8,
