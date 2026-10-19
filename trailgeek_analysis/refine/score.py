@@ -581,10 +581,15 @@ class Problem:
         return float(self._fill_x[max(0, i - 1)])
 
     def _grade(self, d, zd):
-        """Design |grade| in %, over 10 m (5 m either side, shorter at the ends)."""
+        """Design grade in %, over 10 m (5 m either side, shorter at the ends):
+        the climb and the descent within those 10 m over their length. On a
+        steady slope that is the rise over the run; through a dip it counts
+        both sides (owner, 2026-10-19: the rise from end to end of the 10 m
+        read a 3 m deep gully, down one wall and up the other, as level)."""
         L = d[-1]
         dp, dm = np.minimum(d + 5, L), np.maximum(d - 5, 0)
-        return 100 * np.abs(np.interp(dp, d, zd) - np.interp(dm, d, zd)) / np.maximum(dp - dm, 1e-6)
+        up_down = np.concatenate([[0.0], np.cumsum(np.abs(np.diff(zd)))])
+        return 100 * (np.interp(dp, d, up_down) - np.interp(dm, d, up_down)) / np.maximum(dp - dm, 1e-6)
 
     def _corners(self, d, theta, kap, bend_r, cross, tsa, side):
         """Corners by signed TSA (owner, 2026-10-18). The downhill side (+1

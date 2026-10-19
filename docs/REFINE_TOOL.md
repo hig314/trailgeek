@@ -46,7 +46,7 @@ how a user learns what a `k` means.
 
 | Factor | x | Kind | Default curve (x: y) | Default k |
 |---|---|---|---|---|
-| Grade | design \|grade\| %, 10 m mean | per metre | 0–8: 0, 12: 0.1, 18: 0.5, 25: 1 | 10 |
+| Grade | design grade %, over 10 m: climb and descent within it (§20) | per metre | 0–8: 0, 12: 0.1, 18: 0.5, 25: 1 | 10 |
 | Corner radius | radius at an outslope flip, m | per corner | 0–3: 1, 6: 0.4, 10: 0.1, 15+: 0 | 5 |
 | Bend radius | radius of any other bend, m | per metre of bend | 0–5: 1, 10: 0.3, 20+: 0 | 1 |
 | Terrain slope | side slope %, ~3 m scale | per metre | 0–60: 0, 80: 0.3, 100: 1 | 3 |
@@ -763,10 +763,46 @@ one more corner and had less grade and TSA cost. The polished chain now
 starts (3894 m) but still loses to the route as found. Under the strict
 grade curve its start still fails.
 
-**Open: the route's hairpins are grid kinks, about 0.4 m in radius.** The
-route-finder charges a turn at `ROUTE_TURN_R_M` (4 m), but its path turns
-at single cells. The scoring measures them truly now, so a kink costs
-whatever the corner curve says at 0.4 m. Rounding the route's corners to
-2–4 m before scoring makes it more realistic. It also makes it dearer
-(4314–4646 m against 3679 m), because rounding a hairpin shortens it and
-steepens it.
+**The route's hairpins are grid kinks, about 0.4 m in radius.** The
+scoring measures them truly now, so a kink costs whatever the corner curve
+says at 0.4 m. Rounding the route's corners to 2–4 m before scoring makes
+it more realistic. It also makes it dearer (4314–4646 m against 3679 m),
+because rounding a hairpin shortens it and steepens it. The owner's
+decision (2026-10-19) is to leave the route free to make tight turns: the
+corner and bend curves are where a tight turn is made dear. §20 makes the
+route-finder charge a turn at the radius the scoring reads, so those curves
+govern the route too.
+
+## 20. Gullies and the route's turns (owner, 2026-10-19)
+
+On the Graduation Peak Trail (a whole-trail study, corridor 100 m), the
+route-finder's line crossed a steep-sided gully straight, and on gentle
+ground at the foot of a steep band it made a knot. There were two faults,
+both mine.
+
+**Grade over 10 m was the rise from end to end.** A gully narrower than
+10 m, down one wall and up the other, read as nearly level: the line there
+dropped 2.6 m and climbed 4.8 m in about 12 m (60 % walls) and was charged
+a moderate grade. Grade over 10 m is now the climb and the descent within
+the 10 m over its length (`Problem._grade`). On a steady slope that is the
+same number; through a dip it counts both walls. A drainage dip of 0.3 m
+adds about 6 % over its 10 m, which the usual curves barely notice. The
+route-finder had the same blind spot: it read the ground only at each
+step's ends, and a step can be 7 m long. A step now reads the ground every
+`SUB_M` (1 m) and is charged the climb and descent along it, on the same
+lidar-smoothed ground (`_smoothed`, the 5-point average as a grid, read
+once per point).
+
+**The route-finder charged every turn as a 4 m one** (`ROUTE_TURN_R_M`,
+now gone), while the scoring reads a turn at one grid cell as the kink it
+is: `BEND_WINDOW_M` over the turn, 0.64 m for 90 degrees. Under the
+owner's corner curve a hairpin cost the route about 8 m and the scoring
+about 110 m, so the route made hairpin pairs that the polish then tried to
+undo and knotted. A turn is now charged by the corner or bend curve at
+`BEND_WINDOW_M / turn`, so the curves decide in the route as they do in
+the scoring. A 2 m grid cannot make a 3 m turn: its turns are kinks, or
+arcs of 10 m or more made of small heading changes.
+
+On that trail, with the owner's settings and the saved run's seed: see the
+PR for the numbers. The route-finder takes about 2.5 minutes on the 7.4 km
+trail, up from 1.5, because dearer turns widen the search.

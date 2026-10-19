@@ -43,7 +43,7 @@ OLD_LENGTH_K = 8.1     # an older layer with no length weight of its own had thi
 OLD_PER_M = 100.0      # older per-metre weights were per 100 m
 
 FACTOR_META = {
-    "grade": {"label": "Grade", "x": "design |grade| over 10 m, plus a quarter of the steepest 10 m's cost; keep it convex (see the note)", "unit": "%", "per": "metre",
+    "grade": {"label": "Grade", "x": "design grade over 10 m (the climb and the descent within it, so a dip through a gully counts both walls), plus a quarter of the steepest 10 m's cost; keep it convex (see the note)", "unit": "%", "per": "metre",
               "xmin": 0, "xmax": 60, "snap": 0.5},
     "corner": {"label": "Corners", "x": "tightest radius of a turn across which the downhill side changes (signed TSA, the fall-line band read as no side); the floor is what every corner costs, so fewer corners win. Digging one in is charged as cut, fill and grade", "unit": "m",
                "per": "corner", "xmin": 0, "xmax": 30, "snap": 0.5},
