@@ -446,6 +446,33 @@
     map.getCanvas().style.cursor = hit ? 'pointer' : '';
   });
 
+  // Right-click (Ctrl-click on a Mac) anywhere on the map copies "lat, lon",
+  // as on landslidescience's /inventory/ and /lidar/. The editor's right-click
+  // on a vertex deletes it and wins: its handler runs after this one, so the
+  // copy waits a tick to see whether it took the event.
+  map.on('contextmenu', function (e) {
+    setTimeout(function () {
+      if (e.defaultPrevented) return;
+      var txt = e.lngLat.lat.toFixed(5) + ', ' + e.lngLat.lng.toFixed(5);
+      var done = function () { coordToast(txt + ' copied'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(done, function () { coordToast(txt); });
+      } else { coordToast(txt); }
+    }, 0);
+  });
+  function coordToast(msg) {
+    var t = document.getElementById('coord-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'coord-toast';
+      (document.getElementById('map') || document.body).appendChild(t);
+    }
+    t.textContent = msg;
+    t.style.opacity = '1';
+    clearTimeout(t._h);
+    t._h = setTimeout(function () { t.style.opacity = '0'; }, 1600);
+  }
+
   // ---- selection + detail panel --------------------------------------------
   var selected = null;      // { kind, key }
   var profile = TgProfile.create('#profile', { onHover: function (s) {

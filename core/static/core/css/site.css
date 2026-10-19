@@ -208,3 +208,8 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .profile-header .tgf-space-btn { margin-left: auto; }
 .tg-crumb { font-size: 12px; color: #666; margin-bottom: 2px; }
 .tg-tree .tg-tree { margin: 2px 0 2px 14px; padding-left: 8px; border-left: 1px solid #ddd; }
+
+/* "lat, lon copied" after a right-click (Ctrl-click) on the map; the same look as landslidescience's */
+#coord-toast { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: rgba(20,20,20,.88); color: #fff; padding: 6px 12px; border-radius: 4px;
+  font-size: 13px; z-index: 5; pointer-events: none; transition: opacity .3s; opacity: 0; }
