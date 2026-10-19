@@ -221,6 +221,7 @@ window.TgDesign = (function () {
       tr.addEventListener('mouseleave', function () { app.highlight(null); });
       tr.addEventListener('click', function () { app.fitTo(legFeature(p.legs[+tr.dataset.leg]).geometry); });
     });
+    var fa = $('d-factors'); if (fa) fa.addEventListener('click', function () { TgFactors.analyse(app, 'align', p.id, p.name); });
     if (!p.can_edit) return;
     $('d-edit').addEventListener('click', function () { startEdit(f); });
     $('d-dup').addEventListener('click', function () {
@@ -230,7 +231,6 @@ window.TgDesign = (function () {
     });
     $('d-new').addEventListener('click', function () { newAlignment(p.project.id); });
     var rf = $('d-refine'); if (rf) rf.addEventListener('click', function () { TgRefine.open(f, app); });
-    var fa = $('d-factors'); if (fa) fa.addEventListener('click', function () { TgFactors.analyse(app, 'align', f.properties.id, f.properties.name); });
     $('d-del').addEventListener('click', function () {
       if (!confirm('Delete "' + p.name + '" and its legs? This cannot be undone.')) return;
       api('POST', '/api/alignments/' + p.id + '/delete').then(function (r) {
