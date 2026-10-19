@@ -593,3 +593,32 @@ the limit (`START_SHRINK`).
   (bumps of 5 m falling to 0.3 m, `SIGMA0` / `SIGMA_END`) does not grow with
   the limit, so a wide search explores its far side slowly: scaling them
   with the limit is the obvious next step if wide searches matter.
+
+## 15. Sharp bends measured finely (owner, 2026-10-18)
+
+For a hiking trail, a 1 m turn and a 3 m turn differ. Bend radius used to
+be read off the 2 m samples with a 5 m running mean, so no turn read tighter
+than about 2.5 m. A sketched 90° vertex read 3.8 m and a 45° one 7.6 m, and
+the bottom of the bend curve was never reached.
+
+Now bends are measured on the line resampled every `BEND_STEP_M` (0.5 m).
+The input keeps its drawn vertices; a candidate uses its own spline,
+evaluated four times as densely. The radius at each fine vertex is
+`BEND_WINDOW_M` (1 m) divided by the turn within half a metre either side
+(`score.turning`). This reads a smooth 1 m or 3 m turn correctly, and a kink
+reads about 0.6 m.
+
+A vertex of the line as drawn counts as the kink it is. A sketched arc with
+vertices more than 1 m apart therefore reads tighter than the arc it stands
+for. Bends are still charged per right angle turned, at the curve's value
+for the fine radius. A sample's bend radius, shown in the stats and in the
+histogram, is the tightest of its fine vertices. A corner's tight radius
+comes from the same measure.
+
+On Lagoon Bypass with the owner's settings, the input's tightest bend went
+from 2.5 m to 0.6 m and its bend cost from 1.5 m to 15 m. Run time is
+unchanged.
+
+The candidates are unchanged, still no tighter than about 7 m, because the
+spline's controls are about `knot_m` (10 m) apart. Candidates that hold
+1–3 m turns need finer controls near a turn: a later change.

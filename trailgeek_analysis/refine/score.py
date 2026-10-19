@@ -31,6 +31,8 @@ RESPACE_MAX_M = 0.25        # m: a re-spacing that would move the line more than
 SIGMA_REF = 3.0             # m: at this uncertainty or more, sketched vertices are filleted at the full sketch radius
 FIT_SMOOTH = 0.5            # the start's curvature penalty per (sample per control) per m^2 of uncertainty
 START_SHRINK = (1.0, 0.5, 0.25, 0.1, 0.0)   # the start's rounding and smoothing, tried in turn until it fits the limit
+BEND_STEP_M = 0.5           # m: bends are measured on the line resampled this finely, so 1 m and 3 m turns read apart
+BEND_WINDOW_M = 1.0         # m: ... as the turn over this much of it (a kink reads ~0.6 m)
 DIP_WINDOW_M = 10.0         # a ground dip is measured against the ground this far either side
 
 
@@ -65,6 +67,40 @@ def resample_legs(legs_xy, spacing):
         parts.append(p)
         joints.append(joints[-1] + m)
     return np.vstack(parts), joints
+
+
+def densify(xy, step):
+    """xy with every segment split into pieces no longer than step, keeping
+    every vertex (a sketched kink stays a kink)."""
+    xy = np.asarray(xy, float)
+    out = [xy[:1]]
+    for p, q in zip(xy[:-1], xy[1:]):
+        m = max(1, int(math.ceil(math.hypot(*(q - p)) / step)))
+        f = np.arange(1, m + 1)[:, None] / m
+        out.append(p + f * (q - p))
+    return np.vstack(out)
+
+
+def turning(Q, window=BEND_WINDOW_M):
+    """Turn (radians, unsigned) at each vertex of a polyline, and the radius
+    there: `window` metres over the turn within window / 2 either side, with
+    each vertex's turn spread over half of each of its segments. On a line
+    densified to under `window` (densify), a smooth curve reads its radius
+    and a vertex of the line as drawn reads as the kink it is, about
+    window / turn: a sketched arc whose vertices are further apart than the
+    window reads tighter than the arc it stands for."""
+    dQ = np.diff(Q, axis=0)
+    ds = np.hypot(dQ[:, 0], dQ[:, 1])
+    hd = np.arctan2(dQ[:, 1], dQ[:, 0])
+    turn = np.zeros(len(Q))
+    turn[1:-1] = np.abs((np.diff(hd) + math.pi) % (2 * math.pi) - math.pi)
+    s = np.concatenate([[0.0], np.cumsum(ds)])
+    mids = np.concatenate([[0.0], (s[:-1] + s[1:]) / 2, [s[-1]]])
+    T = np.concatenate([[0.0], np.cumsum(turn)])            # turn done by each mid point
+    got = np.interp(s + window / 2, mids, T) - np.interp(s - window / 2, mids, T)
+    span = np.minimum(s + window / 2, s[-1]) - np.maximum(s - window / 2, 0)
+    r = np.where(got > 1e-9, span / np.maximum(got, 1e-9), 1e4)
+    return turn, np.minimum(r, 1e4)
 
 
 def curve_fn(curve):
@@ -339,6 +375,7 @@ class Problem:
         ref = np.vstack([raw[0]] + [r[1:] for r in raw[1:]])
         keep = np.concatenate([[True], np.hypot(*np.diff(ref, axis=0).T) > 1e-6])
         self.ref = ref[keep]
+        self.Pf = densify(self.ref, BEND_STEP_M)     # the input as drawn, finely, for its bends
         self._distance_fields()
 
         # The start must lie within the search's limit. With a narrow limit
@@ -370,6 +407,12 @@ class Problem:
             self.B_idx = j0[:, None] + np.arange(4)[None, :]
             self.B_w = np.take_along_axis(self.B, self.B_idx, axis=1)
             self.n = N
+            # The same curve BEND_STEP_M apart, for measuring bends.
+            m = max(1, int(round(self.h / BEND_STEP_M)))
+            Bf = spline.basis(np.linspace(0, 1, (N - 1) * m + 1), K)
+            jf = np.clip(np.argmax(Bf > 0, axis=1), 0, K - 4)
+            self.Bf_idx = jf[:, None] + np.arange(4)[None, :]
+            self.Bf_w = np.take_along_axis(Bf, self.Bf_idx, axis=1)
             self.Bg = spline.basis(spline.greville(K), K)      # where each control acts on the curve
             self.ctrl_u = spline.greville(K)[1:K - 1]
             # Where the smoothing would fold the line (a switchback whose arms are
@@ -445,6 +488,10 @@ class Problem:
         C = self.full(c)
         return np.einsum("nk,nkd->nd", self.B_w, C[self.B_idx])
 
+    def curve_fine(self, c):
+        C = self.full(c)
+        return np.einsum("nk,nkd->nd", self.Bf_w, C[self.Bf_idx])
+
     def start(self):
         return self.C0[1:-1].copy()
 
@@ -488,7 +535,7 @@ class Problem:
         dp, dm = np.minimum(d + 5, L), np.maximum(d - 5, 0)
         return 100 * np.abs(np.interp(dp, d, zd) - np.interp(dm, d, zd)) / np.maximum(dp - dm, 1e-6)
 
-    def _corners(self, d, theta, kap, akap, cross, tsa, side):
+    def _corners(self, d, theta, kap, bend_r, cross, tsa, side):
         """Corners by signed TSA (owner, 2026-10-18). The downhill side (+1
         right, -1 left, from the cross slope over ~10 m) is UNDEFINED in the
         fall-line band (TSA < fall_tsa_deg) and on ground with less cross
@@ -531,7 +578,7 @@ class Problem:
             if dth < self.min_turn:
                 continue
             r_arc = (d[b] - d[a]) / max(dth, 1e-3)
-            r_tight = 1 / max(float(akap[a:b + 1].max()), 1e-4)
+            r_tight = float(bend_r[a:b + 1].min())
             # Climbing turn or switchback (owner, 2026-10-17): what matters is
             # the ground where the turn crosses the fall line. Gentle: the
             # trail climbs straight through; steep: a landing is dug. A label
@@ -587,9 +634,9 @@ class Problem:
         return round(float(max(0.0, (g[c_["a"]:c_["b"] + 1] - zd[c_["a"]:c_["b"] + 1]).max())), 2)
 
     def score(self, c, t, k=None, detail=False):
-        return self.score_line(self.curve(c), t, k, detail, check_folds=True)
+        return self.score_line(self.curve(c), t, k, detail, check_folds=True, Qf=self.curve_fine(c))
 
-    def score_line(self, Q, t, k=None, detail=False, check_folds=False):
+    def score_line(self, Q, t, k=None, detail=False, check_folds=False, Qf=None):
         """Score any line (the candidate's samples, or the input as drawn).
         None if impossible (outside the corridor, folded, off the terrain
         data); else a dict with `total`, `costs` (per factor, before k),
@@ -631,7 +678,6 @@ class Problem:
 
         theta = np.unwrap(np.arctan2(tq[:, 1], tq[:, 0]))
         kap = running_mean(np.gradient(theta, d), self.smooth_w)
-        akap = np.abs(kap)
 
         # Trail-slope alignment (TSA): the angle in plan between the trail and
         # the fall line, from the bench cross-sections averaged over ~5 m;
@@ -642,11 +688,23 @@ class Problem:
         tsa[100 * np.hypot(cs5, al5) < FALL_MIN_SLOPE_PCT] = np.nan
         tsa_v = np.nan_to_num(tsa, nan=90.0)          # flat ground: no fall line to run down
 
-        corners = self._corners(d, theta, kap, akap, cross, tsa, side)
+        # Bends measured finely (owner, 2026-10-18: 1 m and 3 m turns differ
+        # on a hiking trail): on the line BEND_STEP_M apart (the input with
+        # its sketched vertices kept, a candidate's own curve), the turn and
+        # radius at each fine vertex over BEND_WINDOW_M. Each fine vertex belongs to
+        # the nearest sample by distance along the line; a sample's bend
+        # radius is the tightest of its fine vertices.
+        if Qf is None:
+            Qf = self.Pf if Q is self.P else Q
+        turn_f, r_f = turning(Qf)
+        df = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(Qf, axis=0).T))])
+        own = np.clip(np.searchsorted(d, df * (L / max(df[-1], 1e-9)) - h / 2), 0, n - 1)
+        bend_r = np.full(n, 1e4)
+        np.minimum.at(bend_r, own, r_f)
+        corners = self._corners(d, theta, kap, bend_r, cross, tsa, side)
         zone = np.zeros(n, bool)
         for c_ in corners:
             zone[c_["a"]:c_["b"] + 1] = True
-        bend_r = 1 / np.maximum(akap, 1e-4)
 
         # The design grade line through the cut/fill tube: cut down to t,
         # fill up to what costs the same on the cut and fill curve (owner,
@@ -700,13 +758,14 @@ class Problem:
         # the radius it was turned at, not per metre: a kink is an event, and
         # per metre a 3 m jog on a 750 m line cost nothing (2026-10-17).
         # Corners are left to the corner factor.
-        bend_v = f["bend"](bend_r) * ~zone
-        vals["bend"] = bend_v
+        free = ~zone[own]
+        bend_f = f["bend"](r_f) * turn_f * free / (math.pi / 2)      # right angles, weighted by the curve
+        bend_v = np.bincount(own, bend_f, minlength=n)
         # Equivalent effort, in metres (owner, 2026-10-18): the length along
         # the slope, plus for each per-metre factor k extra metres per metre
         # at curve 1, per corner k metres at curve 1, per right angle k.
-        costs = {name: float((v * w3).sum()) for name, v in vals.items() if name != "bend"}
-        costs["bend"] = float((bend_v * akap * w).sum() / (math.pi / 2))
+        costs = {name: float((v * w3).sum()) for name, v in vals.items()}
+        costs["bend"] = float(bend_v.sum())
         # "Consistent grade is minimising the maximum grade" (owner): a short
         # steep pitch is cheap per metre, so the peak is charged again as
         # grade_peak_m metres of its grade.
@@ -719,8 +778,8 @@ class Problem:
         costs["length"] = L3
         total = sum(k.get(name, 0) * v for name, v in costs.items())
 
-        density = sum(k.get(name, 0) * v for name, v in vals.items() if name != "bend") * w3
-        density = density + k.get("bend", 0) * bend_v * akap * w / (math.pi / 2) + w3
+        density = sum(k.get(name, 0) * v for name, v in vals.items()) * w3
+        density = density + k.get("bend", 0) * bend_v + w3
         for c_, x1 in zip(corners, cr):
             a, b = c_["a"], c_["b"]
             density[a:b + 1] += k.get("corner", 0) * x1 / (b - a + 1)
@@ -730,7 +789,8 @@ class Problem:
             out.update({
                 "Q": Q, "d": d, "fall": fall, "tsa": tsa, "tsa_v": tsa_v, "ground": g, "design": zd, "cut": cut, "e": e,
                 "grade": grade, "side": side, "w3": w3,
-                "twi": wet, "dist": dist, "bend_r": bend_r, "zone": zone, "run": run, "sites": sites,
+                "twi": wet, "dist": dist, "bend_r": bend_r, "bend_turn": np.bincount(own, turn_f * free, minlength=n),
+                "bend_v": bend_v, "zone": zone, "run": run, "sites": sites,
                 "corners": [{"i": c_["mid"], "d": float(d[c_["mid"]]), "radius_m": float(c_["r"]),
                              "arc_radius_m": float(c_["r_arc"]), "side_pct": c_["side_pct"], "turn_deg": c_["turn_deg"],
                              "crossing_pct": c_["crossing"], "tsa_min": c_["tsa_min"], "kind": c_["kind"],
@@ -750,7 +810,7 @@ def histograms(r, bins=30):
     w = r["w3"]
     src = {"grade": (r["grade"], w), "slope": (r["side"], w), "cutfill": (r["e"], w), "tsa": (r["tsa_v"], w),
            "drainage": (r["run"], w), "wet": (r["twi"], w),
-           "bend": (r["bend_r"], r["w"] * ~r["zone"]),
+           "bend": (r["bend_r"], r["bend_turn"] / (math.pi / 2)),
            "corner": (np.array([c["radius_m"] for c in r["corners"]]), None),
            "falltread": (r["grade"], w * r["fall"])}
     for name, (x, wt) in src.items():
@@ -759,5 +819,5 @@ def histograms(r, bins=30):
         xc = np.clip(x, lo, hi - 1e-9 * (hi - lo))
         hgt, _ = np.histogram(xc, bins=bins, range=(lo, hi), weights=wt)
         out[name] = {"lo": lo, "hi": hi, "counts": [round(float(v), 2) for v in hgt],
-                     "unit": "m" if wt is not None else "corners"}
+                     "unit": "corners" if wt is None else "right angles" if name == "bend" else "m"}
     return out
