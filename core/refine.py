@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import math
+import threading
 import time
 
 import numpy as np
@@ -29,6 +30,11 @@ from . import geo
 from .dem import transform_xy
 
 log = logging.getLogger(__name__)
+
+# One refine search at a time per worker process (owner, 2026-10-19: two
+# whole-trail runs at once took the 4 GB droplet into swap). The worker's
+# threads share this process, so a plain lock is enough; the others wait.
+_RUN_LOCK = threading.Lock()
 
 GRID_RES_M = 1.0
 BLOCK = 32                 # grid samples per block side
@@ -205,7 +211,22 @@ def run_job(job, payload):
     settings (full, cleaned), mode "run" | "baseline", user_id. Or, to score
     any one line (Factors along the line on a trail or a track): `line`
     (lon/lat) and `existing` (is it existing tread?) in place of the
-    alignment, with mode "baseline"."""
+    alignment, with mode "baseline". Searches run one at a time (_RUN_LOCK);
+    a baseline (scoring one line) does not wait behind a long search."""
+    if payload["mode"] != "run":
+        return _run_job(job, payload)
+    if not _RUN_LOCK.acquire(blocking=False):
+        put_state(job, {"user": payload["user_id"], "alignment": payload.get("alignment_id"), "mode": payload["mode"],
+                        "legs": payload.get("legs"), "status": "running", "progress": 0.0,
+                        "stage": "Waiting for another run to finish"})
+        _RUN_LOCK.acquire()
+    try:
+        _run_job(job, payload)
+    finally:
+        _RUN_LOCK.release()
+
+
+def _run_job(job, payload):
     from .evaluation import choose_sources
     from .models import Alignment
 
@@ -242,17 +263,20 @@ def run_job(job, payload):
                                    float(settings["params"]["corridor_m"]))
         if payload["mode"] == "baseline":
             settings = dict(settings, params=dict(settings["params"], chains=0))
-        last = [0.0]
+        last = [-1.0, None, 0.0]                  # fraction, stage, time of the last report
 
-        def progress(frac, best):
-            if frac < 1 and frac - last[0] < 0.02:
+        def progress(frac, best, stage="Searching"):
+            # Every new stage is reported; within one, every 1 % or 5 s.
+            now = time.time()
+            if stage == last[1] and frac < 1 and frac - last[0] < 0.01 and now - last[2] < 5:
                 return
-            last[0] = frac
-            put_state(job, dict(base, status="running", stage="Searching", progress=round(frac, 3),
-                                best=round(float(best), 4), elapsed_s=round(time.time() - t0, 1)))
+            last[:] = [frac, stage, now]
+            put_state(job, dict(base, status="running", stage=stage, progress=round(frac, 3),
+                                best=None if best is None else round(float(best), 4),
+                                elapsed_s=round(now - t0, 1)))
 
-        put_state(job, dict(base, status="running", stage="Searching", progress=0.0))
-        put_state(job, dict(base, status="running", stage="Wetness index (TWI)", progress=0.0))
+        put_state(job, dict(base, status="running", stage="Wetness index (TWI)", progress=0.0,
+                            elapsed_s=round(time.time() - t0, 1)))
         twi_grid = build_twi(legs_xy, srid, choose_sources(whole, project), float(settings["params"]["corridor_m"]))
         res = run_refine(legs_xy, grid, settings, progress=progress, twi_grid=twi_grid, existing_xy=existing_xy)
         for d in [res["input"]] + res["candidates"]:

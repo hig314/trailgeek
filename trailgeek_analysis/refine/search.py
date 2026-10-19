@@ -47,6 +47,8 @@ EDGE_M = 1.0                        # m: within this of the search's limit count
 ROUTE_SKETCH_R_M = 3.0              # m: the route's own corners are rounded this much for its chain's start
 ROUTE_SIGMA_M = 3.0                 # m: ... and fitted loosely enough to smooth its 2 m grid steps (closer fits make cusps)
 ROUTE_KNOT_M = 4.0                  # m: at most this between its controls, so switchbacks survive the fit
+ROUTE_UNITS = 1.5                   # the route-finder's share of the progress bar, in chains (it takes about as long)
+ROUTE_ROUND_UNITS = 0.2
 ROUTE_ROUND_M = (1.0, 2.0, 4.0, 8.0)  # m: the route as found has its corners rounded to each of these (as far
                                     # as its segments allow) and the cheapest is kept: never the grid's kinks
 
@@ -241,7 +243,8 @@ def _best_tube(score, k):
 def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, existing_xy=None):
     """Refine a stretch made of legs (each an (m, 2) array in a metric CRS).
     `settings` is a full, cleaned settings dict (settings.clean_settings).
-    `progress(fraction, best_total)` is called now and then.
+    `progress(fraction, best_total, stage)` is called now and then; stage
+    names the step under way ("Route-finder", "Search 2 of 4: ...").
 
     Returns {"input": the line as drawn, "candidates": [... + key/label],
     "seed", "histograms", "chains"}. The line as drawn is scored with the
@@ -249,6 +252,8 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
     to it is offered as the candidate "Your line, smoothed", so the gain
     from rounding alone and the gain from fitting the terrain show apart."""
     p = settings["params"]
+    if progress:
+        progress(0.0, None, "Scoring your line")
     prob = Problem(legs_xy, grid, settings, twi_grid, existing_xy)
     k = prob.base_k
     found = _best_tube(lambda t, kk: prob.score_line(prob.P, t, kk), k)
@@ -270,23 +275,35 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
     # A chain's own running best is shown only when it scores with the real
     # weights (not the steadier chain's doubled grade).
     shown = [inp["total"]]
+    # Progress (owner, 2026-10-19: a whole-trail run sat at "TWI 0 %" through
+    # the route-finder for many minutes): the run is planned in units, one per
+    # chain, ROUTE_UNITS for the route-finder and ROUTE_ROUND_UNITS for
+    # rounding its line, and every step reports its stage and its share.
+    stage = ["Searching"]
+    units = chains + (ROUTE_UNITS + 1 + ROUTE_ROUND_UNITS if chains > 0 else 0)
 
-    def report(frac, b=None):
+    def report(done_units, b=None, name=None):
         if b is not None:
             shown[0] = min(shown[0], b)
+        if name:
+            stage[0] = name
         if progress:
-            progress(frac, shown[0])
+            progress(min(1.0, done_units / max(units, 1e-9)), shown[0], stage[0])
     # The route-finder's chain (owner, 2026-10-18): the cheapest path over a
     # grid of the terrain within the limit, which can wind where the line goes
     # straight up, polished by the annealer like any other chain.
-    route = route_line(prob, k) if chains > 0 else None
+    route = None
+    if chains > 0:
+        report(0, None, "Route-finder: reading the corridor")
+        route = route_line(prob, k, progress=lambda fr, what: report(ROUTE_UNITS * fr, None, "Route-finder: " + what))
     route_info = None
-    runs = chains + (1 if route is not None else 0)
     for ci in range(chains):
         key, label, mult, reach = CHAIN_VARIANTS[ci % len(CHAIN_VARIANTS)]
         kk = {f: v * mult.get(f, 1.0) for f, v in k.items()}
         crng = np.random.default_rng(rng.integers(1, 2 ** 31 - 1))
-        cb = lambda i, b, ci=ci, same=not mult: report((ci * iters + i) / (runs * iters), b if same else None)
+        at = ROUTE_UNITS + ci if route is not None else ci
+        report(at, None, f"Search {ci + 1} of {chains}: {label.lower()}")
+        cb = lambda i, b, at=at, same=not mult: report(at + i / iters, b if same else None)
         prob.limit = prob.corridor * reach
         try:
             total, c, t = anneal(prob, crng, iters, kk, min(t0, prob.tmax), cb)
@@ -301,13 +318,15 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
             results.append((key, label, c, r))
             shown[0] = min(shown[0], r["total"])
     if route is not None:
+        at = ROUTE_UNITS + chains
+        report(at, None, "Polishing the route-finder's line")
         pr = Problem([route], prob.grid, dict(settings, params=dict(p, sketch_radius_m=ROUTE_SKETCH_R_M,
                                                                      input_sigma_m=ROUTE_SIGMA_M,
                                                                      knot_m=min(float(p["knot_m"]), ROUTE_KNOT_M))),
                      prob.twi_grid, like=prob, adaptive=True)
         pr.existing_xy, pr.grade_ref = prob.existing_xy, prob.grade_ref
         crng = np.random.default_rng(rng.integers(1, 2 ** 31 - 1))
-        cb = lambda i, b: report((chains * iters + i) / (runs * iters), b)
+        cb = lambda i, b: report(at + i / iters, b)
         routed, route_info = [], {"polished": None, "as_found": None, "vertices": int(len(route))}
         try:
             total, c, t = anneal(pr, crng, iters, k, min(t0, prob.tmax), cb)
@@ -315,6 +334,7 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
             if r is not None:
                 routed.append(r)
                 route_info["polished"] = round(r["total"], 1)
+                shown[0] = min(shown[0], r["total"])
         except ValueError:
             pass                                      # its smooth start strays past the limit
         # The route itself, as found: a smooth curve can lose a tight turn it
@@ -322,12 +342,15 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
         # its grid kinks came out as kinks), to each of ROUTE_ROUND_M as far
         # as its segments allow, and the cheapest is kept.
         kept = None
-        for rr in ROUTE_ROUND_M:
+        for n_, rr in enumerate(ROUTE_ROUND_M):
+            report(at + 1 + ROUTE_ROUND_UNITS * n_ / len(ROUTE_ROUND_M), None,
+                   f"Rounding the route-finder's corners ({rr:g} m)")
             Rf = fillet(route, rr, BEND_STEP_M, r_min=0.5)
             Qr, Qf = adaptive_resample(Rf, prob.h), densify(Rf, BEND_STEP_M)
             found_r = _best_tube(lambda tt, kk: pr.score_line(Qr, min(tt, prob.tmax), kk, Qf=Qf), k)
             if found_r is not None and (kept is None or found_r[0]["total"] < kept[0]):
                 kept = (found_r[0]["total"], Qr, Qf, found_r[1], rr)
+                shown[0] = min(shown[0], kept[0])
         if kept is not None:
             _, Qr, Qf, tt, rr = kept
             routed.append(pr.score_line(Qr, min(tt, prob.tmax), k, detail=True, Qf=Qf))
@@ -335,7 +358,7 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
             route_info["as_found_round_m"] = rr
         if routed:
             results.append(("routed", "From the route-finder", None, min(routed, key=lambda r: r["total"])))
-    report(1.0, min([r["total"] for *_, r in results], default=inp["total"]))
+    report(units, min([r["total"] for *_, r in results], default=inp["total"]), "Comparing the candidates")
 
     def acceptable(r):
         if r["total"] >= inp["total"] - 1e-9:

@@ -47,6 +47,7 @@ from .score import BEND_WINDOW_M
 CELL_M = 2.0              # m between grid cells
 MAX_TURN_DEG = 135.0      # a sharper turn at one cell is not allowed (a hairpin takes two)
 SMOOTH_M = 1.0            # m: elevations are averaged over this either side (lidar noise)
+READ_SHARE = 0.2          # the share of the route-finder's progress given to reading and pricing the terrain
 SUB_M = 1.0               # m: a step's ground is read at least this often along it
 SIMPLIFY_M = 0.5          # m: the route keeps vertices that move it more than this
 LIMIT_MARGIN_M = 1.5      # m: the route keeps this far inside the limit, so the smooth curve fitted to it fits too
@@ -90,14 +91,22 @@ def _smoothed(g, m):
     o = max(1, int(round(m / g.res)))
     z = np.pad(g.z, o, mode="edge")
     n, w = g.z.shape
-    zs = (g.z + z[o:o + n, 2 * o:] + z[o:o + n, :w] + z[2 * o:, o:o + w] + z[:n, o:o + w]) / 5
+    zs = g.z.copy()                               # summed in place: one grid's worth of memory, not five
+    for part in (z[o:o + n, 2 * o:], z[o:o + n, :w], z[2 * o:, o:o + w], z[:n, o:o + w]):
+        zs += part
+    del z
+    zs /= 5
     return Grid(zs, g.x0, g.y0, g.res)
 
 
-def route_line(prob, k=None, cell=CELL_M):
+def route_line(prob, k=None, cell=CELL_M, progress=None):
     """The cheapest path from the line's start to its end within prob.limit,
     as an (m, 2) array in the line's metric CRS, or None if the ends cannot
-    be joined inside the limit."""
+    be joined inside the limit. `progress(fraction, what)` is called now and
+    then: reading the terrain is the first READ_SHARE, and the search
+    reports how far towards the end its frontier has got in a straight line
+    (it widens behind the frontier, so it moves unevenly)."""
+    say = progress or (lambda fr, what: None)
     k = prob.base_k if k is None else k
     g = prob.grid
     P0, P1 = prob.P[0], prob.P[-1]
@@ -107,24 +116,33 @@ def route_line(prob, k=None, cell=CELL_M):
     H = int((g.y0 + g.z.shape[0] * g.res - y0) // cell)
     xs = x0 + np.arange(W) * cell
     ys = y0 + np.arange(H) * cell
-    X, Y = np.meshgrid(xs, ys)
-    X, Y = X.ravel(), Y.ravel()
-    dist = prob.dist_grid.sample(X, Y)
-    ok = np.isfinite(dist) & (dist <= prob.limit - LIMIT_MARGIN_M)
+    # Cells within the limit first, row by row, and the terrain read only
+    # there: the bounding box of a long trail is mostly outside its corridor.
+    cand = []
+    for r_ in range(H):
+        d_ = prob.dist_grid.sample(xs, np.full(W, ys[r_]))
+        c_ = np.flatnonzero(np.isfinite(d_) & (d_ <= prob.limit - LIMIT_MARGIN_M))
+        if len(c_):
+            cand.append(r_ * W + c_)
+    if not cand:
+        return None
+    cand = np.concatenate(cand)
+    X, Y = xs[cand % W], ys[cand // W]
     gs = _smoothed(g, SMOOTH_M)
     z = gs.sample(X, Y)
     b2 = prob.bench / 2
     gx = (g.sample(X + b2, Y) - g.sample(X - b2, Y)) / prob.bench
     gy = (g.sample(X, Y + b2) - g.sample(X, Y - b2)) / prob.bench
-    ok &= np.isfinite(z) & np.isfinite(gx) & np.isfinite(gy)
+    ok = np.isfinite(z) & np.isfinite(gx) & np.isfinite(gy)
     if not ok.any():
         return None
-    idx = np.full(W * H, -1)
-    nodes = np.flatnonzero(ok)
+    nodes = cand[ok]
+    idx = np.full(W * H, -1, np.int32)
     idx[nodes] = np.arange(len(nodes))
     N = len(nodes)
-    nx, ny, nz = X[nodes], Y[nodes], z[nodes]
-    ngx, ngy = gx[nodes], gy[nodes]
+    nx, ny, nz = X[ok], Y[ok], z[ok]
+    ngx, ngy = gx[ok], gy[ok]
+    del X, Y, z, gx, gy, cand
     col, row = nodes % W, nodes // W
     f = prob.f
     wet = (np.nan_to_num(prob.twi_grid.sample(nx, ny), nan=0.0) if prob.twi_grid is not None else None)
@@ -135,9 +153,10 @@ def route_line(prob, k=None, cell=CELL_M):
         base = base + k.get("wet", 0) * f["wet"](wet)
     if off is not None:
         base = base + k.get("existing", 0) * f["existing"](off)
-    nb = np.full((ND, N), -1)
-    ec = np.full((ND, N), np.inf)
+    nb = np.full((ND, N), -1, np.int32)
+    ec = np.full((ND, N), np.inf, np.float32)
     for d, (dc, dr) in enumerate(DIRS):
+        say(READ_SHARE * (0.2 + 0.8 * d / ND), "pricing the steps")
         c2, r2 = col + dc, row + dr
         inside = (c2 >= 0) & (c2 < W) & (r2 >= 0) & (r2 < H)
         j = np.full(N, -1)
@@ -178,39 +197,51 @@ def route_line(prob, k=None, cell=CELL_M):
         return int(np.argmin(np.hypot(nx - p[0], ny - p[1])))
     s0, s1 = nearest(P0), nearest(P1)
     gxe, gye = nx[s1], ny[s1]
-    hx = np.hypot(nx - gxe, ny - gye).tolist()
-    nbl = nb.T.tolist()           # per node: its neighbours
-    ecl = ec.T.tolist()
-    INF = float("inf")
-    best = {}
-    parent = {}
-    heap = []
+    # The search's state lives in flat typed arrays read through memoryviews
+    # (owner, 2026-10-19: as Python dicts and lists a 7 km trail in a 100 m
+    # corridor took 3 GB, and the 4 GB droplet swapped). Node u's neighbour
+    # and step cost in direction d are at u * ND + d.
+    hx = memoryview(np.hypot(nx - gxe, ny - gye))
+    nbv = memoryview(np.ascontiguousarray(nb.T).ravel())
+    ecv = memoryview(np.ascontiguousarray(ec.T).ravel())
+    del nb, ec
+    best_a = np.full(N * ND, np.inf)
+    parent_a = np.full(N * ND, -1, np.int32)
+    best, parent = memoryview(best_a), memoryview(parent_a)
+    heap = []                     # (estimate, state); stale entries are skipped on popping
     for d in range(ND):
         st = s0 * ND + d
         best[st] = 0.0
-        parent[st] = -1
-        heapq.heappush(heap, (hx[s0], 0.0, st))
+        heapq.heappush(heap, (hx[s0], st))
     done = None
+    h0, h_min, pops = max(hx[s0], 1e-9), hx[s0], 0
+    say(READ_SHARE, "searching")
     while heap:
-        fsc, gc, st = heapq.heappop(heap)
-        if gc > best.get(st, INF):
-            continue
+        fsc, st = heapq.heappop(heap)
         u, din = divmod(st, ND)
+        gc = best[st]
+        if fsc > gc + hx[u] + 1e-9:
+            continue
+        pops += 1
+        if hx[u] < h_min:
+            h_min = hx[u]
+        if pops % 200_000 == 0:
+            say(READ_SHARE + (1 - READ_SHARE) * (1 - h_min / h0), "searching")
         if u == s1:
             done = st
             break
         Tin = T[din]
-        nbu, ecu = nbl[u], ecl[u]
+        base_i = u * ND
         for dout in range(ND):
-            v = nbu[dout]
+            v = nbv[base_i + dout]
             if v < 0:
                 continue
-            ng = gc + ecu[dout] + Tin[dout]
+            ng = gc + ecv[base_i + dout] + Tin[dout]
             sv = v * ND + dout
-            if ng < best.get(sv, INF):
+            if ng < best[sv]:
                 best[sv] = ng
                 parent[sv] = st
-                heapq.heappush(heap, (ng + hx[v], ng, sv))
+                heapq.heappush(heap, (ng + hx[v], sv))
     if done is None:
         return None
     path = []

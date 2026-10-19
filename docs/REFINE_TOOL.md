@@ -819,3 +819,33 @@ line as drawn, so it only goes down.
 On that trail, with the owner's settings and the saved run's seed: see the
 PR for the numbers. The route-finder takes about 2.5 minutes on the 7.4 km
 trail, up from 1.5, because dearer turns widen the search.
+
+## 21. Long runs: memory, one at a time, and saying what is happening (owner, 2026-10-19)
+
+A whole-trail run on the Graduation Peak Trail (7.4 km, 100 m corridor)
+takes about 23 minutes on the production droplet (2 CPUs, 4 GB). Two such
+runs started together took the worker to 2.9 GB and 1 GB of swap, and the
+panel sat at "Wetness index (TWI) 0 %" for many minutes: nothing reported
+between the wetness step and the first search chain, and the route-finder
+runs in that gap.
+
+- **Memory.** The route-finder kept its search in Python dicts and lists
+  (tens of millions of small objects): about 3 GB on that trail. It now
+  keeps them in flat typed arrays read through memoryviews, and reads the
+  terrain only for the cells inside the corridor, not the whole bounding
+  box: about 0.8 GB, the same route, and about 15 % faster.
+- **One search at a time.** Searches in a worker process share
+  `_RUN_LOCK` (core/refine.py); a second one says "Waiting for another run
+  to finish" until the first is done. Scoring one line (a baseline, Factors
+  along the line) does not wait.
+- **Progress.** The run is planned in units: one per chain, `ROUTE_UNITS`
+  (1.5) for the route-finder, one for polishing its line and
+  `ROUTE_ROUND_UNITS` for rounding it. Each step reports its stage
+  ("Scoring your line", "Route-finder: pricing the steps", "Route-finder:
+  searching", "Search 2 of 4: within half the distance", "Polishing the
+  route-finder's line", "Rounding the route-finder's corners (2 m)",
+  "Comparing the candidates") and its share. The route-finder's search
+  reports how far toward the end its frontier has come in a straight line,
+  so that part of the bar moves unevenly. The worker writes a new stage at
+  once and otherwise every 1 % or 5 s; the panel shows a clock that ticks
+  with every poll, so a long step is visibly alive.
