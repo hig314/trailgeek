@@ -31,6 +31,7 @@ Reusable pieces:
 | Piece | Path in that repo | Use in trailgeek |
 |---|---|---|
 | Basemap descriptors and tile-URL transforms | `inventory/static/inventory/js/basemaps.js` | Basemap picker (Phase 1) |
+| Promoted QMS basemaps (the "Shared" set in /inventory/) | read live from `/inventory/api/qms/promoted/`, its public layers only | Basemap picker, "Shared from landslidescience" (`core/basemaps.py`, cached an hour; promote or unpromote there, nothing to do here) |
 | URL-hash view-state codec | `inventory/static/inventory/js/ls_hash.js` | Shareable views |
 | Pointer policy: tool group, click dispatcher, cursor, drags, Escape | `inventory/static/inventory/js/ls_tools.js` | Every map tool (draw, profile, pick) |
 | High-resolution PNG export | `inventory/static/inventory/js/ls_export.js` | Map export |

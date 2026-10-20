@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 
 from . import access
+from .basemaps import shared_qms_layers
 from .design_views import study_projects, trail_studies
 from .forms import TrackUploadForm
 from .models import DemSource, Trail, Track
@@ -19,7 +20,7 @@ def home(request):
     return render(
         request,
         "core/home.html",
-        {"can_edit": access.is_trail_editor(request.user)},
+        {"can_edit": access.is_trail_editor(request.user), "shared_basemaps": shared_qms_layers()},
     )
 
 
