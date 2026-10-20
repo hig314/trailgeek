@@ -55,6 +55,7 @@ how a user learns what a `k` means.
 | Length | metres, every one alike (no curve; §10) | per 100 m, from the input's length | — | 3 |
 | Drainage (stub) | metres since the last grade reversal | per metre | 0–60: 0, 120: 0.5, 200: 1 | 1 |
 | Corner landing | side slope at a corner's apex, % | per corner | 0–15: 0, 30: 0.5, 45: 1 | 2 |
+| Excess climb | depth of each height lost and won back against the net direction, through a 0.5 m dead band (§22) | per metre of height lost | flat 1 | 0 (off) |
 
 Hard limits sit outside the curves, so the search never wastes time there:
 the corridor (offset ≤ 25 m), the cut/fill tube (≤ 0.75 m), fixed ends.
@@ -849,3 +850,43 @@ runs in that gap.
   so that part of the bar moves unevenly. The worker writes a new stage at
   once and otherwise every 1 % or 5 s; the panel shows a clock that ticks
   with every poll, so a long step is visibly alive.
+
+## 22. Excess climb (owner, 2026-10-19)
+
+On the Graduation Peak Trail the route still crossed gullies straight. Cut
+and fill cannot see a gully: the design grade line must stay inside the
+cut/fill tube, so where the ground drops 2 m the line follows it down and
+up, and the crossing's whole cost falls on grade (short pitches, lightly
+charged) while wet ground per metre favours the shortest crossing. The
+owner preferred a general factor to a gully special case: **a stretch must
+gain its net height (the difference between its ends); every metre it
+loses on the way is a metre won back, and is charged.**
+
+- **What counts.** On a net climb, each descent of the design grade line;
+  on a net descent, each climb (`score.height_lost`). They are read through
+  a dead band, `climb_band_m` (0.5 m), the way a GPS counts climb: a move
+  counts once it exceeds the band, so drainage dips shallower than that are
+  free, and a small rise inside a long descent does not split it in two.
+  The band is drawn on the factor's curve and its edge can be dragged, like
+  the fall-line band on TSA.
+- **The charge.** Per metre of height lost, at the curve for that loss's
+  depth (x 0–10 m; default flat 1), times the weight. **The weight is 0 by
+  default**, so earlier settings score as they did until it is turned up.
+  On the Graduation Peak Trail every line loses 85–110 m against a 767 m
+  net climb, most of it the terrain; its 19 gully crossings are perhaps
+  30–40 m of that, so it takes a weight of about 10 for a 3 m gully to
+  matter beside the wet-ground charge there.
+- **It charges depth, not steepness:** it pushes a crossing to where the
+  gully is shallower, or round its head. A gentle way in and out is the
+  grade factor's business.
+- **The route-finder** charges every metre a step loses against the
+  stretch's net direction (its ends on the ground) at the curve for a 1 m
+  loss (or the band, if deeper). A path search cannot see a whole dip, so
+  it charges drainage dips too; the scoring reads them through the band.
+- **Shown:** a row in the comparison table,
+  "Net climb" and "Height lost and won back" rows, a "Height lost" track in
+  Factors along the line (each loss's depth along the samples where it was
+  lost), and the losses' depths behind the curve editor.
+- **Limitation.** "Net" is between the stretch's ends. A stretch over a
+  pass would be charged its whole descent; that is a question of how a
+  trail is cut into stretches, not yet taken on (owner, 2026-10-19).

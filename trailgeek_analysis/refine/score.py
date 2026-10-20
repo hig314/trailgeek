@@ -189,6 +189,49 @@ def reversal_sites(d, zd, g, dip):
     return out
 
 
+def height_lost(z, band):
+    """The heights a line loses and wins back against its net direction: on
+    a net climb its descents, on a net descent its climbs, each as (i, j,
+    depth) from the high (low) at sample i to the low (high) at sample j.
+    Read through a dead band, the way a GPS counts climb: a move counts once
+    it exceeds `band`, so a dip shallower than that is free, and a small
+    rise inside a long descent does not split it in two."""
+    z = np.asarray(z, float)
+    if z[-1] < z[0]:
+        z = -z                        # descending: the climbs are the losses
+    dz = np.diff(z)
+    nz = np.flatnonzero(dz)
+    if not len(nz):
+        return []
+    # Only the turning points matter (the design line is piecewise straight).
+    sg = np.sign(dz[nz])
+    turn = nz[1:][sg[1:] != sg[:-1]]
+    piv = np.concatenate([[0], turn, [len(z) - 1]])
+    zp = z[piv]
+    band = max(float(band), 1e-9)
+    out = []
+    hi = lo = 0                      # indices into piv
+    trend = 0                        # +1 rising, -1 falling, 0 not yet known
+    for m in range(1, len(piv)):
+        v = zp[m]
+        if trend >= 0:
+            if v > zp[hi] or trend == 0 and v >= zp[hi]:
+                hi = m
+            if trend == 0 and v < zp[lo]:
+                lo = m
+            if zp[hi] - v >= band:
+                trend, lo = -1, m
+        else:
+            if v < zp[lo]:
+                lo = m
+            elif v - zp[lo] >= band:
+                out.append((int(piv[hi]), int(piv[lo]), float(zp[hi] - zp[lo])))
+                trend, hi = 1, m
+    if trend < 0:
+        out.append((int(piv[hi]), int(piv[lo]), float(zp[hi] - zp[lo])))
+    return out
+
+
 def intersects_changed(Q, Q_old, stride):
     """intersects(), checking only segments that moved since Q_old against
     all others: a move changes a stretch, so this is the same answer for a
@@ -386,6 +429,7 @@ class Problem:
         self.bench = float(p["bench_m"])
         self.thr = float(p["min_outslope_pct"]) / 100
         self.dip = float(p["reversal_dip_m"])
+        self.climb_band = float(p["climb_band_m"])
         self.fall_tsa = float(p["fall_tsa_deg"])
         self.min_turn = math.radians(float(p["corner_min_turn_deg"]))
         self.corner_cut_max = float(p["corner_cut_max_m"])
@@ -833,13 +877,28 @@ class Problem:
         costs["grade"] += self.grade_peak_m * float(f["grade"](gmax))
         if self.grade_ref is not None and gmax > self.grade_ref:
             costs["grade"] += (gmax - self.grade_ref) / GRADE_OVER_PER * PER_M
+        # Excess climb (owner, 2026-10-19): each height lost and won back
+        # against the stretch's net direction, at the curve for its depth,
+        # spread over the samples where it was lost (for aiming moves and
+        # the factor panel).
+        losses = height_lost(zd, self.climb_band)
+        climb_v = np.zeros(n)
+        loss_depth = np.zeros(n)
+        if losses:
+            drop = np.concatenate([[0.0], np.abs(np.diff(zd))])
+            for i0, i1, depth in losses:
+                a, b = min(i0, i1), max(i0, i1)
+                dd_ = drop[a + 1:b + 1]
+                climb_v[a + 1:b + 1] += float(f["climb"](depth)) * depth * dd_ / max(dd_.sum(), 1e-9)
+                loss_depth[a:b + 1] = np.maximum(loss_depth[a:b + 1], depth)
+        costs["climb"] = float(climb_v.sum())
         cr = [f["corner"](c_["r"]) for c_ in corners]
         costs["corner"] = float(sum(cr))
         costs["length"] = L3
         total = sum(k.get(name, 0) * v for name, v in costs.items())
 
         density = sum(k.get(name, 0) * v for name, v in vals.items()) * w3
-        density = density + k.get("bend", 0) * bend_v + w3
+        density = density + k.get("bend", 0) * bend_v + k.get("climb", 0) * climb_v + w3
         for c_, x1 in zip(corners, cr):
             a, b = c_["a"], c_["b"]
             density[a:b + 1] += k.get("corner", 0) * x1 / (b - a + 1)
@@ -850,7 +909,7 @@ class Problem:
                 "Q": Q, "d": d, "fall": fall, "tsa": tsa, "tsa_v": tsa_v, "ground": g, "design": zd, "cut": cut, "e": e,
                 "grade": grade, "side": side, "w3": w3,
                 "twi": wet, "existing": off, "dist": dist, "bend_r": bend_r, "bend_turn": np.bincount(own, turn_f * free, minlength=n),
-                "bend_v": bend_v, "vals": vals, "zone": zone, "run": run, "sites": sites,
+                "bend_v": bend_v, "climb_v": climb_v, "loss_depth": loss_depth, "losses": losses, "vals": vals, "zone": zone, "run": run, "sites": sites,
                 "corners": [{"i": c_["mid"], "d": float(d[c_["mid"]]), "radius_m": float(c_["r"]),
                              "arc_radius_m": float(c_["r_arc"]), "side_pct": c_["side_pct"], "turn_deg": c_["turn_deg"],
                              "crossing_pct": c_["crossing"], "tsa_min": c_["tsa_min"], "kind": c_["kind"],
@@ -872,12 +931,14 @@ def histograms(r, bins=30):
            "drainage": (r["run"], w), "wet": (r["twi"], w), "existing": (r["existing"], w),
            "bend": (r["bend_r"], r["bend_turn"] / (math.pi / 2)),
            "corner": (np.array([c["radius_m"] for c in r["corners"]]), None),
-           "falltread": (r["grade"], w * r["fall"])}
+           "falltread": (r["grade"], w * r["fall"]),
+           "climb": (np.array([dp for *_, dp in r["losses"]]), np.array([dp for *_, dp in r["losses"]]))}
     for name, (x, wt) in src.items():
         m = FACTOR_META[name]
         lo, hi = m["xmin"], m["xmax"]
         xc = np.clip(x, lo, hi - 1e-9 * (hi - lo))
         hgt, _ = np.histogram(xc, bins=bins, range=(lo, hi), weights=wt)
         out[name] = {"lo": lo, "hi": hi, "counts": [round(float(v), 2) for v in hgt],
-                     "unit": "corners" if wt is None else "right angles" if name == "bend" else "m"}
+                     "unit": ("corners" if wt is None else "right angles" if name == "bend" else
+                              "m lost" if name == "climb" else "m")}
     return out

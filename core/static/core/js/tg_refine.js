@@ -135,8 +135,9 @@ window.TgRefine = (function () {
   }
 
   // Weight sliders are logarithmic, with "off" at the far left.
-  var WRANGE = { metre: [0.01, 30], corner: [1, 3000], turn: [1, 3000] };
-  var WUNIT = { metre: 'm per m', corner: 'm per corner', turn: 'm per right angle' };
+  var WRANGE = { metre: [0.01, 30], corner: [1, 3000], turn: [1, 3000], height: [0.1, 300] };
+  var WUNIT = { metre: 'm per m', corner: 'm per corner', turn: 'm per right angle', height: 'm per m lost' };
+  var WPER = { metre: 'per metre of trail', corner: 'for each corner', turn: 'for each right angle turned', height: 'for each metre of height lost and won back' };
   function wToPos(v, r) { return v > 0 ? Math.max(1, Math.round(1000 * Math.log(v / r[0]) / Math.log(r[1] / r[0]))) : 0; }
   function posToW(p, r) { return p > 0 ? +(r[0] * Math.pow(r[1] / r[0], p / 1000)).toPrecision(2) : 0; }
   function renderFactors() {
@@ -148,7 +149,7 @@ window.TgRefine = (function () {
       row.innerHTML = '<div class="rf-fhead"><strong>' + esc(m.label) + '</strong>' +
         (m.stub ? ' <span class="tg-badge" title="Deliberately primitive for now: sites are low points of the design line and ground dips; no groundwater or terrain below the trail yet">stub</span>' : '') +
         '<span class="tg-muted tg-small">' + esc(m.x) + ' (' + esc(m.unit) + ')</span></div>' +
-        '<div class="rf-wrow" title="Extra metres of equivalent effort where this curve is at 1, ' + WUNIT[m.per] + ' (' + (m.per === 'metre' ? 'per metre of trail' : m.per === 'corner' ? 'for each corner' : 'for each right angle turned') + '). 0 ignores the factor.">' +
+        '<div class="rf-wrow" title="Extra metres of equivalent effort where this curve is at 1, ' + WUNIT[m.per] + ' (' + WPER[m.per] + '). 0 ignores the factor.">' +
         '<input type="range" class="rf-w" min="0" max="1000" step="1"><input type="number" class="rf-wn" min="0" max="10000" step="any"><span class="tg-small tg-muted">' + WUNIT[m.per] + '</span></div>' +
         '<div class="rf-curve"></div>';
       box.appendChild(row);
@@ -157,7 +158,9 @@ window.TgRefine = (function () {
       show(s.k);
       sl.addEventListener('input', function () { s.k = posToW(+sl.value, r); num.value = s.k; row.classList.toggle('rf-off', s.k === 0); changed(); });
       num.addEventListener('change', function () { s.k = Math.max(0, Math.min(10000, +num.value || 0)); show(s.k); changed(); });
-      var band = m.band ? { get: function () { return settings.params[m.band]; },
+      var bp = m.band && meta.params.filter(function (q) { return q.name === m.band; })[0];
+      var band = m.band ? { min: bp ? bp.min : m.xmin, max: bp ? bp.max : m.xmax, title: m.band_title,
+                            get: function () { return settings.params[m.band]; },
                             set: function (v) { settings.params[m.band] = v; var i = document.querySelector('#rf-params input[data-p="' + m.band + '"]'); if (i) i.value = v; } } : null;
       editors[m.name] = curveEditor(row.querySelector('.rf-curve'), m, s.curve, changed, band);
     });
@@ -207,7 +210,7 @@ window.TgRefine = (function () {
     zb.append('button').attr('type', 'button').attr('title', 'Frame the curve').text('fit').on('click', fit);
     var svg = d3.select(el).append('svg').attr('width', W).attr('height', H).attr('class', 'rf-svg');
     var g = svg.append('g').attr('transform', 'translate(' + m.l + ',' + m.t + ')');
-    var gb = g.append('g'), gh = g.append('g'), gm = g.append('g');
+    var gb = g.append('g'), gh = g.append('g'), gm = g.append('g'), ge = g.append('g');   // ge: the band's edge, above the histogram so it can be dragged
     if (fm.xmin < 0 && fm.xmax > 0) {                     // a signed x: mark 0
       gb.append('line').attr('class', 'rf-zero').attr('x1', x(0)).attr('x2', x(0)).attr('y1', 0).attr('y2', h);
       gb.append('text').attr('class', 'rf-axis').attr('x', x(0) - 4).attr('y', 10).attr('text-anchor', 'end').attr('font-size', 10).text('cut');
@@ -216,12 +219,12 @@ window.TgRefine = (function () {
     var bandRect = null, bandEdge = null;
     if (band) {
       bandRect = gb.append('rect').attr('class', 'rf-band').attr('x', 0).attr('y', 0).attr('height', h);
-      bandEdge = gb.append('line').attr('class', 'rf-band-edge').attr('y1', 0).attr('y2', h)
+      bandEdge = ge.append('line').attr('class', 'rf-band-edge').attr('y1', 0).attr('y2', h)
         .call(d3.drag().on('drag', function (ev) {
-          band.set(Math.max(5, Math.min(60, Math.round(x.invert(Math.max(0, Math.min(w, ev.x)))))));
+          band.set(+Math.max(band.min, Math.min(band.max, snapX(x.invert(Math.max(0, Math.min(w, ev.x)))))).toFixed(2));
           placeBand();
         }).on('end', function () { onChange(); }));
-      bandEdge.append('title').text('Drag: the fall-line band, where the downhill side is undefined (a corner is a change of side across it) and the tread counts as fall-line');
+      bandEdge.append('title').text(band.title || 'Drag: the fall-line band, where the downhill side is undefined (a corner is a change of side across it) and the tread counts as fall-line');
     }
     function placeBand() {
       if (!band) return;
@@ -487,6 +490,8 @@ window.TgRefine = (function () {
     h += row('Fall-line tread', function (d) { return d.stats.fall_m; }, function (v) { return n(v) + ' m'; }, null, 'Length within the set angle of the fall line, where water cannot leave the tread sideways');
     h += row('Wet ground', function (d) { return d.stats.wet_m; }, function (v) { return n(v) + ' m'; }, null, 'Length where the topographic wetness index is 10 or more (hollows, benches, channels, filled basins): likely mud');
     h += row('Tightest bend anywhere', function (d) { return d.stats.bend_min_r; }, function (v) { return v == null ? '–' : n(v, 1) + ' m'; }, false, 'Smallest radius anywhere on the line, corners included, measured over 1 m: a sketched kink reads about 0.6 m');
+    h += row('Net climb', function (d) { return d.stats.net_climb_m; }, function (v) { return v == null ? '–' : (v > 0 ? '+' : '') + n(v, 1) + ' m'; }, null, 'Height gained from start to end along the design line: what the stretch has to climb (or descend)');
+    h += row('Height lost and won back', function (d) { return d.stats.height_lost_m; }, function (v) { return v == null ? '–' : n(v, 1) + ' m'; }, true, 'Against the net direction, through the excess climb dead band: on a climb, the descents that must be climbed again');
     h += row('Reversal sites (stub)', function (d) { return d.stats.reversals; }, function (v) { return n(v); }, null);
     h += '</table></div>';
     h += '<div class="tg-small tg-muted">' + terrainNote(res) + ' Your line is scored as drawn with the same cut/fill tube as the candidates. "Your line, smoothed" is the smooth reading of it every search starts from: the gain from rounding alone.</div>';

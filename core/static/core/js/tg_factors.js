@@ -37,13 +37,14 @@ window.TgFactors = (function () {
     { key: 'wet', label: 'Wet ground', unit: 'TWI', dom: [0, 16] },
     { key: 'drainage', label: 'Drainage run', unit: 'm', dom: [0, 300] },
     { key: 'bend', label: 'Bend radius', unit: 'm', dom: [0.5, 100], log: true },
-    { key: 'existing', label: 'Off existing tread', unit: 'm', dom: [0, 25], only: 'existing' }
+    { key: 'existing', label: 'Off existing tread', unit: 'm', dom: [0, 25], only: 'existing' },
+    { key: 'climb', label: 'Height lost', unit: 'm', dom: [0, 5], only: 'climb' }
   ];
   var SPACE = ['grade', 'slope', 'tsa', 'cutfill', 'wet', 'drainage', 'existing'];
   var SPACE_DOM = { grade: [0, 60], slope: [0, 100], tsa: [0, 90], cutfill: [-1, 0.5], wet: [0, 16], drainage: [0, 300], existing: [0, 25] };
-  var EXTRA = ['grade', 'falltread', 'slope', 'tsa', 'cutfill', 'wet', 'drainage', 'bend', 'existing'];
+  var EXTRA = ['grade', 'falltread', 'slope', 'tsa', 'cutfill', 'wet', 'drainage', 'bend', 'existing', 'climb'];
   var LABEL = { grade: 'Grade', falltread: 'Fall-line tread', slope: 'Terrain slope', tsa: 'TSA', cutfill: 'Cut and fill',
-                wet: 'Wet ground', drainage: 'Drainage', bend: 'Bends', existing: 'Off existing tread' };
+                wet: 'Wet ground', drainage: 'Drainage', bend: 'Bends', existing: 'Off existing tread', climb: 'Excess climb' };
 
   var app = null, res = null, idx = 0, L = null, I = null;
   var chart = null, profOpts = null, profPanel = null, spacePanel = null, spaceFp = null, winEl = null;
@@ -182,7 +183,7 @@ window.TgFactors = (function () {
     var rows = ['d_m,lon,lat,ground_m,design_m,' + keys.join(',') + ',' + EXTRA.map(function (k) { return 'extra_' + k + '_m_per_m'; }).join(',')];
     for (var i = 0; i < L.d.length; i++) {
       rows.push([L.d[i], L.t.lonlat[i][0], L.t.lonlat[i][1], L.ground[i], L.design[i]].concat(
-        keys.map(function (k) { return L.t[k][i]; }), EXTRA.map(function (k) { return L.t.cost[k] ? L.t.cost[k][i] : 0; })).join(','));
+        keys.map(function (k) { return L.t[k] ? L.t[k][i] : ""; }), EXTRA.map(function (k) { return L.t.cost[k] ? L.t.cost[k][i] : 0; })).join(','));
     }
     return { name: 'refine_factors.csv', text: rows.join('\n') + '\n' };
   }
