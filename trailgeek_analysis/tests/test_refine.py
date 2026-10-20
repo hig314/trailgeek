@@ -214,6 +214,48 @@ class GullyTests(unittest.TestCase):
         self.assertTrue(((at > 26) & (at < 36)).all(), at)  # over the causeway (the leap was at x = 0)
 
 
+class ExcessClimbTests(unittest.TestCase):
+    """Excess climb (owner, 2026-10-19): a stretch must gain its net height;
+    every metre lost on the way is won back, and charged."""
+
+    def test_losses_are_read_through_the_dead_band(self):
+        from trailgeek_analysis.refine.score import height_lost
+        # A 0.2 m dip is free; a 2.5 m descent with a 0.2 m rise inside it is one loss.
+        self.assertEqual(height_lost([0, 1, 2, 1.8, 3, 1, 1.2, 0.5, 4, 5], 0.5), [(4, 7, 2.5)])
+        self.assertEqual(height_lost([5, 4, 4.5, 2, 0], 0.5), [(1, 2, 0.5)])     # a net descent: its climbs
+        self.assertEqual(height_lost([0, 1, 0.7, 2], 0.5), [])
+        self.assertEqual(height_lost([0, 2, 1], 0.5), [(1, 2, 1.0)])             # lost at the end, still lost
+
+    def test_a_gully_on_a_climb_costs_its_depth(self):
+        # A 10 % climb with a box trench 2 m deep and 4 m wide across it.
+        g = Grid.from_function(lambda X, Y: 0.1 * Y - np.where(np.abs(Y - 50) < 2, 2.0, 0.0), -40, -20, 40, 120)
+        line = [np.array([[0, 0], [0, 100]], float)]
+        for band, lost in ((0.5, 2.0), (2.5, 0.0)):
+            s = clean_settings({"params": {"spacing_m": 1.0, "climb_band_m": band},
+                                "factors": {"climb": {"k": 5, "curve": [[0, 1], [10, 1]]}}})
+            r = Problem(line, g, s).score_line(Problem(line, g, s).P, 0.02, detail=True)
+            self.assertAlmostEqual(r["costs"]["climb"], lost, delta=0.15)
+            self.assertAlmostEqual(r["contrib"]["climb"], 5 * lost, delta=0.75)
+
+    def test_off_by_default(self):
+        g = Grid.from_function(lambda X, Y: 0.1 * Y - np.where(np.abs(Y - 50) < 2, 2.0, 0.0), -40, -20, 40, 120)
+        prob = Problem([np.array([[0, 0], [0, 100]], float)], g, clean_settings({}))
+        self.assertEqual(prob.score_line(prob.P, 0.02, detail=True)["contrib"]["climb"], 0)
+
+    def test_the_route_climbs_round_a_trench_rather_than_through_it(self):
+        from trailgeek_analysis.refine.route import route_line
+        # A 10 % climb with a trench 3 m deep across it and a causeway at x 28-34;
+        # only excess climb is charged, so the straight line's only cost is its loss.
+        g = Grid.from_function(lambda X, Y: 0.1 * Y - np.where((np.abs(Y - 50) < 1.5) & ((X < 28) | (X > 34)), 3.0, 0.0),
+                               -60, -20, 60, 120)
+        off = {f: {"k": 0} for f in ("grade", "slope", "tsa", "falltread", "corner", "bend")}
+        prob = Problem([np.array([[0, 0], [0, 100]], float)], g,
+                       clean_settings({"params": {"corridor_m": 40}, "factors": dict(off, climb={"k": 20})}))
+        Q = densify(route_line(prob), 0.5)
+        at = Q[np.abs(Q[:, 1] - 50) < 1.5, 0]
+        self.assertTrue(((at > 26) & (at < 36)).all(), at)
+
+
 class TurnChargeTests(unittest.TestCase):
     """The route-finder charges a turn at the radius the scoring will read
     for it (owner, 2026-10-19: hairpins charged as 4 m turns came out as

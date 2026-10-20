@@ -32,6 +32,12 @@ metres as score.py:
              charged every turn as a 4 m one, it made hairpins the scoring
              charged 14 times as much, and the polish knotted them)
 
+  excess     every metre a step descends on a net climb (climbs on a net
+  climb      descent), at the excess climb curve for a 1 m loss (or the dead
+             band, if deeper): a path search cannot see a whole dip, so it
+             charges every one, drainage dips included; the scoring reads
+             them through the dead band
+
 What it leaves out, because a path search cannot add them up step by step:
 the steepest-pitch charge, drainage, and the cut/fill tube. Those are the
 scoring's job once the annealer has the line. A* with the straight-line
@@ -153,6 +159,9 @@ def route_line(prob, k=None, cell=CELL_M, progress=None):
         base = base + k.get("wet", 0) * f["wet"](wet)
     if off is not None:
         base = base + k.get("existing", 0) * f["existing"](off)
+    # Excess climb: the stretch's net direction, from its ends on the ground.
+    k_climb = k.get("climb", 0) * float(f["climb"](max(1.0, prob.climb_band)))
+    climbs = not (gs.sample(*P1[:, None])[0] < gs.sample(*P0[:, None])[0])
     nb = np.full((ND, N), -1, np.int32)
     ec = np.full((ND, N), np.inf, np.float32)
     for d, (dc, dr) in enumerate(DIRS):
@@ -167,9 +176,11 @@ def route_line(prob, k=None, cell=CELL_M, progress=None):
         L2 = cell * math.hypot(dc, dr)
         m = max(1, math.ceil(L2 / SUB_M - 1e-9))
         prev, up_down, slope_len = nz[i], np.zeros(len(i)), np.zeros(len(i))
+        lost = np.zeros(len(i))
         for q in range(1, m + 1):
             zq = nz[jj] if q == m else gs.sample(nx[i] + q / m * dc * cell, ny[i] + q / m * dr * cell)
             up_down += np.abs(zq - prev)
+            lost += np.maximum(0.0, (prev - zq) if climbs else (zq - prev))
             slope_len += np.hypot(L2 / m, zq - prev)
             prev = zq
         ok_step = np.isfinite(up_down)
@@ -182,7 +193,7 @@ def route_line(prob, k=None, cell=CELL_M, progress=None):
         per = (1 + (base[i] + base[jj]) / 2 + k.get("grade", 0) * f["grade"](grade) + k.get("tsa", 0) * f["tsa"](tsa)
                + k.get("falltread", 0) * f["falltread"](grade) * (tsa < prob.fall_tsa))
         nb[d, i] = np.where(ok_step, jj, -1)
-        ec[d, i] = np.where(ok_step, slope_len * per, np.inf)
+        ec[d, i] = np.where(ok_step, slope_len * per + k_climb * np.nan_to_num(lost, nan=0.0), np.inf)
     # Turn costs between headings.
     ang = np.array([math.atan2(dr, dc) for dc, dr in DIRS])
     turn = np.abs((ang[None, :] - ang[:, None] + math.pi) % (2 * math.pi) - math.pi)

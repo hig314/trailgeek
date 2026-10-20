@@ -187,6 +187,8 @@ def _tracks(prob, r):
     out["bend"] = rd(np.minimum(r["bend_r"], 1000.0), 2)
     cost = {name: rd(k.get(name, 0) * r["vals"][name], 4) for name in r["vals"]}
     cost["bend"] = rd(k.get("bend", 0) * r["bend_v"] / np.maximum(r["w"], 1e-6), 4)
+    out["climb"] = rd(r["loss_depth"], 2)
+    cost["climb"] = rd(k.get("climb", 0) * r["climb_v"] / np.maximum(r["w"], 1e-6), 4)
     out["cost"] = cost
     out["xy"] = [[round(float(x), 2), round(float(y), 2)] for x, y in r["Q"]]
     return out
@@ -227,6 +229,9 @@ def _json_detail(prob, r, legs):
             "bend_min_r": round(float(r["bend_r"].min()), 1),
             "reversals": len(r["sites"]),
             "wet_m": round(float((r["w"] * (r["twi"] >= WET_TWI)).sum()), 1),
+            "net_climb_m": round(float(r["design"][-1] - r["design"][0]), 1),
+            "height_lost_m": round(sum(dp for *_, dp in r["losses"]), 1),
+            "losses": len(r["losses"]),
         },
     }
 

@@ -37,7 +37,8 @@ ZERO_AS = FREE         # a 0 in an older curve
 
 # per: "metre" = the curve integrated along the line (extra metres per
 # metre at curve 1); "corner" = summed per corner (extra metres per corner);
-# "turn" = per right angle turned (extra metres per right angle).
+# "turn" = per right angle turned (extra metres per right angle);
+# "height" = per metre of height lost and regained (extra metres per metre).
 VERSION = 2            # settings in metres; absent = older units (upgrade())
 OLD_LENGTH_K = 8.1     # an older layer with no length weight of its own had this one
 OLD_PER_M = 100.0      # older per-metre weights were per 100 m
@@ -61,6 +62,9 @@ FACTOR_META = {
                 "xmin": -2, "xmax": 0.6, "snap": 0.01},
     "drainage": {"label": "Drainage (stub)", "x": "distance since the last grade reversal", "unit": "m",
                  "per": "metre", "xmin": 0, "xmax": 300, "snap": 5, "stub": True},
+    "climb": {"label": "Excess climb", "x": "depth of each height lost and won back against the stretch's net direction (climbing: each descent of the design line; descending: each climb), through the dead band (drag its edge): shallower dips are drainage reversals and free. Charged per metre of height lost, so a straight dip through a 3 m gully costs 3 m of it", "unit": "m",
+              "per": "height", "xmin": 0, "xmax": 10, "snap": 0.1, "band": "climb_band_m",
+              "band_title": "Drag: the dead band. A height lost and won back by less than this is a drainage dip and free; a dip inside a bigger loss does not split it"},
     "existing": {"label": "Off existing tread", "x": "distance from the existing trail (the selected legs that follow one): new tread costs this much per metre; weight 0 ignores the existing trail", "unit": "m",
                  "per": "metre", "xmin": 0, "xmax": 30, "snap": 0.5},
 }
@@ -112,12 +116,16 @@ DEFAULT_SETTINGS = {
         # of it is the same tread; beyond 3 m, every metre is new tread. A
         # first guess at 1: a metre of new tread is as much as a metre more
         # trail. Charged only where the selected legs include existing trail.
+        # Excess climb (owner, 2026-10-19): the stretch must gain its net
+        # height; every metre lost on the way is a metre won back. Off (0)
+        # until the owner sets a weight, so earlier runs score as they did.
+        "climb": {"k": 0.0, "curve": [[0, 1], [10, 1]]},
         "existing": {"k": 1.0, "curve": [[0, 0.01], [1.5, 0.01], [3, 1], [30, 1]]},
     },
     "params": {
         "corridor_m": 25, "cutfill_max_m": 0.75, "corner_cut_max_m": 2.0, "bench_m": 2.5, "spacing_m": 2.0, "knot_m": 8,
         "input_sigma_m": 3.0, "sketch_radius_m": 10.0, "fall_tsa_deg": 22, "corner_min_turn_deg": 60,
-        "grade_peak_m": 25, "iterations": 1500, "chains": 4, "min_outslope_pct": 10, "reversal_dip_m": 0.3,
+        "grade_peak_m": 25, "iterations": 1500, "chains": 4, "min_outslope_pct": 10, "reversal_dip_m": 0.3, "climb_band_m": 0.5,
         "seed": 0,
     },
 }
@@ -138,6 +146,7 @@ PARAM_META = {
     "iterations": ("Iterations per chain", 50, 20000, True),
     "chains": ("Chains", 1, 8, True),
     "min_outslope_pct": ("Least side slope that sets the downhill side, %", 2, 50, False),
+    "climb_band_m": ("Excess climb's dead band: height lost and won back by less than this is a drainage dip and free, m (also the band on the excess climb curve)", 0, 5, False),
     "reversal_dip_m": ("Ground dip that counts as a reversal site, m", 0.02, 1, False),
     "seed": ("Random seed (0 = new each run)", 0, 2 ** 31 - 1, True),
 }
