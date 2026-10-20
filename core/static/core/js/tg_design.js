@@ -253,6 +253,11 @@ window.TgDesign = (function () {
         fetch('/api/alignments/' + id + '.geojson', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (f) {
           if (!cur || cur.properties.id !== id || editing) return;
           if (f.properties.evaluation_status === 'queued' && ++tries < 150) { tick(); return; }
+          // The Refine panel is open over this alignment: leave it be. Its
+          // "Back to the alignment" fetches the alignment afresh (owner,
+          // 2026-10-19: a new study's evaluation finished during Refine's
+          // first terrain read and threw the panel back to the alignment).
+          if (window.TgRefine && TgRefine.active()) return;
           showAlignment(f);
         });
       }, 2000);
