@@ -50,7 +50,10 @@
   function savePrefs(o) { try { localStorage.setItem(PREFS_KEY, JSON.stringify(o)); } catch (e) {} }
   var state = LSHash.parse(location.hash);
   var hadView = state.zoom != null;
-  var basemaps = LSBasemaps.DEFAULTS.filter(function (b) { return b.id !== 'blank'; });
+  // The built-ins, then the QMS layers promoted in landslidescience's
+  // /inventory/ (its public ones, read and cached by core/basemaps.py).
+  var basemaps = LSBasemaps.DEFAULTS.filter(function (b) { return b.id !== 'blank'; })
+    .concat((window.TG_CONFIG && TG_CONFIG.sharedBasemaps) || []);
   if (!hadView) {
     var prefs = loadPrefs();
     if (!state.base && prefs.base) state.base = prefs.base;
@@ -678,7 +681,16 @@
   }
   function fillBasemaps() {
     var sel = $('base');
-    sel.innerHTML = basemaps.map(function (b) { return '<option value="' + b.id + '">' + esc(b.label) + '</option>'; }).join('');
+    // Grouped as in landslidescience's reference-map cards.
+    var order = ['Imagery', 'Topo', 'Historical', 'Other', 'Shared'];
+    var label = { Shared: 'Shared from landslidescience' };
+    var cats = order.concat(basemaps.map(function (b) { return b.category; }).filter(function (c, i, a) {
+      return c && order.indexOf(c) < 0 && a.indexOf(c) === i; }));
+    sel.innerHTML = cats.map(function (c) {
+      var bs = basemaps.filter(function (b) { return (b.category || 'Other') === c; });
+      return bs.length ? '<optgroup label="' + esc(label[c] || c) + '">' +
+        bs.map(function (b) { return '<option value="' + esc(b.id) + '">' + esc(b.label) + '</option>'; }).join('') + '</optgroup>' : '';
+    }).join('');
     sel.value = baseId;
     sel.addEventListener('change', function () { setBasemap(sel.value); });
   }

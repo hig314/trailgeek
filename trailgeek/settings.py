@@ -119,6 +119,10 @@ SESSION_SAVE_EVERY_REQUEST = True
 SESSION_COOKIE_NAME = "tg_sessionid"
 CSRF_COOKIE_NAME = "tg_csrftoken"
 
+# landslidescience's public list of promoted QuickMapServices basemaps
+# (core/basemaps.py); empty turns them off.
+LS_QMS_PROMOTED_URL = os.environ.get("LS_QMS_PROMOTED_URL", "https://landslidescience.org/inventory/api/qms/promoted/")
+
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "America/Anchorage"
 USE_I18N = False
@@ -136,6 +140,7 @@ if "test" in sys.argv[1:2]:
     STORAGES["staticfiles"] = {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}
     # Tasks run inline with in-memory result storage: no Redis in tests.
     HUEY["immediate"] = True
+    LS_QMS_PROMOTED_URL = ""    # no calls to landslidescience; core/test_basemaps.py turns it on
 MEDIA_ROOT = DATA_DIR / "media"
 MEDIA_URL = "/media/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
