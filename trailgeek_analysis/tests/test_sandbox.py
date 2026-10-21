@@ -81,6 +81,22 @@ class TraceTests(unittest.TestCase):
         d, _ = polyline_distance(step["_xy"][:, 0], step["_xy"][:, 1], a["_xy"])
         self.assertLessEqual(float(d.max()), sb.TRACE_W + sb.TRACE_LEAN + 0.5)
 
+    def test_a_step_cannot_leave_the_surfaces_corridor(self):
+        # (2026-10-21) Measured from the step before's line alone, steps
+        # drifted out of the plane's 30 m corridor; leaning toward a line
+        # outside it must not take a step out.
+        S = sb.SURFACES["plane"]
+        grid = S.grid()
+        y = np.linspace(-80, 80, 161)
+        prev = {"_xy": np.column_stack([np.where(np.abs(y) < 75, 27.0, 0.0), y]), "t": 0.3}
+        prev["_xy"] = np.vstack([[0, -80], prev["_xy"][6:-6], [0, 80]])
+        far = {"_xy": prev["_xy"] + [[40.0, 0.0]], "t": 0.3}
+        for seed in range(3):
+            step = sb.trace_step(S, sb.weights_at(0, 0), prev, toward=far, iters=200, seed=seed, grid=grid)
+            if step is None:
+                continue
+            self.assertLessEqual(float(np.abs(step["_xy"][:, 0]).max()), S.corridor + 0.5)
+
 
 if __name__ == "__main__":
     unittest.main()

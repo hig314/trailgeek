@@ -426,6 +426,13 @@ def trace_step(surface, weights, prev, toward=None, w=TRACE_W, lean=TRACE_LEAN, 
         prob = Problem([P], grid, st, limit_xy=extra, adaptive=True)
     except ValueError:
         return None
+    # Within the strip AND within the surface's own search limit (2026-10-21:
+    # measured from the step before's line alone, steps drifted out of the
+    # plane's 30 m corridor a few metres at a time, to the grid's edge 100 m
+    # out): the distance that counts is the larger, the corridor's scaled to
+    # the strip's width.
+    D = np.maximum(prob.dist_grid.z, _corridor_distance(surface, grid) * (w / surface.corridor))
+    prob.dist_grid = Grid(D, grid.x0, grid.y0, grid.res)
     k = prob.base_k
     rng = np.random.default_rng(seed)
     try:
@@ -434,6 +441,17 @@ def trace_step(surface, weights, prev, toward=None, w=TRACE_W, lean=TRACE_LEAN, 
         return None
     r = prob.score(c, t, k, detail=True)
     return _detail_json(prob, r) if r is not None else None
+
+
+_CORRIDOR = {}
+
+
+def _corridor_distance(surface, grid):
+    """Distance from the surface's input line on the grid's cells (cached)."""
+    key = (surface.name, grid.x0, grid.y0, grid.res, grid.z.shape)
+    if key not in _CORRIDOR:
+        _CORRIDOR[key] = problem(surface, settings_at(weights_at(0, 0), corridor_m=surface.corridor), grid).dist_grid.z
+    return _CORRIDOR[key]
 
 
 def formula_line(surface, weights, grid=None):
