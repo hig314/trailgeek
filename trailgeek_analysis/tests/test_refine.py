@@ -186,6 +186,42 @@ class RouteTests(unittest.TestCase):
         self.assertLess(np.hypot(*np.diff(R, axis=0).T).sum(), 110)
 
 
+    def test_routes_at_several_turn_weights_share_one_reading(self):
+        # (2026-10-21) Cheaper turns, more switchbacks; dearer, fewer: layouts
+        # the search's own moves cannot make. The first route is route_line's.
+        from trailgeek_analysis.refine.route import route_line, route_lines
+        g = Grid.from_function(lambda X, Y: 0.4 * Y, -80, -40, 80, 160)
+        s = clean_settings({"params": {"corridor_m": 40}, "factors": {
+            "grade": {"k": 4, "curve": [[0, 0.01], [12, 0.01], [16, 1], [25, 10], [60, 100]]}}})
+        prob = Problem([np.array([[0, 0], [0, 100]], float)], g, s)
+        R1, Rlo, Rhi = route_lines(prob, None, (1.0, 0.05, 20.0))
+        np.testing.assert_allclose(R1, route_line(prob))
+
+        def turns(R):
+            seg = np.diff(R, axis=0)
+            hd = np.degrees(np.arctan2(seg[:, 1], seg[:, 0]))
+            return int((np.abs((np.diff(hd) + 180) % 360 - 180) >= 60).sum())
+        self.assertGreaterEqual(turns(Rlo), turns(R1))
+        self.assertLessEqual(turns(Rhi), turns(R1))
+        self.assertGreater(turns(Rlo), turns(Rhi))
+
+    def test_refine_runs_a_chain_from_each_route(self):
+        g = Grid.from_function(lambda X, Y: 0.4 * Y, -80, -40, 80, 160)
+        s = clean_settings({"params": {"corridor_m": 40, "chains": 1, "iterations": 60, "seed": 3}, "factors": {
+            "grade": {"k": 4, "curve": [[0, 0.01], [12, 0.01], [16, 1], [25, 10], [60, 100]]}}})
+        from trailgeek_analysis.refine.route import route_lines
+        from trailgeek_analysis.refine.search import ROUTE_TURN_X
+        line = np.array([[0, 0], [0, 100]], float)
+        out = refine([line], g, s)
+        starts = out["route"]["starts"]
+        distinct = []
+        for R in route_lines(Problem([line], g, s), None, ROUTE_TURN_X):
+            if R is not None and not any(len(R) == len(D) and np.allclose(R, D) for D in distinct):
+                distinct.append(R)
+        self.assertEqual(len(starts), len(distinct))               # the same route twice is searched once
+        self.assertTrue(all(st["polished"] is not None or st["as_found"] is not None for st in starts))
+
+
 class GullyTests(unittest.TestCase):
     """A gully narrower than the 10 m grade window (owner, 2026-10-19, the
     Graduation Peak Trail): down one wall and up the other used to read as
