@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Route sandbox · trailgeek{% endblock %}
+{% block head %}<link rel="stylesheet" href="{% static 'core/css/methods.css' %}">{% endblock %}
+{% block content %}
+<article class="mt-page">
+  <h1>Route sandbox</h1>
+  <p class="mt-lede">How the refine tool trades grade against corners, on ground simple enough that the
+  cheapest climb can be worked out. Every factor has a weight; two of them vary. Drag the point across the
+  weight grid, or move a slider, and the line changes. Every line was computed ahead of time by the engine
+  the Refine tool runs, and scored by its scoring.</p>
+
+  <div class="mt-surfaces" role="tablist" id="mt-surfaces"></div>
+  <p class="mt-blurb" id="mt-blurb"></p>
+
+  <div class="mt-grid">
+    <figure class="mt-map">
+      <canvas id="mt-canvas" width="560" height="560" aria-label="Map of the surface with the lines"></canvas>
+      <figcaption class="mt-legend">
+        <span><i class="mt-sw mt-sw-engine"></i>Engine's line</span>
+        <span><i class="mt-sw mt-sw-exact"></i><span id="mt-exact-name">Formula</span></span>
+        <span><i class="mt-sw mt-sw-input"></i>Straight line (the input)</span>
+        <span><i class="mt-sw mt-sw-cut"></i>Cut</span>
+        <span><i class="mt-sw mt-sw-fill"></i>Fill</span>
+        <label><input type="checkbox" id="mt-dig" checked> Dig-in ticks (length 8 × depth)</label>
+      </figcaption>
+    </figure>
+
+    <section class="mt-side">
+      <div class="mt-padwrap">
+        <svg id="mt-pad" viewBox="0 0 340 250" role="img" aria-label="The weight grid: drag the point along a line"></svg>
+        <p class="mt-note">Grade weight across, corner weight up. Drag along a line: between two settings the
+        line is traced in small steps. <span class="mt-jumpkey"></span> marks where the route changes.</p>
+      </div>
+      <div class="mt-slider" id="mt-sliders"></div>
+      <p class="mt-note" id="mt-best"></p>
+      <table class="mt-table" id="mt-table"></table>
+      <p class="mt-note" id="mt-verdict"></p>
+      <p class="mt-note" id="mt-trace"></p>
+      <details class="mt-factors">
+        <summary>All factor weights</summary>
+        <table class="mt-table" id="mt-factors"></table>
+      </details>
+    </section>
+  </div>
+
+  <div class="mt-charts">
+    <figure>
+      <figcaption>Cost of climbing a metre at each grade on the steepest ground here, every per-metre factor
+      included, at this grade weight. The lowest point is the best grade; the ground's slope (dashed) caps it.</figcaption>
+      <svg id="mt-cost" viewBox="0 0 460 220" role="img" aria-label="Cost per metre climbed against grade"></svg>
+    </figure>
+    <figure>
+      <figcaption>Profiles: the design line of each, and the ground under the engine's (grey). Where they part,
+      the line is dug in or filled.</figcaption>
+      <svg id="mt-profile" viewBox="0 0 460 220" role="img" aria-label="Profiles of the lines"></svg>
+    </figure>
+  </div>
+
+  <section class="mt-text">
+    <h2>Why the answer is known</h2>
+    <p>The engine prices a line in <em>equivalent metres</em>: its length along the slope, plus for each metre
+    a charge from each per-metre factor (its weight times its curve), plus a charge for each corner and
+    bend. On these smooth surfaces every per-metre factor depends only on the line's grade <var>g</var> and
+    the ground's slope <var>s</var>: grade itself; the angle to the fall line, whose cosine is
+    <var>g</var>&thinsp;/&thinsp;<var>s</var>; fall-line tread inside the fall-line band; side slope; cut and fill
+    at its floor. So a metre along the slope costs m(<var>g</var>,&nbsp;<var>s</var>), and climbing a metre costs</p>
+    <p class="mt-eq">c(<var>g</var>, <var>s</var>) = m(<var>g</var>, <var>s</var>) &radic;(1 + <var>g</var>&sup2;) / <var>g</var></p>
+    <p>A climb that never descends gains each metre of height once, and can climb no steeper than the ground,
+    so when turning is free the cheapest line climbs each metre at the cheapest grade the ground allows (held
+    under a cap, because the steepest 10&nbsp;m is charged again). On ground steeper than that grade it
+    crosses the contours at a fixed angle, a logarithmic spiral on a cone; on gentler ground it goes straight
+    up the fall line.</p>
+    <p>That is exact only while turns cost nothing. The formula's line still pays the bend weight for its
+    curvature and the corner weight for any corner, so the engine may beat it by turning less. On the uniform
+    slope the number of switchbacks is a trade the formula cannot settle alone; there the reference line is
+    the best zigzag at the best grade over every switchback count and radius, scored by the engine.</p>
+    <h2>How the in-between lines were found</h2>
+    <p>Each setting on the grid was run thoroughly: two seeds, long searches, then searched again from each
+    neighbouring setting's line, so a better route found next door is not missed. Between two neighbouring
+    settings, the line was traced in ten small steps from each end: each step searches only a narrow strip
+    around the step before's line, leaning toward the other end's line. At each step the cheaper of the two
+    tracings is shown. Where the two ends are versions of one route, the line slides from one to the other;
+    where they are different routes, it jumps where their costs cross.</p>
+    <h2>Dig-in</h2>
+    <p>The design line can sit below the ground (cut) or above it (fill), within a limit along the line and a
+    deeper one where a corner is dug into the slope. The ticks across the line show where, their length
+    eight times the depth. With the cut and fill weight low, a corner dug in can hide a dip the trail walks on
+    the ground: the design line climbs steadily while the ground under it falls and rises.</p>
+  </section>
+  <p class="mt-foot" id="mt-built"></p>
+</article>
+{% endblock %}
+{% block scripts %}
+{{ files|json_script:"mt-files" }}
+<script src="{% static 'core/js/tg_methods.js' %}"></script>
+<script>TgMethods.start(JSON.parse(document.getElementById("mt-files").textContent));</script>
+{% endblock %}

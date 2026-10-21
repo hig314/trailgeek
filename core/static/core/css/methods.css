@@ -1,0 +1,65 @@
+/* The methods page's route sandbox (core/templates/core/methods_sandbox.html). */
+.mt-page {
+  --mt-engine: #c2410c;     /* the engine's line */
+  --mt-exact: #1d4ed8;      /* the formula's line */
+  --mt-input: #6b7280;      /* the straight input line */
+  --mt-cut: #7c2d12;        /* dig-in ticks: the design line below the ground */
+  --mt-fill: #0f766e;       /* ... above it */
+  --mt-jumpc: #dc2626;      /* a change of route on the weight pad */
+  --mt-rule: #d6d3c8;
+  --mt-muted: #5b6157;
+  max-width: 1080px; margin: 0 auto; padding: 16px 16px 48px;
+}
+.mt-page h1 { margin: 8px 0 4px; font-size: 1.6rem; }
+.mt-lede { color: var(--mt-muted); max-width: 72ch; margin: 0 0 16px; }
+.mt-surfaces { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.mt-surfaces button {
+  font: inherit; padding: 5px 14px; border: 1px solid var(--mt-rule); border-radius: 999px;
+  background: #fff; color: var(--tg-ink); cursor: pointer;
+}
+.mt-surfaces button[aria-selected="true"] { background: var(--tg-accent); border-color: var(--tg-accent); color: #fff; }
+.mt-blurb { margin: 0 0 12px; max-width: 72ch; }
+.mt-grid { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 860px) { .mt-grid { grid-template-columns: minmax(0, 1fr); } }
+.mt-map { margin: 0; }
+.mt-map canvas { width: 100%; height: auto; display: block; border: 1px solid var(--mt-rule); border-radius: 6px; background: #fff; }
+.mt-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.85rem; color: var(--mt-muted); margin-top: 6px; }
+.mt-legend label { display: inline-flex; align-items: center; gap: 4px; }
+.mt-sw { display: inline-block; width: 22px; height: 0; border-top: 3px solid; vertical-align: middle; margin-right: 6px; }
+.mt-sw-engine { border-color: var(--mt-engine); }
+.mt-sw-exact { border-color: var(--mt-exact); border-top-style: dashed; }
+.mt-sw-input { border-color: var(--mt-input); border-top-width: 1.5px; border-top-style: dotted; }
+.mt-slider { display: grid; gap: 14px; }
+.mt-slider label { display: block; font-weight: 600; }
+.mt-slider .mt-val { font-weight: 400; color: var(--mt-muted); }
+.mt-slider input[type=range] { width: 100%; accent-color: var(--tg-accent); }
+.mt-ticks { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--mt-muted); font-variant-numeric: tabular-nums; }
+.mt-note { font-size: 0.9rem; color: var(--mt-muted); margin: 10px 0; }
+.mt-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; font-variant-numeric: tabular-nums; margin-top: 8px; }
+.mt-table th, .mt-table td { padding: 4px 6px; border-bottom: 1px solid var(--mt-rule); text-align: right; }
+.mt-table th:first-child, .mt-table td:first-child { text-align: left; }
+.mt-table thead th { font-weight: 600; }
+.mt-table .mt-best { font-weight: 700; }
+.mt-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 24px; margin-top: 24px; }
+.mt-charts figure { margin: 0; }
+.mt-charts figcaption { font-size: 0.85rem; color: var(--mt-muted); margin-bottom: 4px; }
+.mt-charts svg { width: 100%; height: auto; background: #fff; border: 1px solid var(--mt-rule); border-radius: 6px; }
+.mt-charts text { font: 11px system-ui, sans-serif; fill: var(--mt-muted); }
+.mt-axis { stroke: var(--mt-rule); }
+.mt-text { max-width: 72ch; margin-top: 32px; }
+.mt-text h2 { font-size: 1.2rem; }
+.mt-eq { font-family: Georgia, serif; font-size: 1.05rem; text-align: center; }
+.mt-foot { font-size: 0.8rem; color: var(--mt-muted); margin-top: 24px; }
+.mt-sw-cut { border-color: var(--mt-cut); width: 10px; }
+.mt-sw-fill { border-color: var(--mt-fill); width: 10px; }
+.mt-padwrap svg { width: 100%; max-width: 420px; height: auto; display: block; touch-action: none; cursor: pointer;
+  background: #fff; border: 1px solid var(--mt-rule); border-radius: 6px; }
+.mt-padwrap text { font: 11px system-ui, sans-serif; fill: var(--mt-muted); }
+.mt-rail { stroke: #b9b5a6; stroke-width: 3; stroke-linecap: round; }
+.mt-node { fill: #fff; stroke: #8a8577; stroke-width: 1.2; }
+.mt-jump { stroke: var(--mt-jumpc); stroke-width: 2.5; stroke-linecap: round; }
+.mt-here { fill: var(--tg-accent); stroke: #fff; stroke-width: 2.5; pointer-events: none; }
+.mt-jumpkey { display: inline-block; width: 3px; height: 12px; background: var(--mt-jumpc); vertical-align: middle; border-radius: 1px; }
+.mt-factors { margin-top: 12px; }
+.mt-factors summary { cursor: pointer; font-weight: 600; }
+.mt-table td.mt-fnote { text-align: left; color: var(--mt-muted); font-size: 0.8rem; }
