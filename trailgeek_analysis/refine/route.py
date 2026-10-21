@@ -76,6 +76,7 @@ EXTRA_MAX_NODES = 50_000  # route_lines searches its 2nd and later turn weights 
                           # (2026-10-21: on the 6 km Graduation Peak Trail, ~190 s a search, and the routes
                           # at 0.5x and 2x turns were all but the same; on a 200 m slope, under a second)
 FLAT_PCT = 4.0            # %: flatter ground has no fall line (score.FALL_MIN_SLOPE_PCT)
+KEY_Q = 1024             # the search's heap orders estimates to 1/KEY_Q m
 SIDE_M = 5.0              # m: the downhill side is read from the slope this far either side (the scoring's ~10 m)
 
 # Steps to 32 neighbours: the 8 around, the 8 a knight's move away, and the
@@ -246,7 +247,7 @@ def route_lines(prob, k=None, turn_x=(1.0,), cell=CELL_M, progress=None):
     # (owner, 2026-10-19: as Python dicts and lists a 7 km trail in a 100 m
     # corridor took 3 GB, and the 4 GB droplet swapped). Node u's neighbour
     # and step cost in direction d are at u * ND + d.
-    hx = memoryview(np.hypot(nx - gxe, ny - gye))
+    hx = memoryview(np.maximum(np.hypot(nx - gxe, ny - gye), _climb_floor(prob, k, base) * np.abs(nz - nz[s1])))
     nbv = memoryview(np.ascontiguousarray(nb.T).ravel())
     ecv = memoryview(np.ascontiguousarray(ec.T).ravel())
     sdv = memoryview(np.ascontiguousarray(sd.T).ravel())
@@ -273,6 +274,23 @@ def route_lines(prob, k=None, turn_x=(1.0,), cell=CELL_M, progress=None):
         xy = np.vstack([P0, xy[1:-1], P1]) if len(xy) > 2 else np.vstack([P0, P1])
         out.append(_simplify(xy, SIMPLIFY_M))
     return out
+
+
+def _climb_floor(prob, k, base):
+    """The least a step can cost per metre of height it climbs or descends,
+    so the estimate to the end can be |height to go| times this as well as
+    the distance (2026-10-21: on a climb the distance alone is a fraction of
+    the cost, and the search widened across the whole corridor before
+    reaching the end). A step's cost is at least its slope length times
+    (1 + the grade charge + the least of the charges every step pays), and
+    its slope length at least hypot(L, |dz|) (score.py's reading over
+    sub-steps only adds), so per metre of height at least
+    sqrt(1 + g^2) / g (1 + ...) at its grade g; the minimum over g, less a
+    hair for the grid of grades it is found on."""
+    g = np.concatenate([np.geomspace(1e-3, 1.0, 3000), np.geomspace(1.0, 1e3, 1000)[1:]])
+    floor = 1.0 + max(0.0, float(np.min(base))) if np.size(base) else 1.0
+    per = floor + k.get("grade", 0) * prob.f["grade"](100 * g)
+    return 0.995 * float(np.min(np.sqrt(1 + g * g) / g * per))
 
 
 def _band_left(sgx, sgy, prob):
@@ -319,25 +337,38 @@ def _search(N, s0, s1, hx, nbv, ecv, sdv, band, T, fee, say):
     """A* over (node, heading, downhill side) from node s0 to s1; the nodes
     of the path, or None. say(fraction) reports how far the frontier has
     got. A state is (u * ND + heading) * 2 + side bit (0 left, 1 right); the
-    start takes either side free (its first side is no change)."""
+    start takes either side free (its first side is no change).
+
+    The heap holds one int per entry, the estimate in 1/KEY_Q m above the
+    state's bits (2026-10-21: as (estimate, state) tuples, ~116 bytes an
+    entry, a 7 km trail's search peaked at 2.8 GB; an int is ~40, and
+    compares faster). Entries the search has since bettered by more than
+    1/KEY_Q are skipped on popping (closer ones are expanded again,
+    harmlessly)."""
     fee0, turn_deg, min_deg = fee
     best_a = np.full(N * ND * 2, np.inf)
     parent_a = np.full(N * ND * 2, -1, np.int32)
     best, parent = memoryview(best_a), memoryview(parent_a)
-    heap = []                     # (estimate, state); stale entries are skipped on popping
+    sh = (N * ND * 2).bit_length()
+    mask = (1 << sh) - 1
+    q = float(KEY_Q)
+    heap = []
     for d in range(2 * ND):
         st = s0 * 2 * ND + d
         best[st] = 0.0
-        heapq.heappush(heap, (hx[s0], st))
+        heap.append((int(hx[s0] * q) << sh) | st)
+    heapq.heapify(heap)
     done = None
     h0, h_min, pops = max(hx[s0], 1e-9), hx[s0], 0
+    pop, push = heapq.heappop, heapq.heappush
     say(0.0)
     while heap:
-        fsc, st = heapq.heappop(heap)
+        key = pop(heap)
+        st = key & mask
         ud, sb = divmod(st, 2)
         u, din = divmod(ud, ND)
         gc = best[st]
-        if fsc > gc + hx[u] + 1e-9:
+        if (key >> sh) > (gc + hx[u]) * q + 1:
             continue
         pops += 1
         if hx[u] < h_min:
@@ -368,7 +399,7 @@ def _search(N, s0, s1, hx, nbv, ecv, sdv, band, T, fee, say):
             if ng < best[sv]:
                 best[sv] = ng
                 parent[sv] = st
-                heapq.heappush(heap, (ng + hx[v], sv))
+                push(heap, (int((ng + hx[v]) * q) << sh) | sv)
     if done is None:
         return None
     path = []
