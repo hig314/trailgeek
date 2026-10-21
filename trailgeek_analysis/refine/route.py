@@ -298,13 +298,13 @@ def _band_left(sgx, sgy, prob):
     turned, at least, since its downhill side was last set, if that heading
     is in the fall-line band there (fall_tsa less its angle off the fall
     line), else 0. A float32 memoryview."""
-    ang = np.array([math.atan2(dr, dc) for dc, dr in DIRS])
-    tx, ty = np.cos(ang)[None, :], np.sin(ang)[None, :]
-    Sx, Sy = sgx[:, None], sgy[:, None]
-    cross, along = -Sx * ty + Sy * tx, Sx * tx + Sy * ty
-    tsa = np.degrees(np.arctan2(np.abs(cross), np.abs(along)))
-    left = np.where((tsa < prob.fall_tsa) & (100 * np.hypot(Sx, Sy) >= FLAT_PCT), prob.fall_tsa - tsa, 0.0)
-    return memoryview(np.ascontiguousarray(left, np.float32).ravel())
+    left = np.zeros((len(sgx), ND), np.float32)     # one heading at a time: N x ND float64s are 86 MB each on a 7 km trail
+    sloped = 100 * np.hypot(sgx, sgy) >= FLAT_PCT
+    for d, (dc, dr) in enumerate(DIRS):
+        tx, ty = dc / math.hypot(dc, dr), dr / math.hypot(dc, dr)
+        tsa = np.degrees(np.arctan2(np.abs(-sgx * ty + sgy * tx), np.abs(sgx * tx + sgy * ty)))
+        left[:, d] = np.where((tsa < prob.fall_tsa) & sloped, prob.fall_tsa - tsa, 0.0)
+    return memoryview(left.ravel())
 
 
 def _turn_costs(prob, k, turn_x=1.0):
