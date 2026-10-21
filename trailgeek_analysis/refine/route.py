@@ -57,6 +57,9 @@ READ_SHARE = 0.2          # the share of the route-finder's progress given to re
 SUB_M = 1.0               # m: a step's ground is read at least this often along it
 SIMPLIFY_M = 0.5          # m: the route keeps vertices that move it more than this
 LIMIT_MARGIN_M = 1.5      # m: the route keeps this far inside the limit, so the smooth curve fitted to it fits too
+EXTRA_MAX_NODES = 50_000  # route_lines searches its 2nd and later turn weights only on a grid this small
+                          # (2026-10-21: on the 6 km Graduation Peak Trail, ~190 s a search, and the routes
+                          # at 0.5x and 2x turns were all but the same; on a 200 m slope, under a second)
 FLAT_PCT = 4.0            # %: flatter ground has no fall line (score.FALL_MIN_SLOPE_PCT)
 
 # Steps to 32 neighbours: the 8 around, the 8 a knight's move away, and the
@@ -219,7 +222,11 @@ def route_lines(prob, k=None, turn_x=(1.0,), cell=CELL_M, progress=None):
     ecv = memoryview(np.ascontiguousarray(ec.T).ravel())
     del nb, ec
     out = []
+    route_lines.nodes = N                 # for the caller's log
     for n_, tx_ in enumerate(turn_x):
+        if n_ and N > EXTRA_MAX_NODES:
+            out.append(None)              # a long stretch: one route only (each search takes minutes)
+            continue
         share = (1 - READ_SHARE) / len(turn_x)
         at = READ_SHARE + n_ * share
         T = _turn_costs(prob, k, tx_)
