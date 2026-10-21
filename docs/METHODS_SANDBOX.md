@@ -129,15 +129,24 @@ corner weight for any corner, and the engine may beat it by turning less.
   Cone and dome: the engine is never more than 1.4 % dearer than the
   formula, and cheaper at 68 of 72 settings (it turns less). Plane: within
   1 % or better at 30 of 36; dearer by 2-30 % at 6, all with corners dear
-  (corner weight 100-300), where the reference makes one long switchback and
-  the engine 3 or 8.
-- **Why, at dear corners:** the route-finder charges a turn at corner rates
-  only when one grid cell turns 60 degrees or more (`corner_min_turn_deg`).
-  Its switchbacks are made of 25-45 degree turns, so it charges them all as
-  bends, and the corner weight never reaches it (its route at 0.5x, 1x and
-  2x turns was the same); the scoring then counts them as corners (a change
-  of the downhill side). Next for the engine: charge the route-finder's
-  turns as corners by the side change, as the scoring does.
+  (corner weight 100-300).
+- **Why, at dear corners: the reference uses a blind spot in the scoring**
+  (found 2026-10-21, correcting the first reading, "one long switchback"). Its
+  line at those settings is a ladder of about 20 switchbacks, 8 m either side
+  of the straight line, and the scoring counts one corner. The scoring reads
+  the downhill side from the cross slope averaged over ~10 m of line, and
+  drops a side held for less than 10 m (`score.CORNER_RUN_MIN_M`) as noise;
+  each leg of the ladder holds its side 8.7-9.1 m, so none counts. With that
+  minimum at 6 m the reference costs more than the engine's line at 5 of the
+  6 settings (at 4 m, all 6). The engine is not short there; the reference
+  is cheating. To change in the scoring (the owner's call): read the side
+  from the ground's slope against the line's heading, not an average along
+  the line that cancels on short legs, and a shorter minimum.
+- **The route-finder did miss the corner weight** (fixed on branch
+  `refine-route-corners`): it charged corner rates only for one grid turn of
+  60 degrees or more, and built switchbacks from 25-45 degree turns, so the
+  corner weight never reached it. It now carries the downhill side in its
+  state and charges a change of side, as the scoring counts corners.
 - **Cost:** a thorough run on the plane went from ~85 s to ~145 s (the
   three route-finder chains start from winding routes with many controls);
   the full build of all three surfaces took 4.7 hours on the Mac.
