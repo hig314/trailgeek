@@ -890,3 +890,34 @@ loses on the way is a metre won back, and is charged.**
 - **Limitation.** "Net" is between the stretch's ends. A stretch over a
   pass would be charged its whole descent; that is a question of how a
   trail is cut into stretches, not yet taken on (owner, 2026-10-19).
+
+## 23. Route-finder starts at several turn weights (2026-10-21)
+
+From the methods page's sandbox (docs/METHODS_SANDBOX.md), where the
+cheapest line on formula surfaces is known: the annealer reaches a local
+optimum, but cannot change a line's layout (how many switchbacks, how many
+turns of a spiral). Layouts come from the starts.
+
+- **Several routes.** `route.route_lines` runs the route-finder with the
+  corner and bend weights times 1, 0.5 and 2 (`search.ROUTE_TURN_X`), the
+  terrain read and priced once (pricing is seconds; each search is the cost),
+  and `refine` starts a chain from each distinct route, with its own as-found
+  rounding. Only on grids of up to 50,000 cells (`route.EXTRA_MAX_NODES`): on
+  the 7 km Graduation Peak Trail (336,000 cells) a search took ~190 s and the
+  three routes were all but the same, so a long stretch keeps one route.
+  `result["route"]["starts"]` has each start's totals.
+- **A route chain is no longer dropped for one cusp.** When the smooth fit to
+  a route folded back at one tight grid turn, its chain was silently dropped
+  (on a cone at grade weight 30, the route-finder's 2-turn spiral). The fit is
+  now retried with the route's corners rounded more (3, 6, 12 m,
+  `search.ROUTE_SKETCH_R_M`).
+- Effect on the sandbox's single thorough runs at grade weight 30, corners
+  free: cone 1985 to 1174 (tracing between settings found 1134), dome 942 to
+  831 (709). Elsewhere unchanged or a few per cent. Cost: a thorough run on
+  the sandbox's plane went from ~85 s to ~145 s.
+- **Open: corners in the route-finder.** It charges a turn at corner rates
+  only when one grid cell turns `corner_min_turn_deg` or more; switchbacks it
+  builds from 25-45 degree turns are charged as bends, so the corner weight
+  never reaches it. The scoring counts a corner by the change of the downhill
+  side. With corners dear (sandbox plane, corner weight 100-300) the engine
+  made 3-8 switchbacks where one long one was cheaper (up to 30 % dearer).

@@ -22,7 +22,7 @@ import math
 import numpy as np
 
 from . import spline
-from .route import route_line
+from .route import route_lines
 from .score import BEND_STEP_M, PER_M, Problem, adaptive_resample, densify, fillet, fit_controls, histograms
 from .settings import FACTOR_META
 
@@ -44,7 +44,13 @@ CHAIN_VARIANTS = [
     ("best", "Best overall", {}, 1.0),
 ]
 EDGE_M = 1.0                        # m: within this of the search's limit counts as "along the edge"
-ROUTE_SKETCH_R_M = 3.0              # m: the route's own corners are rounded this much for its chain's start
+ROUTE_SKETCH_R_M = (3.0, 6.0, 12.0)  # m: the route's own corners are rounded this much for its chain's start; if
+                                    # the smooth fit to it still folds back somewhere (a cusp at a tight grid turn),
+                                    # more, rather than drop the chain (2026-10-21: on a cone at grade weight 30 the
+                                    # route-finder's 2-turn spiral was dropped this way)
+ROUTE_TURN_X = (1.0, 0.5, 2.0)      # the route-finder is run with the corner and bend weights times each of these,
+                                    # a chain from each route (2026-10-21: different layouts, more switchbacks or
+                                    # fewer, which the search's moves cannot make; 0.7 s each on a 160 m slope)
 ROUTE_SIGMA_M = 3.0                 # m: ... and fitted loosely enough to smooth its 2 m grid steps (closer fits make cusps)
 ROUTE_KNOT_M = 4.0                  # m: at most this between its controls, so switchbacks survive the fit
 ROUTE_UNITS = 1.5                   # the route-finder's share of the progress bar, in chains (it takes about as long)
@@ -285,7 +291,7 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
     # chain, ROUTE_UNITS for the route-finder and ROUTE_ROUND_UNITS for
     # rounding its line, and every step reports its stage and its share.
     stage = ["Searching"]
-    units = chains + (ROUTE_UNITS + 1 + ROUTE_ROUND_UNITS if chains > 0 else 0)
+    units = chains + (ROUTE_UNITS + len(ROUTE_TURN_X) * (1 + ROUTE_ROUND_UNITS) if chains > 0 else 0)
 
     def report(done_units, b=None, name=None):
         if b is not None:
@@ -294,19 +300,28 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
             stage[0] = name
         if progress:
             progress(min(1.0, done_units / max(units, 1e-9)), shown[0], stage[0])
-    # The route-finder's chain (owner, 2026-10-18): the cheapest path over a
+    # The route-finder's chains (owner, 2026-10-18): the cheapest path over a
     # grid of the terrain within the limit, which can wind where the line goes
-    # straight up, polished by the annealer like any other chain.
-    route = None
+    # straight up, polished by the annealer like any other chain; one route
+    # per ROUTE_TURN_X, the terrain read once.
+    routes = []
     if chains > 0:
         report(0, None, "Route-finder: reading the corridor")
-        route = route_line(prob, k, progress=lambda fr, what: report(ROUTE_UNITS * fr, None, "Route-finder: " + what))
+        found = route_lines(prob, k, ROUTE_TURN_X,
+                            progress=lambda fr, what: report(ROUTE_UNITS * fr, None, "Route-finder: " + what))
+        for tx_, R in zip(ROUTE_TURN_X, found):
+            if R is None:
+                continue
+            # The same route found at another turn weight is searched once.
+            if any(len(R) == len(R2) and np.allclose(R, R2) for _, R2 in routes):
+                continue
+            routes.append((tx_, R))
     route_info = None
     for ci in range(chains):
         key, label, mult, reach = CHAIN_VARIANTS[ci % len(CHAIN_VARIANTS)]
         kk = {f: v * mult.get(f, 1.0) for f, v in k.items()}
         crng = np.random.default_rng(rng.integers(1, 2 ** 31 - 1))
-        at = ROUTE_UNITS + ci if route is not None else ci
+        at = ROUTE_UNITS + ci if chains > 0 else ci
         report(at, None, f"Search {ci + 1} of {chains}: {label.lower()}")
         cb = lambda i, b, at=at, same=not mult: report(at + i / iters, b if same else None)
         prob.limit = prob.corridor * reach
@@ -322,26 +337,37 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
         if r is not None:
             results.append((key, label, c, r))
             shown[0] = min(shown[0], r["total"])
-    if route is not None:
-        at = ROUTE_UNITS + chains
-        report(at, None, "Polishing the route-finder's line")
-        pr = Problem([route], prob.grid, dict(settings, params=dict(p, sketch_radius_m=ROUTE_SKETCH_R_M,
-                                                                     input_sigma_m=ROUTE_SIGMA_M,
-                                                                     knot_m=min(float(p["knot_m"]), ROUTE_KNOT_M))),
-                     prob.twi_grid, like=prob, adaptive=True)
-        pr.existing_xy, pr.grade_ref = prob.existing_xy, prob.grade_ref
+    route_info = None
+    routed = []
+    if routes:
+        route_info = {"starts": []}
+    for n_r, (tx_, R) in enumerate(routes):
+        at = ROUTE_UNITS + chains + n_r * (1 + ROUTE_ROUND_UNITS)
+        what = "the route-finder's line" + ("" if tx_ == 1.0 else f" (turns x{tx_:g})")
+        report(at, None, "Polishing " + what)
+        info = {"turn_x": tx_, "polished": None, "as_found": None, "vertices": int(len(R))}
+        route_info["starts"].append(info)
+        pr = None
+        for r_sk in ROUTE_SKETCH_R_M:
+            pr = Problem([R], prob.grid, dict(settings, params=dict(p, sketch_radius_m=r_sk,
+                                                                    input_sigma_m=ROUTE_SIGMA_M,
+                                                                    knot_m=min(float(p["knot_m"]), ROUTE_KNOT_M))),
+                         prob.twi_grid, like=prob, adaptive=True)
+            pr.existing_xy, pr.grade_ref = prob.existing_xy, prob.grade_ref
+            if pr.score(pr.start(), min(t0, prob.tmax), k) is not None:
+                info["sketch_radius_m"] = r_sk
+                break
         crng = np.random.default_rng(rng.integers(1, 2 ** 31 - 1))
-        cb = lambda i, b: report(at + i / iters, b)
-        routed, route_info = [], {"polished": None, "as_found": None, "vertices": int(len(route))}
+        cb = lambda i, b, at=at: report(at + i / iters, b)
         try:
             total, c, t = anneal(pr, crng, iters, k, min(t0, prob.tmax), cb)
             r = pr.score(c, t, k, detail=True)
             if r is not None:
                 routed.append(r)
-                route_info["polished"] = round(r["total"], 1)
+                info["polished"] = round(r["total"], 1)
                 shown[0] = min(shown[0], r["total"])
         except ValueError:
-            pass                                      # its smooth start strays past the limit
+            pass                                      # no smooth start fits: the route as found is still tried
         # The route itself, as found: a smooth curve can lose a tight turn it
         # had. Its corners are rounded (owner, 2026-10-19: offered as found,
         # its grid kinks came out as kinks), to each of ROUTE_ROUND_M as far
@@ -349,8 +375,8 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
         kept = None
         for n_, rr in enumerate(ROUTE_ROUND_M):
             report(at + 1 + ROUTE_ROUND_UNITS * n_ / len(ROUTE_ROUND_M), None,
-                   f"Rounding the route-finder's corners ({rr:g} m)")
-            Rf = fillet(route, rr, BEND_STEP_M, r_min=0.5)
+                   f"Rounding the corners of {what} ({rr:g} m)")
+            Rf = fillet(R, rr, BEND_STEP_M, r_min=0.5)
             Qr, Qf = adaptive_resample(Rf, prob.h), densify(Rf, BEND_STEP_M)
             found_r = _best_tube(lambda tt, kk: pr.score_line(Qr, min(tt, prob.tmax), kk, Qf=Qf), k)
             if found_r is not None and (kept is None or found_r[0]["total"] < kept[0]):
@@ -359,10 +385,10 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
         if kept is not None:
             _, Qr, Qf, tt, rr = kept
             routed.append(pr.score_line(Qr, min(tt, prob.tmax), k, detail=True, Qf=Qf))
-            route_info["as_found"] = round(routed[-1]["total"], 1)
-            route_info["as_found_round_m"] = rr
-        if routed:
-            results.append(("routed", "From the route-finder", None, min(routed, key=lambda r: r["total"])))
+            info["as_found"] = round(routed[-1]["total"], 1)
+            info["as_found_round_m"] = rr
+    if routed:
+        results.append(("routed", "From the route-finder", None, min(routed, key=lambda r: r["total"])))
     report(units, min([r["total"] for *_, r in results], default=inp["total"]), "Comparing the candidates")
 
     def acceptable(r):
@@ -409,5 +435,5 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
         "seed": seed,
         "histograms": histograms(inp),
         "chains": [{"key": key, "label": label, "total": round(r["total"], 1)} for key, label, c, r in results],
-        "route": route_info,                     # the route-finder's chain: polished and as-found totals
+        "route": route_info,                     # the route-finder's chains: each start's polished and as-found totals
     }

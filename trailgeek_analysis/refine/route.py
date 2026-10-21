@@ -57,6 +57,9 @@ READ_SHARE = 0.2          # the share of the route-finder's progress given to re
 SUB_M = 1.0               # m: a step's ground is read at least this often along it
 SIMPLIFY_M = 0.5          # m: the route keeps vertices that move it more than this
 LIMIT_MARGIN_M = 1.5      # m: the route keeps this far inside the limit, so the smooth curve fitted to it fits too
+EXTRA_MAX_NODES = 50_000  # route_lines searches its 2nd and later turn weights only on a grid this small
+                          # (2026-10-21: on the 6 km Graduation Peak Trail, ~190 s a search, and the routes
+                          # at 0.5x and 2x turns were all but the same; on a 200 m slope, under a second)
 FLAT_PCT = 4.0            # %: flatter ground has no fall line (score.FALL_MIN_SLOPE_PCT)
 
 # Steps to 32 neighbours: the 8 around, the 8 a knight's move away, and the
@@ -112,6 +115,17 @@ def route_line(prob, k=None, cell=CELL_M, progress=None):
     then: reading the terrain is the first READ_SHARE, and the search
     reports how far towards the end its frontier has got in a straight line
     (it widens behind the frontier, so it moves unevenly)."""
+    return route_lines(prob, k, (1.0,), cell, progress)[0]
+
+
+def route_lines(prob, k=None, turn_x=(1.0,), cell=CELL_M, progress=None):
+    """One cheapest path per multiplier in `turn_x` on the corner and bend
+    weights (each as route_line's, or None), the terrain read and priced
+    once: only the turn costs change between them (2026-10-21: routes found
+    with turns charged at half and twice their weight are different layouts,
+    more switchbacks or fewer, for the search to start from; the search's
+    own moves cannot change a layout). The searches share the progress after
+    READ_SHARE equally."""
     say = progress or (lambda fr, what: None)
     k = prob.base_k if k is None else k
     g = prob.grid
@@ -131,7 +145,7 @@ def route_line(prob, k=None, cell=CELL_M, progress=None):
         if len(c_):
             cand.append(r_ * W + c_)
     if not cand:
-        return None
+        return [None] * len(turn_x)
     cand = np.concatenate(cand)
     X, Y = xs[cand % W], ys[cand // W]
     gs = _smoothed(g, SMOOTH_M)
@@ -141,7 +155,7 @@ def route_line(prob, k=None, cell=CELL_M, progress=None):
     gy = (g.sample(X, Y + b2) - g.sample(X, Y - b2)) / prob.bench
     ok = np.isfinite(z) & np.isfinite(gx) & np.isfinite(gy)
     if not ok.any():
-        return None
+        return [None] * len(turn_x)
     nodes = cand[ok]
     idx = np.full(W * H, -1, np.int32)
     idx[nodes] = np.arange(len(nodes))
@@ -194,15 +208,6 @@ def route_line(prob, k=None, cell=CELL_M, progress=None):
                + k.get("falltread", 0) * f["falltread"](grade) * (tsa < prob.fall_tsa))
         nb[d, i] = np.where(ok_step, jj, -1)
         ec[d, i] = np.where(ok_step, slope_len * per + k_climb * np.nan_to_num(lost, nan=0.0), np.inf)
-    # Turn costs between headings.
-    ang = np.array([math.atan2(dr, dc) for dc, dr in DIRS])
-    turn = np.abs((ang[None, :] - ang[:, None] + math.pi) % (2 * math.pi) - math.pi)
-    r = BEND_WINDOW_M / np.maximum(turn, 1e-9)
-    corner = k.get("corner", 0) * f["corner"](r)
-    bend = k.get("bend", 0) * f["bend"](r)
-    T = np.where(turn >= prob.min_turn, corner * turn / math.pi, bend * turn / (math.pi / 2))
-    T[turn > math.radians(MAX_TURN_DEG)] = np.inf
-    T = T.tolist()
 
     def nearest(p):
         return int(np.argmin(np.hypot(nx - p[0], ny - p[1])))
@@ -216,6 +221,43 @@ def route_line(prob, k=None, cell=CELL_M, progress=None):
     nbv = memoryview(np.ascontiguousarray(nb.T).ravel())
     ecv = memoryview(np.ascontiguousarray(ec.T).ravel())
     del nb, ec
+    out = []
+    route_lines.nodes = N                 # for the caller's log
+    for n_, tx_ in enumerate(turn_x):
+        if n_ and N > EXTRA_MAX_NODES:
+            out.append(None)              # a long stretch: one route only (each search takes minutes)
+            continue
+        share = (1 - READ_SHARE) / len(turn_x)
+        at = READ_SHARE + n_ * share
+        T = _turn_costs(prob, k, tx_)
+        path = _search(N, s0, s1, hx, nbv, ecv, T,
+                       lambda fr, at=at, share=share: say(at + share * fr, "searching"))
+        if path is None:
+            out.append(None)
+            continue
+        xy = np.column_stack([nx[path], ny[path]])
+        xy = np.vstack([P0, xy[1:-1], P1]) if len(xy) > 2 else np.vstack([P0, P1])
+        out.append(_simplify(xy, SIMPLIFY_M))
+    return out
+
+
+def _turn_costs(prob, k, turn_x=1.0):
+    """T[din][dout]: the cost of turning from heading din to dout, the corner
+    and bend weights times turn_x."""
+    f = prob.f
+    ang = np.array([math.atan2(dr, dc) for dc, dr in DIRS])
+    turn = np.abs((ang[None, :] - ang[:, None] + math.pi) % (2 * math.pi) - math.pi)
+    r = BEND_WINDOW_M / np.maximum(turn, 1e-9)
+    corner = turn_x * k.get("corner", 0) * f["corner"](r)
+    bend = turn_x * k.get("bend", 0) * f["bend"](r)
+    T = np.where(turn >= prob.min_turn, corner * turn / math.pi, bend * turn / (math.pi / 2))
+    T[turn > math.radians(MAX_TURN_DEG)] = np.inf
+    return T.tolist()
+
+
+def _search(N, s0, s1, hx, nbv, ecv, T, say):
+    """A* over (node, heading) from node s0 to s1; the nodes of the path, or
+    None. say(fraction) reports how far the frontier has got."""
     best_a = np.full(N * ND, np.inf)
     parent_a = np.full(N * ND, -1, np.int32)
     best, parent = memoryview(best_a), memoryview(parent_a)
@@ -226,7 +268,7 @@ def route_line(prob, k=None, cell=CELL_M, progress=None):
         heapq.heappush(heap, (hx[s0], st))
     done = None
     h0, h_min, pops = max(hx[s0], 1e-9), hx[s0], 0
-    say(READ_SHARE, "searching")
+    say(0.0)
     while heap:
         fsc, st = heapq.heappop(heap)
         u, din = divmod(st, ND)
@@ -237,7 +279,7 @@ def route_line(prob, k=None, cell=CELL_M, progress=None):
         if hx[u] < h_min:
             h_min = hx[u]
         if pops % 200_000 == 0:
-            say(READ_SHARE + (1 - READ_SHARE) * (1 - h_min / h0), "searching")
+            say(1 - h_min / h0)
         if u == s1:
             done = st
             break
@@ -261,6 +303,4 @@ def route_line(prob, k=None, cell=CELL_M, progress=None):
         path.append(st // ND)
         st = parent[st]
     path.reverse()
-    xy = np.column_stack([nx[path], ny[path]])
-    xy = np.vstack([P0, xy[1:-1], P1]) if len(xy) > 2 else np.vstack([P0, P1])
-    return _simplify(xy, SIMPLIFY_M)
+    return path
