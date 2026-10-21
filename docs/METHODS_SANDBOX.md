@@ -96,24 +96,56 @@ corner weight for any corner, and the engine may beat it by turning less.
 
 ## What it showed about the engine
 
-From the build of 2026-10-20 (every factor at its default, grade and corner
-weights varied, 6 x 6 settings, thorough runs + polishing + tracing):
+**Review of 2026-10-21** (before the real-terrain sandbox):
 
-- **With enough search, the engine finds the answer.** At all 108 settings
-  over the three surfaces, the engine's line is never more than 1 % worse
-  than the formula's (cone, worst 0.8 %) and often better, by turning less
-  (dome, up to 7 %; plane, where its fewer, longer switchbacks beat the
-  reference zigzag at the cheapest grade).
-- **But one run is not enough search.** A third to a half of the settings
-  were first improved by polishing from a neighbour's line, and a fifth to
-  a third again by a tracing reaching them; on the plane, settings were still
-  improving after four rounds. The switchback shortfall of the first build
-  (30 %) was the search, not the scoring. The Refine panel runs one search:
-  seeding it from more than one start (a neighbour's answer, or the line
-  traced from one) is the lead this gives.
-- Jumps (a change of route along an edge): cone 20, dome 10, plane 40 of 60
-  edges' worth; the plane's include 22 at settings still improving in the
-  last re-tracing round.
+- **The plane's lines of 2026-10-20 were invalid.** Tracing and polishing
+  steps measured their limit from the step before's line alone, and drifted
+  out of the plane's 30 m corridor (469 of 563 lines, to 100 m). Its claims
+  ("within 1 % of the reference", "beats the reference zigzag") are
+  withdrawn. Fixed: a step must stay inside its strip and the surface's own
+  corridor (`sandbox.trace_step`). The cone's and dome's 120 m corridors held.
+- **Inside the corridor, single thorough runs match the plane's reference
+  zigzag** (within 1 %, or better, at four settings). The 30 % switchback
+  shortfall of the first build was short runs, not the scoring.
+- **Where the search falls short: layouts.** The annealer reaches a local
+  optimum (a coordinate-descent polish after it gains 0.3 %; twice the
+  controls, nothing); what it cannot do is change a layout (how many
+  switchbacks, how many turns of a spiral). Tracing between settings found
+  better layouts: 1-4 % typically, 25-43 % at grade weight 30 with corners
+  free (long spirals).
+- **Engine fixes from it** (branch `refine-route-starts`):
+  - the route-finder's chain was dropped when the smooth fit to its route
+    folded back at one tight grid turn (on the cone at grade weight 30, its
+    2-turn spiral); now refitted with its corners rounded more (3, 6, 12 m);
+  - the route-finder runs at the corner and bend weights times 1, 0.5 and 2,
+    a chain from each distinct route (different layouts for the annealer),
+    on grids of up to 50,000 cells (on the 7 km Graduation Peak Trail,
+    336,000 cells, a search takes ~190 s and the three routes were all but
+    the same).
+  - Together: single thorough runs at grade weight 30, corners free, went
+    from 1985 to 1174 on the cone (tracing found 1134) and 942 to 831 on the
+    dome (709).
+- **After the fixes (rebuild of 2026-10-21):** no line leaves its corridor.
+  Cone and dome: the engine is never more than 1.4 % dearer than the
+  formula, and cheaper at 68 of 72 settings (it turns less). Plane: within
+  1 % or better at 30 of 36; dearer by 2-30 % at 6, all with corners dear
+  (corner weight 100-300), where the reference makes one long switchback and
+  the engine 3 or 8.
+- **Why, at dear corners:** the route-finder charges a turn at corner rates
+  only when one grid cell turns 60 degrees or more (`corner_min_turn_deg`).
+  Its switchbacks are made of 25-45 degree turns, so it charges them all as
+  bends, and the corner weight never reaches it (its route at 0.5x, 1x and
+  2x turns was the same); the scoring then counts them as corners (a change
+  of the downhill side). Next for the engine: charge the route-finder's
+  turns as corners by the side change, as the scoring does.
+- **Cost:** a thorough run on the plane went from ~85 s to ~145 s (the
+  three route-finder chains start from winding routes with many controls);
+  the full build of all three surfaces took 4.7 hours on the Mac.
+- **Tried and not worth it:** a coordinate-descent polish after the search;
+  more controls; smaller moves in tracing steps (worse: tracing needs the big
+  moves to reach the other end's route); splicing candidate lines where they
+  cross (2-opt style: worse on a zigzag slope, every splice is a sharp
+  corner; might suit real terrain, where lines braid at shallow angles).
 
 From the first build (2026-10-19, grade and turn weights only, everything
 else off):
