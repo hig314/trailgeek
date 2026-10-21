@@ -251,7 +251,7 @@ def _best_tube(score, k):
     return best
 
 
-def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, existing_xy=None):
+def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, existing_xy=None, offer_all=False):
     """Refine a stretch made of legs (each an (m, 2) array in a metric CRS).
     `settings` is a full, cleaned settings dict (settings.clean_settings).
     `progress(fraction, best_total, stage)` is called now and then; stage
@@ -261,7 +261,12 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
     "seed", "histograms", "chains"}. The line as drawn is scored with the
     same tube as the candidates, so the comparison is fair; the smooth fit
     to it is offered as the candidate "Your line, smoothed", so the gain
-    from rounding alone and the gain from fitting the terrain show apart."""
+    from rounding alone and the gain from fitting the terrain show apart.
+
+    `offer_all`: offer any candidate cheaper than the input, however far it
+    strays from the input on one factor (the methods page's sandbox wants
+    the cheapest line; the panel keeps the MARGIN rule, so a winding answer
+    much longer than a person's line is not offered in its place)."""
     p = settings["params"]
     if progress:
         progress(0.0, None, "Scoring your line")
@@ -394,6 +399,8 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
     def acceptable(r):
         if r["total"] >= inp["total"] - 1e-9:
             return False
+        if offer_all:
+            return True
         if k.get("grade", 0) > 0 and r["grade"].max() > prob.grade_ref + GRADE_MAX_SLACK:
             return False
         extra = inp["total"] - inp["contrib"].get("length", 0)

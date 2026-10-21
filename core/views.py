@@ -5,6 +5,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import connection
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.templatetags.static import static
 from django.views.decorators.http import require_http_methods
 
 from . import access
@@ -22,6 +23,16 @@ def home(request):
         "core/home.html",
         {"can_edit": access.is_trail_editor(request.user), "shared_basemaps": shared_qms_layers()},
     )
+
+
+# The methods page's analytic sandbox: one precomputed file per surface
+# (manage.py build_methods analytic), in the order the page offers them.
+SANDBOX_SURFACES = [("cone", "Rounded cone"), ("dome", "Dome"), ("plane", "Uniform slope")]
+
+
+def methods_sandbox(request):
+    files = [{"name": n, "label": label, "url": static(f"core/methods/analytic-{n}.json")} for n, label in SANDBOX_SURFACES]
+    return render(request, "core/methods_sandbox.html", {"files": files})
 
 
 def healthz(request):

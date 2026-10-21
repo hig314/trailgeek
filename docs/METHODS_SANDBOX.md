@@ -1,0 +1,179 @@
+# The methods page's route sandbox
+
+`/methods/sandbox/` (owner, 2026-10-19/20): a small patch of terrain, the
+weights of the refine engine, and the line it draws at each setting, so a
+reader can see how the weights move the answer. Every line is computed
+ahead of time by the real engine (`refine.search.refine` and its annealer)
+and stored as static JSON; the page only draws. No second copy of the
+engine in JavaScript: the page would then explain an engine the site does
+not run.
+
+## The interface (owner, 2026-10-20)
+
+- **Every factor has a weight; some vary.** The sandbox is a set of weights
+  and curves for every factor (the defaults), with a few factors flagged as
+  varied (their curves fixed, their weights on sliders). No factor is left
+  out; the reader just cannot move the fixed ones. The page lists them all
+  ("All factor weights"). The test case varies two: grade and corners
+  (`sandbox.VARY`). Fixed away from the defaults, and said why on the page:
+  drainage at 0 (a stub, and on a climb that never reverses it charges every
+  metre past 60 m). Off because the surface has nothing for them: wetness,
+  existing tread.
+- **A weight pad and two sliders.** The grid of settings is drawn as rails;
+  the point rides a rail (moving one slider puts the other on its nearest
+  grid value). Between two settings the line slides from step to step of a
+  tracing (below), and where the route changes it jumps, marked in red on
+  the pad.
+- **Dig-in ticks.** Short lines across the alignment where the design line
+  is below the ground (cut, brown) or above it (fill, teal), 8 m long per
+  metre of depth. The profile chart draws the ground under the engine's line
+  too, so a dip hidden by a dug-in corner shows.
+
+## How the lines are found (`manage.py build_methods analytic`)
+
+1. **The grid's settings, thoroughly.** `refine` as the panel runs it
+   (route-finder and chains), with 6 chains of 2500 iterations, at two
+   seeds; the cheapest line kept (`offer_all`, so a winding answer much
+   longer than the straight input is not dropped by the panel's MARGIN rule).
+2. **Polished from each neighbour.** Each setting is searched again from each
+   neighbouring setting's line (8 m either side of it), so a better route
+   found next door is not missed.
+3. **Traced along every edge, from both ends** (owner's design): ten steps;
+   each step searches only a strip 3 m either side of the step before's line,
+   or of that line moved up to 4 m toward the other end's line (whichever is
+   nearer: `Problem(limit_xy=...)`), 1500 iterations.
+   - **One switch per edge.** The page shows the tracing from the lower end
+     up to a switch and the one from the upper end after it, the switch where
+     the total along the edge is least. (First tried: the cheaper of the two
+     at each step. Where two routes cost within the searches' noise of each
+     other, about 0.5 %, that flickered between them, up to six jumps on an
+     edge.)
+   - **Re-tracing.** A tracing that reaches the far setting more cheaply than
+     that setting's own line replaces it; the edges at that setting are then
+     traced again from its new line (else they start from a line it no
+     longer shows: a jump at the setting), until none is replaced, at most 3
+     rounds. Tracing is a good optimiser: in the trials a third to a half of
+     the settings were first improved this way.
+   - Consecutive lines more than 10 m apart anywhere are a jump (in the
+     dome's trial, a step moved a line 3 m or less; a change of route,
+     30-80 m).
+4. **The formula's line** at every setting and step.
+
+Run it with numpy on one thread per worker, or the workers fight over the
+cores (an hour for the cone's tracings at 1155 % CPU, 2026-10-20):
+
+    docker compose exec -e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 web python manage.py build_methods analytic --jobs 8
+
+The engine's runs (stages 1-3) are cached in `.methods_cache/` (not
+committed); `--recombine` rebuilds the page's file from them after a change
+to how they are combined. `--quick` (short searches, one seed) tries the
+pipeline; the page says so. `--formula-only` redoes stage 4 in an existing
+file. Rebuild after any
+change to the scoring or the search, or the page shows lines the engine no
+longer draws.
+
+## The formula
+
+On these smooth surfaces every per-metre factor depends only on the line's
+grade g and the ground's slope s (grade; trail-slope alignment, acos(g/s);
+fall-line tread in the band; side slope; cut and fill at its floor), so a
+metre of height costs c(g, s) = m(g, s) sqrt(1 + g^2) / g. With turns free,
+the cheapest climb takes each metre at the g <= s minimising c, under a cap
+searched for the steepest-pitch charge (`climb_plan`). Exact only with turns
+free: the formula's line pays the bend weight for its curvature and the
+corner weight for any corner, and the engine may beat it by turning less.
+
+- With trail-slope alignment and fall-line tread charged, the turn-free
+  line keeps about 33 degrees off the fall line nearly to the top, so on the
+  cone and the dome it spirals in tightly near the summit, and pays bend
+  charges there that the engine avoids. Near summits it is a weak reference.
+- The grade curve is the default carried on past 60 % (2.5 at 100 %): the
+  default goes flat at 60 %, past which steeper climbing is cheaper per metre
+  of height.
+- Grades within one step of the grid of grades of the slope are the slope
+  (the fall line); without that a grade a hair under the slope spiralled
+  into the summit forever (2026-10-20).
+
+## What it showed about the engine
+
+**Review of 2026-10-21** (before the real-terrain sandbox):
+
+- **The plane's lines of 2026-10-20 were invalid.** Tracing and polishing
+  steps measured their limit from the step before's line alone, and drifted
+  out of the plane's 30 m corridor (469 of 563 lines, to 100 m). Its claims
+  ("within 1 % of the reference", "beats the reference zigzag") are
+  withdrawn. Fixed: a step must stay inside its strip and the surface's own
+  corridor (`sandbox.trace_step`). The cone's and dome's 120 m corridors held.
+- **Inside the corridor, single thorough runs match the plane's reference
+  zigzag** (within 1 %, or better, at four settings). The 30 % switchback
+  shortfall of the first build was short runs, not the scoring.
+- **Where the search falls short: layouts.** The annealer reaches a local
+  optimum (a coordinate-descent polish after it gains 0.3 %; twice the
+  controls, nothing); what it cannot do is change a layout (how many
+  switchbacks, how many turns of a spiral). Tracing between settings found
+  better layouts: 1-4 % typically, 25-43 % at grade weight 30 with corners
+  free (long spirals).
+- **Engine fixes from it** (branch `refine-route-starts`):
+  - the route-finder's chain was dropped when the smooth fit to its route
+    folded back at one tight grid turn (on the cone at grade weight 30, its
+    2-turn spiral); now refitted with its corners rounded more (3, 6, 12 m);
+  - the route-finder runs at the corner and bend weights times 1, 0.5 and 2,
+    a chain from each distinct route (different layouts for the annealer),
+    on grids of up to 50,000 cells (on the 7 km Graduation Peak Trail,
+    336,000 cells, a search takes ~190 s and the three routes were all but
+    the same).
+  - Together: single thorough runs at grade weight 30, corners free, went
+    from 1985 to 1174 on the cone (tracing found 1134) and 942 to 831 on the
+    dome (709).
+- **After the fixes (rebuild of 2026-10-21):** no line leaves its corridor.
+  Cone and dome: the engine is never more than 1.4 % dearer than the
+  formula, and cheaper at 68 of 72 settings (it turns less). Plane: within
+  1 % or better at 30 of 36; dearer by 2-30 % at 6, all with corners dear
+  (corner weight 100-300).
+- **Why, at dear corners: the reference uses a blind spot in the scoring**
+  (found 2026-10-21, correcting the first reading, "one long switchback"). Its
+  line at those settings is a ladder of about 20 switchbacks, 8 m either side
+  of the straight line, and the scoring counts one corner. The scoring reads
+  the downhill side from the cross slope averaged over ~10 m of line, and
+  drops a side held for less than 10 m (`score.CORNER_RUN_MIN_M`) as noise;
+  each leg of the ladder holds its side 8.7-9.1 m, so none counts. With that
+  minimum at 6 m the reference costs more than the engine's line at 5 of the
+  6 settings (at 4 m, all 6). The engine is not short there; the reference
+  is cheating. To change in the scoring (the owner's call): read the side
+  from the ground's slope against the line's heading, not an average along
+  the line that cancels on short legs, and a shorter minimum.
+- **The route-finder did miss the corner weight** (fixed on branch
+  `refine-route-corners`): it charged corner rates only for one grid turn of
+  60 degrees or more, and built switchbacks from 25-45 degree turns, so the
+  corner weight never reached it. It now carries the downhill side in its
+  state and charges a change of side, as the scoring counts corners.
+- **Cost:** a thorough run on the plane went from ~85 s to ~145 s (the
+  three route-finder chains start from winding routes with many controls);
+  the full build of all three surfaces took 4.7 hours on the Mac.
+- **Tried and not worth it:** a coordinate-descent polish after the search;
+  more controls; smaller moves in tracing steps (worse: tracing needs the big
+  moves to reach the other end's route); splicing candidate lines where they
+  cross (2-opt style: worse on a zigzag slope, every splice is a sharp
+  corner; might suit real terrain, where lines braid at shallow angles).
+
+From the first build (2026-10-19, grade and turn weights only, everything
+else off):
+
+- **Spirals: good.** Turns free, within 0.1-5 % of the exact line on the
+  cone and the dome.
+- **Switchbacks: short.** On the uniform slope it fell well short of the
+  reference zigzag where many switchbacks pay: grade weight 30, turns free,
+  2257 against 1739 (30 %).
+- **The corner dig hides dips.** With cut and fill free (weight 0), corners
+  were dug 2 m into the slope (`corner_cut_max_m`), and the trail looped
+  downhill on the ground while its design line climbed steadily: up to 12 m
+  of ground lost on the plane. Capping the dig at 0.1 m removed it entirely.
+  Excess climb reads the design line, so it cannot see these dips.
+- The panel's MARGIN rule hid a winding answer much longer than the
+  person's line (a spiral at 997 against an offered 2272).
+
+## Next
+
+A real patch: the Graduation Peak gully near 59.43459, -151.66042, about
+200 m across, from a made-up start and end (no scouting line is published),
+with the factors the owner chooses to vary.
