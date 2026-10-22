@@ -921,3 +921,49 @@ turns of a spiral). Layouts come from the starts.
   never reaches it. The scoring counts a corner by the change of the downhill
   side. With corners dear (sandbox plane, corner weight 100-300) the engine
   made 3-8 switchbacks where one long one was cheaper (up to 30 % dearer).
+  (Corrected in §24: the cheaper line was a ladder the scoring miscounts.)
+
+## 24. Route-finder corners by the downhill side; a faster search (2026-10-21)
+
+- **Corners as the scoring counts them.** The search's state is (cell,
+  heading, downhill side). Each step's side is read as the scoring reads it:
+  the cross slope over `route.SIDE_M` (5 m) either side, none in the
+  fall-line band or under `min_outslope_pct`, held through those. A change
+  of side pays the corner curve at the sketch radius (what a sketched corner
+  rounds to), times the turn across it over `corner_min_turn_deg` (up to 1;
+  a line that last held its side before the band is taken to have turned
+  `fall_tsa_deg` less its angle off the fall line since): a crest or a gully
+  crossed straight pays little. A single grid turn of `corner_min_turn_deg`
+  or more pays, on top, its share of 180 degrees of the corner curve beyond
+  that floor at its own radius, so a hairpin of two sharp turns costs the
+  corner at its tight radius. Before, switchbacks of 25-45 degree turns paid
+  bends only and the corner weight never reached the route-finder (on a
+  50 % test slope: 4 switchbacks at corner weight 0 and at 3000; now 4 and 3).
+- **An estimate from the height still to climb.** A* estimated the cost to
+  the end by the straight-line distance alone, a fraction of the cost on a
+  climb, so the search widened across the whole corridor. A step's cost is
+  at least its slope length times (1 + grade charge + the least charge every
+  step pays), so per metre of height at least the minimum over grades g of
+  sqrt(1 + g^2) / g (1 + ...): the estimate is now the larger of the distance
+  and |height to go| times that (`route._climb_floor`). Same routes (a test
+  checks it); the sandbox dome's searches 3x faster.
+- **Heap entries are one int** (the estimate in 1/1024 m above the state's
+  bits), not an (estimate, state) tuple: ~40 bytes an entry, not ~116.
+- **Cost on a whole trail** (7 km Graduation Peak Trail, 336,000 cells, one
+  search, measured on a loaded Mac): the side doubles the states, and the
+  climb estimate does not help on a trail that climbs and descends; the
+  search went from ~175 s to ~290-350 s, peak memory from 2.81 to 3.12 GB
+  (of which ~2.2 GB was the test's own loading of the trail; the pricing,
+  not the heap, sets the peak). 8 % of the route moved more than 10 m. A
+  compiled search would be the next step; numba needs numpy 2.1 or older and
+  the image has 2.5, so it would pin numpy back.
+- **Found with it: a blind spot in the scoring** (not changed here; the
+  owner's call). The downhill side is the cross slope averaged over ~10 m of
+  line, and a side held under `CORNER_RUN_MIN_M` (10 m) is noise. A ladder
+  of switchbacks with legs under ~10 m therefore counts as no corners: the
+  sandbox plane's reference line at dear corners was 20 such switchbacks,
+  scored as 1 corner, and looked 2-30 % cheaper than the engine's line. With
+  the minimum at 6 m the engine's line is cheaper at 5 of those 6 settings
+  (at 4 m, all 6). Proposed: read the side from the ground's slope against
+  the line's heading (as the route-finder now does), not an average along
+  the line, which cancels on short legs; and a shorter minimum.

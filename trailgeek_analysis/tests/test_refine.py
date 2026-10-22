@@ -205,6 +205,45 @@ class RouteTests(unittest.TestCase):
         self.assertLessEqual(turns(Rhi), turns(R1))
         self.assertGreater(turns(Rlo), turns(Rhi))
 
+    def test_the_corner_weight_reaches_the_route_finder(self):
+        # (2026-10-21) Switchbacks of 25-45 degree grid turns used to pay
+        # bends only: the corner weight changed nothing. A change of the
+        # downhill side now pays it.
+        from trailgeek_analysis.refine.route import route_line
+        g = Grid.from_function(lambda X, Y: 0.5 * Y, -80, -40, 80, 160)
+        line = np.array([[0, 0], [0, 100]], float)
+
+        def sides(R):
+            seg = np.diff(R, axis=0)
+            hd = np.degrees(np.arctan2(seg[:, 1], seg[:, 0]))
+            s = np.sign(seg[:, 0])[np.abs(90 - np.abs(hd)) > 30]        # off the fall line (uphill is +y)
+            return int((s[1:] != s[:-1]).sum())
+        counts = []
+        for kc in (0, 3000):                   # before: 4 switchbacks at both
+            s = clean_settings({"params": {"corridor_m": 40}, "factors": {
+                "grade": {"k": 10, "curve": [[0, 0.01], [10, 0.01], [15, 1], [25, 3], [60, 10]]},
+                "corner": {"k": kc, "curve": [[0, 1], [3, 1], [6, 0.5], [10, 0.3], [15, 0.2]]}}})
+            counts.append(sides(route_line(Problem([line], g, s))))
+        self.assertGreater(counts[0], counts[1])
+
+    def test_the_climb_estimate_does_not_change_the_route(self):
+        # The estimate from the height still to climb only speeds the search:
+        # never more than the cheapest way there, so the same route.
+        from trailgeek_analysis.refine import route as rt
+        g = Grid.from_function(lambda X, Y: 0.3 * Y + 4 * np.sin(X / 9.0), -60, -30, 60, 130)
+        s = clean_settings({"params": {"corridor_m": 30}, "factors": {
+            "grade": {"k": 6, "curve": [[0, 0.01], [10, 0.01], [15, 1], [25, 10], [60, 100]]}}})
+        prob = Problem([np.array([[0, 0], [10, 100]], float)], g, s)
+        R = rt.route_line(prob)
+        floor = rt._climb_floor
+        try:
+            rt._climb_floor = lambda *a: 0.0
+            R0 = rt.route_line(prob)
+        finally:
+            rt._climb_floor = floor
+        self.assertGreater(floor(prob, prob.base_k, np.zeros(1)), 1.0)
+        np.testing.assert_allclose(R, R0)
+
     def test_refine_runs_a_chain_from_each_route(self):
         g = Grid.from_function(lambda X, Y: 0.4 * Y, -80, -40, 80, 160)
         s = clean_settings({"params": {"corridor_m": 40, "chains": 1, "iterations": 60, "seed": 3}, "factors": {
