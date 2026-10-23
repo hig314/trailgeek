@@ -8,7 +8,8 @@ class Grid:
     """z[row, col] is the ground at x = x0 + col * res, y = y0 + row * res."""
 
     def __init__(self, z, x0, y0, res):
-        self.z = np.asarray(z, float)
+        z = np.asarray(z)
+        self.z = z if z.dtype in (np.float32, np.float64) else z.astype(float)   # float32 kept (score.side_grids)
         self.x0, self.y0, self.res = float(x0), float(y0), float(res)
         self.h, self.w = self.z.shape
 
