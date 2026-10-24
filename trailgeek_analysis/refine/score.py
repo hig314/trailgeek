@@ -18,7 +18,9 @@ from .settings import FACTOR_META, ZERO_AS
 
 CORNER_KAPPA = 1 / 500.0    # 1/m: curvature that still counts as the corner's turn (was 1/50: broader corners went uncounted)
 CORNER_REACH_M = 100.0      # a corner's turn reaches at most this far beyond its side change
-CORNER_RUN_MIN_M = 10.0     # a downhill side held for less than this is noise, not a side
+CORNER_RUN_MIN_M = 4.0      # a downhill side held for less than this is noise, not a side
+                            # (2026-10-22: was 10 m, and a ladder of switchbacks with legs under ~10 m counted as no corners)
+SIDE_M = 5.0                # m: the downhill side is read from the ground's slope over this either side
 CORNER_RAMP_M = 20.0        # a dug-in corner ramps back to the line's profile over this, either side of its turn
 DIG_DEPTHS = (0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0)   # m: cuts a corner tries, up to corner_cut_max_m
 GRADE_OVER_PER = 10.0       # %: each this much past the input's steepest 10 m adds 1 to the grade cost
@@ -140,6 +142,19 @@ def curve_fn(curve):
         out = np.exp(ly[i] + (ly[i + 1] - ly[i]) * t)
         return float(out) if out.ndim == 0 else out
     return f
+
+
+def side_grids(g, m=SIDE_M):
+    """(dz/dx, dz/dy) Grids, float32, from the ground m either side: the
+    slope the downhill side is read from (2026-10-22). Nan within m of the
+    data's edge."""
+    o = max(1, int(round(m / g.res)))
+    z = g.z
+    gx = np.full(z.shape, np.nan, np.float32)
+    gy = np.full(z.shape, np.nan, np.float32)
+    gx[:, o:-o] = (z[:, 2 * o:] - z[:, :-2 * o]) / (2 * o * g.res)
+    gy[o:-o, :] = (z[2 * o:, :] - z[:-2 * o, :]) / (2 * o * g.res)
+    return Grid(gx, g.x0, g.y0, g.res), Grid(gy, g.x0, g.y0, g.res)
 
 
 def side_of_downhill(cross, thr):
@@ -346,24 +361,55 @@ def fillet(xy, radius, step, r_min=1.5):
     return out[keep]
 
 
+TILE_M = 32.0               # polyline_distance: points are taken a tile of this size at a time
+
+
+def _nearest(x, y, A, seg, L2):
+    """Squared distance from points (x, y) (columns) to each segment A + t seg,
+    and the t of the nearest point on it."""
+    t = np.clip(((x - A[:, 0]) * seg[:, 0] + (y - A[:, 1]) * seg[:, 1]) / L2, 0, 1)
+    dx, dy = x - (A[:, 0] + t * seg[:, 0]), y - (A[:, 1] + t * seg[:, 1])
+    return dx * dx + dy * dy, t
+
+
 def polyline_distance(px, py, xy, chunk=20000):
     """For points (px, py): distance to the polyline `xy` and the arc
-    position along it of the nearest point."""
+    position along it of the nearest point.
+
+    Exact, a TILE_M square of points at a time against only the segments
+    that can hold the nearest point for some point in it: those within the
+    nearest segment's distance from the tile's centre plus the tile's
+    diagonal (2026-10-22: point by every segment, the search limit of a
+    7 km trail, 3 million grid cells, took 135 s)."""
+    px, py = np.asarray(px, float), np.asarray(py, float)
     A, B = xy[:-1], xy[1:]
     seg = B - A
     L2 = np.maximum((seg ** 2).sum(1), 1e-12)
     s0 = np.concatenate([[0.0], np.cumsum(np.sqrt(L2))])[:-1]
-    dist = np.empty(len(px))
-    pos = np.empty(len(px))
-    for i in range(0, len(px), chunk):
-        x, y = px[i:i + chunk, None], py[i:i + chunk, None]
-        t = np.clip(((x - A[:, 0]) * seg[:, 0] + (y - A[:, 1]) * seg[:, 1]) / L2, 0, 1)
-        dx, dy = x - (A[:, 0] + t * seg[:, 0]), y - (A[:, 1] + t * seg[:, 1])
-        d2 = dx * dx + dy * dy
-        j = np.argmin(d2, axis=1)
-        r = np.arange(len(j))
-        dist[i:i + chunk] = np.sqrt(d2[r, j])
-        pos[i:i + chunk] = s0[j] + t[r, j] * np.sqrt(L2[j])
+    n = len(px)
+    dist = np.empty(n)
+    pos = np.empty(n)
+    if n == 0:
+        return dist, pos
+    tx = np.floor((px - px.min()) / TILE_M).astype(np.int64)
+    ty = np.floor((py - py.min()) / TILE_M).astype(np.int64)
+    tile = tx * (int(ty.max()) + 1) + ty
+    order = np.argsort(tile, kind="stable")
+    cuts = np.flatnonzero(np.diff(tile[order])) + 1
+    for grp in np.split(order, cuts):
+        cx, cy = 0.5 * (px[grp].min() + px[grp].max()), 0.5 * (py[grp].min() + py[grp].max())
+        half = 0.5 * math.hypot(px[grp].max() - px[grp].min(), py[grp].max() - py[grp].min())
+        dc2, _ = _nearest(np.array([[cx]]), np.array([[cy]]), A, seg, L2)
+        dc = np.sqrt(dc2[0])
+        near = np.flatnonzero(dc <= dc.min() + 2 * half + 1e-9)
+        An, sn, Ln = A[near], seg[near], L2[near]
+        for i in range(0, len(grp), chunk):
+            g_ = grp[i:i + chunk]
+            d2, t = _nearest(px[g_, None], py[g_, None], An, sn, Ln)
+            j = np.argmin(d2, axis=1)
+            r = np.arange(len(j))
+            dist[g_] = np.sqrt(d2[r, j])
+            pos[g_] = s0[near[j]] + t[r, j] * np.sqrt(Ln[j])
     return dist, pos
 
 
@@ -402,6 +448,9 @@ class Problem:
         p = settings["params"]
         self.params = p
         self.grid = grid
+        # The ground's slope over SIDE_M either side, for the downhill side
+        # (shared with `like` on the same grid: ~108 MB for a 7 km trail).
+        self.side_grids = (like.side_grids if like is not None and like.grid is grid else side_grids(grid))
         self.twi_grid = twi_grid         # a Grid of TWI (refine.twi), or None: wet ground costs nothing
         self.existing_xy = [np.asarray(L, float) for L in (existing_xy or []) if len(L) >= 2]   # existing tread, or none: no charge
         self.h = float(p["spacing_m"])
@@ -437,7 +486,6 @@ class Problem:
         self.sigma = float(p["input_sigma_m"])
         self.R_sketch = float(p["sketch_radius_m"])
         self.smooth_w = max(1, int(round(5 / self.h))) | 1
-        self.side_w = max(1, int(round(10 / self.h))) | 1
         self.stride = max(1, int(round(5 / self.h)))
         self.grade_ref = None
 
@@ -635,10 +683,11 @@ class Problem:
         up_down = np.concatenate([[0.0], np.cumsum(np.abs(np.diff(zd)))])
         return 100 * (np.interp(dp, d, up_down) - np.interp(dm, d, up_down)) / np.maximum(dp - dm, 1e-6)
 
-    def _corners(self, d, theta, kap, bend_r, cross, tsa, side):
+    def _corners(self, d, theta, kap, bend_r, s_cross, s_along, tsa, side):
         """Corners by signed TSA (owner, 2026-10-18). The downhill side (+1
-        right, -1 left, from the cross slope over ~10 m) is UNDEFINED in the
-        fall-line band (TSA < fall_tsa_deg) and on ground with less cross
+        right, -1 left, from the ground's slope over SIDE_M either side
+        against the line's heading: s_cross, s_along) is UNDEFINED in the
+        fall-line band (its TSA < fall_tsa_deg) and on ground with less cross
         slope than min_outslope_pct; a side held for less than
         CORNER_RUN_MIN_M is noise. A corner is a change of side across an
         undefined stretch (or none), where the line turns by at least
@@ -649,17 +698,18 @@ class Problem:
         turn's mean and its tightest 5 m, so a kink inside a broad corner
         costs as the kink it is. Returns dicts, in order along the line."""
         n = len(d)
-        cross_s = running_mean(cross, self.side_w)
-        sg = np.where(cross_s > self.thr, 1, np.where(cross_s < -self.thr, -1, 0))
-        sg[np.isfinite(tsa) & (tsa < self.fall_tsa)] = 0
-        sg[~np.isfinite(tsa)] = 0
+        sg = np.where(s_cross > self.thr, 1, np.where(s_cross < -self.thr, -1, 0))
+        wd = np.gradient(d) if n > 1 else np.ones(n)
+        s_tsa = np.degrees(np.arctan2(np.abs(s_cross), np.abs(s_along)))
+        sg[s_tsa < self.fall_tsa] = 0
+        sg[100 * np.hypot(s_cross, s_along) < FALL_MIN_SLOPE_PCT] = 0
         runs = []                                     # (first, last, side), long enough to count
         i = 0
         while i < n:
             j = i
             while j + 1 < n and sg[j + 1] == sg[i]:
                 j += 1
-            if sg[i] != 0 and d[j] - d[i] >= CORNER_RUN_MIN_M:
+            if sg[i] != 0 and wd[i:j + 1].sum() >= CORNER_RUN_MIN_M:      # the length its samples stand for
                 runs.append((i, j, int(sg[i])))
             i = j + 1
         out = []
@@ -801,7 +851,18 @@ class Problem:
         own = np.clip(np.searchsorted(d, df * (L / max(df[-1], 1e-9)) - h / 2), 0, n - 1)
         bend_r = np.full(n, 1e4)
         np.minimum.at(bend_r, own, r_f)
-        corners = self._corners(d, theta, kap, bend_r, cross, tsa, side)
+        # The downhill side (2026-10-22): the ground's slope over SIDE_M either
+        # side against the line's heading, not the bench cross slope averaged
+        # along the line (on a ladder of short switchbacks that average
+        # cancels and no leg had a side). Near the data's edge, the bench's.
+        sgx, sgy = self.side_grids[0].sample(Q[:, 0], Q[:, 1]), self.side_grids[1].sample(Q[:, 0], Q[:, 1])
+        bad = ~(np.isfinite(sgx) & np.isfinite(sgy))
+        if bad.any():
+            sgx[bad] = (along * tq[:, 0] + cross * nq[:, 0])[bad]
+            sgy[bad] = (along * tq[:, 1] + cross * nq[:, 1])[bad]
+        s_cross = sgx * nq[:, 0] + sgy * nq[:, 1]
+        s_along = sgx * tq[:, 0] + sgy * tq[:, 1]
+        corners = self._corners(d, theta, kap, bend_r, s_cross, s_along, tsa, side)
         zone = np.zeros(n, bool)
         for c_ in corners:
             zone[c_["a"]:c_["b"] + 1] = True
