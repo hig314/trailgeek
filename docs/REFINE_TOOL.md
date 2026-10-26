@@ -990,8 +990,9 @@ The owner's decision (2026-10-22) on §24's blind spot.
   `corner_min_turn_deg`). On the Graduation Peak Trail: the input as drawn
   went from 24 corners to 47. The 27 new ones are tight vertices of the line
   (radius 0.5-2.8 m, turns 62-157 degrees), mostly in pairs 8-20 m apart and
-  a cluster of six in 100 m on 56-80 % side slope near 7.0 km; whether they
-  are real or digitising is for the owner to judge on the map. The engine's
+  a cluster of six in 100 m on 56-80 % side slope near 7.0 km. The owner
+  reviewed them on the map (2026-10-26, a note at each corner): real, "a
+  good detection technique", not digitising jitter. The engine's
   candidates gained 1-8 corners and moved under 2 % in total.
 - **Distance fields by tiles.** `polyline_distance` measured every point
   against every segment; the search limit of a 7 km trail (3 million cells)

@@ -196,13 +196,17 @@ server and Django reasoning rather than assume it.
     stand for; `polyline_distance` by 32 m tiles (identical output; the
     whole-trail Problem build 123 s → 4.9 s). REFINE_TOOL.md §25.
     Graduation Peak Trail input: 24 → 47 corners; the new ones (pairs near
-    2.1, 4.2, 4.4, 5.0 km, six near 7.0 km) are for the owner to judge on
-    the map: real switchbacks or digitising jitter.
+    2.1, 4.2, 4.4, 5.0 km, six near 7.0 km) were reviewed by the owner on
+    the map on 2026-10-26: real, "a good detection technique".
   - All four have green CI; tests: 68 analysis, 146 Django.
-  - **Waiting on the owner:** review of #25–#28; whether to rebuild the
-    sandbox now (on a branch merging #26–#28) or after review; which
-    factors vary on the next sandbox, a real patch of the Graduation Peak
-    gully (made-up start and end: the repo is public).
+  - **#29** `sandbox-rebuild` → #28: #26 merged in, the sandbox rebuilt
+    on the new scoring (2026-10-26, 2.1 h): within 1 % of the reference or
+    cheaper at 107 of 108 settings.
+  - **Owner's decisions, 2026-10-26:** rebuild now (done, #29); the real
+    patch (the Graduation Peak gully, branch `methods-terrain` → #29) varies
+    grade and corners, like the formula surfaces.
+  - **Waiting on the owner:** review of #25, #27, #28, #29 and the gully
+    PR.
   - Possible later speed-up: a compiled route search (numba is blocked:
     it needs numpy ≤ 2.1, the container has 2.5.3).
 - **Open:** R2 CORS for trailgeek.org is **done on both hosts**, verified
