@@ -607,6 +607,7 @@
       syncSliders();
       drawMap(h); table(h); costChart(h); profileChart(h);
       $('mt-exact-name').textContent = exactName();
+      $('mt-exact-name').parentNode.hidden = doc.surface.formula === false;   // no such line on real ground
     });
   }
 
