@@ -60,6 +60,7 @@ urlpatterns = [
     path("api/projects/<slug:slug>.zip", core_exports.api_project_zip, name="api_project_zip"),
     path("api/projects/<slug:slug>.geojson", core_exports.api_project_geojson, name="api_project_geojson"),
     path("import/", design.import_lines, name="import_lines"),
+    path("methods/sandbox/", core_views.methods_sandbox, name="methods_sandbox"),
     path("tracks/upload/", core_views.track_upload, name="track_upload"),
     path("tracks/<int:pk>/download/", core_views.track_download, name="track_download"),
     # Pages last: its <slug>/ route is a catch-all.

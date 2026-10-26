@@ -435,8 +435,13 @@ class Problem:
     hairpin gets the controls it needs.
     """
 
-    def __init__(self, legs_xy, grid, settings, twi_grid=None, existing_xy=None, like=None, adaptive=False):
-        """`like`: another Problem on the same stretch whose search limit and
+    def __init__(self, legs_xy, grid, settings, twi_grid=None, existing_xy=None, like=None, adaptive=False,
+                 limit_xy=None):
+        """`limit_xy`: more lines the search's limit is measured from as well
+        as the person's line (the nearer counts), so the limit can lean
+        toward another line (the methods sandbox's tracing between two
+        answers, sandbox.trace_step).
+        `like`: another Problem on the same stretch whose search limit and
         existing tread this one keeps (the route-finder's chain starts from
         the route, but is limited by distance from the person's line).
         `adaptive`: samples and controls follow the line's curvature
@@ -453,6 +458,7 @@ class Problem:
         self.side_grids = (like.side_grids if like is not None and like.grid is grid else side_grids(grid))
         self.twi_grid = twi_grid         # a Grid of TWI (refine.twi), or None: wet ground costs nothing
         self.existing_xy = [np.asarray(L, float) for L in (existing_xy or []) if len(L) >= 2]   # existing tread, or none: no charge
+        self.limit_xy = [np.asarray(L, float) for L in (limit_xy or []) if len(L) >= 2]
         self.h = float(p["spacing_m"])
         self.P, self.joints = resample_legs(legs_xy, self.h)
         n = len(self.P)
@@ -610,6 +616,8 @@ class Problem:
         ok = np.isfinite(g.z)
         rows, cols = np.nonzero(ok)
         dist, _ = polyline_distance(g.x0 + cols * g.res, g.y0 + rows * g.res, self.ref)
+        for L in self.limit_xy:
+            dist = np.minimum(dist, polyline_distance(g.x0 + cols * g.res, g.y0 + rows * g.res, L)[0])
         D = np.full(g.z.shape, np.nan)
         D[rows, cols] = dist
         self.dist_grid = Grid(D, g.x0, g.y0, g.res)
