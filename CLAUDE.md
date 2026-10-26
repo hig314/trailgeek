@@ -203,10 +203,12 @@ server and Django reasoning rather than assume it.
     on the new scoring (2026-10-26, 2.1 h): within 1 % of the reference or
     cheaper at 107 of 108 settings.
   - **Owner's decisions, 2026-10-26:** rebuild now (done, #29); the real
-    patch (the Graduation Peak gully, branch `methods-terrain` → #29) varies
-    grade and corners, like the formula surfaces.
-  - **Waiting on the owner:** review of #25, #27, #28, #29 and the gully
-    PR.
+    patch (the Graduation Peak gully, **#30** `methods-terrain` → #29)
+    varies grade and corners, like the formula surfaces; built (38 min),
+    lidar cached in `.methods_cache/terrain-gully.npz`, not committed.
+    The new corners on the Graduation Peak Trail: judged real.
+  - **Waiting on the owner:** review of #25, #27, #28, #29, #30; whether
+    the gully's grade axis moves up (2–50: at 1–2 no line has a corner).
   - Possible later speed-up: a compiled route search (numba is blocked:
     it needs numpy ≤ 2.1, the container has 2.5.3).
 - **Open:** R2 CORS for trailgeek.org is **done on both hosts**, verified
