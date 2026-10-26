@@ -150,6 +150,15 @@ corner weight for any corner, and the engine may beat it by turning less.
 - **Cost:** a thorough run on the plane went from ~85 s to ~145 s (the
   three route-finder chains start from winding routes with many controls);
   the full build of all three surfaces took 4.7 hours on the Mac.
+- **Rebuild of 2026-10-26, on the scoring of #28** (the downhill side from
+  the ground's slope, a 4 m side minimum) and the route-finder of #27: 2.1
+  hours for all three on the Mac (8 workers). The engine is within 1 % of
+  the reference, or cheaper, at 107 of 108 settings: all 72 on the cone and
+  the dome, 35 of 36 on the plane. The plane's six dear-corner shortfalls
+  (2-30 %) are gone: the reference's ladder now pays for its corners. The
+  one left: grade weight 2, corners free, 2 % dearer (the engine's line
+  has 2 corners, the reference zigzag 3). Corners on the engine's lines: cone 2 ->
+  6 in all, dome 0 -> 0, plane 120 -> 109.
 - **Tried and not worth it:** a coordinate-descent polish after the search;
   more controls; smaller moves in tracing steps (worse: tracing needs the big
   moves to reach the other end's route); splicing candidate lines where they
