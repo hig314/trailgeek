@@ -181,8 +181,41 @@ else off):
 - The panel's MARGIN rule hid a winding answer much longer than the
   person's line (a spiral at 997 against an offered 2272).
 
-## Next
+## The real patch: the Graduation Peak gully (2026-10-26)
 
-A real patch: the Graduation Peak gully near 59.43459, -151.66042, about
-200 m across, from a made-up start and end (no scouting line is published),
-with the factors the owner chooses to vary.
+The owner's choice: grade and corners varied, as on the formula surfaces
+(same grid, same fixed factors). `sandbox.Terrain`:
+
+- **Ground:** the Kachemak Bay 2023 lidar at 1 m, 303 x 301 m about
+  59.43459, -151.66042, read the way the refine panel reads it
+  (`core.refine.build_grid`) and cached as `.methods_cache/terrain-gully.npz`
+  by `build_methods` on first use (not committed; the page carries the
+  terrain at 2 m, as for the other surfaces).
+- **Line:** made up (no scouting line is published): the spur between the
+  two incised gullies, (-60, -95) to (125, -40) in local metres, 46 m of
+  climb in 193 m (24 %), corridor 40 m. The gullies' walls (80-120 %) hem
+  it in; the page's "ground up to" figure (75 %) is the steepest tenth of
+  the corridor, which takes in some wall.
+- **No formula:** stage 4 is skipped; the page compares with the straight
+  line and says so.
+- **Build:** 38 minutes on 8 workers; 20 jumps.
+
+What it shows:
+
+- At grade weight 1-2 no setting has a corner, so the corner weight does
+  nothing there: 12 of the 36 settings are alike. A grade axis shifted up
+  (say 2-50) would spend them better; the owner's call.
+- At grade weight 3.3-10 the line follows the spur and swings round the
+  head of the southern gully rather than cross it; with corners free it
+  takes 2-7 corners to hold its grade.
+- At grade weight 30 it zigzags: 13 corners with corners cheap, trading
+  them for wide loops and steeper pitches as they get dearer (0 corners at
+  300).
+- **Search misses.** Cost cannot fall as a weight rises (the dearer
+  setting's line costs no more at the cheaper one), yet at grade weight 10
+  the line at corner weight 167 (857) costs more than the one at 300 (853),
+  and at grade 30, corner 20 the full build's line (1135) is 4.6 % dearer
+  than the quick build's (1085). Layouts again: the annealer does not
+  change how many switchbacks a line has. A cheap fix to try: score every
+  setting's line at every other setting (no search) and start from the
+  cheapest, before polishing.
