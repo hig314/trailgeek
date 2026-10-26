@@ -7,3 +7,4 @@ class MethodsSandboxTests(TestCase):
         self.assertEqual(r.status_code, 200)
         for name in ("cone", "dome", "plane"):
             self.assertContains(r, f"core/methods/analytic-{name}.json")
+        self.assertContains(r, "core/methods/terrain-gully.json")

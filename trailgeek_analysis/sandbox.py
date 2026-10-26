@@ -72,7 +72,7 @@ FIXED = {
     "drainage": (0.0, "a stub; on a climb that never reverses it charges every metre past 60 m, so it is off here"),
 }
 INACTIVE = {
-    "wet": "no wetness layer on a formula surface",
+    "wet": "no wetness layer in the sandbox",
     "existing": "no existing trail here",
 }
 
@@ -187,6 +187,8 @@ def climb_plan(s, dz, st):
 
 class Surface:
     name = label = blurb = ""
+    kind = "analytic"                  # the page's file is <kind>-<name>.json
+    has_formula = True
     extent = 130.0
     corridor = 120.0
 
@@ -327,10 +329,59 @@ class Plane(Surface):
         return best[1] if best else self.line()
 
 
-SURFACES = {s.name: s for s in (Cone(), Dome(), Plane())}
+class Terrain(Surface):
+    """A real patch (owner, 2026-10-26: the Graduation Peak gully, grade and
+    corners varied): lidar on a 1 m grid in local metres about the patch's
+    centre, read from `path`, which build_methods fetches into its cache (the
+    terrain is not committed). The start and end are made up: no scouting
+    line is published. There is no formula on real ground, so no reference
+    line; the straight line is the comparison."""
+    name, label, kind = "gully", "Graduation Peak gully", "terrain"
+    blurb = ("Real ground, from the Kachemak Bay 2023 lidar: the spur between two incised gullies below "
+             "Graduation Peak, climbed 46 m in 193 m (24 %) between a made-up start and end. The gullies' walls "
+             "are 80-120 % and hem the spur in, so how it zigzags is a trade between grade and corners on "
+             "ground that is not uniform. There is no formula here: the straight line is the comparison.")
+    has_formula = False
+    CENTRE_LONLAT = (-151.66042, 59.43459)
+    START, END = (-60.0, -95.0), (125.0, -40.0)
+    corridor = 40.0
+    extent = 150.0                     # m either side of the centre, fetched
+    path = None
+    _grid = None
+
+    def grid(self, res=1.0):
+        if self._grid is None:
+            if self.path is None:
+                raise ValueError("the gully's terrain is fetched by manage.py build_methods; no path set")
+            d = np.load(self.path)
+            self._grid = Grid(d["z"], float(d["x0"]), float(d["y0"]), float(d["res"]))
+        g = self._grid
+        k = max(1, int(round(res / g.res)))
+        return g if k == 1 else Grid(g.z[::k, ::k], g.x0, g.y0, g.res * k)
+
+    def line(self):
+        return np.array([self.START, self.END])
+
+    def exact(self, st, prob=None):
+        return None
+
+    def best_grade(self, st):
+        return None
+
+    def ground_slope(self):
+        """The 90th percentile of the ground's slope within the corridor."""
+        g = self.grid()
+        gy, gx = np.gradient(g.z, g.res)
+        dist = _corridor_distance(self, g)
+        return float(np.nanpercentile(np.hypot(gx, gy)[dist <= self.corridor], 90))
+
+
+SURFACES = {s.name: s for s in (Cone(), Dome(), Plane(), Terrain())}
 
 
 def max_slope(surface):
+    if hasattr(surface, "ground_slope"):
+        return surface.ground_slope()
     return float(surface.slope(np.array(getattr(surface, "r0", 0.0))))
 
 
@@ -455,7 +506,10 @@ def _corridor_distance(surface, grid):
 
 
 def formula_line(surface, weights, grid=None):
-    """The formula's line at these weights, scored by the engine's scoring."""
+    """The formula's line at these weights, scored by the engine's scoring
+    (None on real ground, which has no formula)."""
+    if not surface.has_formula:
+        return None
     st = settings_at(weights, corridor_m=surface.corridor)
     grid = grid or surface.grid()
     prob = problem(surface, st, grid)

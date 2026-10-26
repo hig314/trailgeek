@@ -4,14 +4,17 @@ the page reads, so moving a slider swaps lines without a round trip.
 
     manage.py build_methods analytic [--surface dome] [--jobs 8] [--quick]
 
-`analytic`: the formula surfaces of trailgeek_analysis/sandbox.py. In four
+`analytic`: the surfaces of trailgeek_analysis/sandbox.py, the formula ones
+and the real patch (the Graduation Peak gully, fetched from the lidar into
+.methods_cache/ on first use; no formula there, so no stage 4). In four
 stages (the module's docstring has the reasoning):
   1. the grid's settings, run thoroughly (SEEDS, THOROUGH chains/iterations);
   2. each polished from each neighbour's line (a better route found next
      door is not missed);
   3. each edge of the grid traced in STEPS steps from both ends;
   4. the formula's line at every node and step.
-Writes core/static/core/methods/analytic-<surface>.json. --quick: short
+Writes core/static/core/methods/<kind>-<surface>.json (analytic-cone,
+terrain-gully, ...). --quick: short
 runs and one seed, to try the pipeline (the file says so, and the page).
 --formula-only: redo stage 4 in an existing file, keeping its engine lines
 (after a change to the formula alone; a change to the scoring needs a full
@@ -40,6 +43,7 @@ NI, NJ = len(sb.VARY[0][1]), len(sb.VARY[1][1])
 NODES = [(i, j) for i in range(NI) for j in range(NJ)]
 # An edge is (axis, i, j): from node (i, j) to the next along axis (0 grade, 1 corners).
 RETRACE_ROUNDS = 3
+sb.Terrain.path = str(CACHE / "terrain-gully.npz")            # set here, so the workers read it too
 EDGES = [(0, i, j) for i in range(NI - 1) for j in range(NJ)] + [(1, i, j) for i in range(NI) for j in range(NJ - 1)]
 _grids = {}
 
@@ -116,6 +120,9 @@ class Command(BaseCommand):
     def handle(self, which, surface=None, jobs=8, quick=False, formula_only=False, recombine=False, **opts):
         self.t0 = time.time()
         OUT.mkdir(parents=True, exist_ok=True)
+        for name in surface or list(sb.SURFACES):
+            if isinstance(sb.SURFACES[name], sb.Terrain):
+                self.fetch_terrain(sb.SURFACES[name])        # before the workers start
         with ProcessPoolExecutor(max_workers=max(1, jobs)) as pool:
             for name in surface or list(sb.SURFACES):
                 if formula_only:
@@ -125,8 +132,37 @@ class Command(BaseCommand):
                     self.build(pool, name, quick)
                 self.combine(pool, name)
 
+    def fetch_terrain(self, S):
+        """The real patch's ground at 1 m (lidar first, as the refine panel
+        reads it), in local metres about its centre, cached in CACHE."""
+        path = Path(S.path)
+        if path.exists():
+            return
+        import numpy as np
+        from django.contrib.gis.geos import Point
+
+        from core import geo
+        from core.dem import transform_xy
+        from core.evaluation import choose_sources
+        from core.refine import build_grid
+
+        lon, lat = S.CENTRE_LONLAT
+        srid = geo.utm_srid(lon, lat)
+        x, y = transform_xy(np.array([lon]), np.array([lat]), 4326, srid)
+        cx, cy = round(float(x[0])), round(float(y[0]))
+        g, info = build_grid([np.array([[cx - 1.0, cy], [cx + 1.0, cy]])], srid,
+                             choose_sources(Point(lon, lat, srid=4326)), S.extent, res=1.0, margin_m=0.0)
+        if np.isnan(g.z).any():
+            raise ValueError(f"{S.name}: {np.isnan(g.z).mean():.1%} of the patch has no ground")
+        CACHE.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(path, z=g.z.astype(np.float32), x0=g.x0 - cx, y0=g.y0 - cy, res=g.res)
+        self.say(f"{S.name}: fetched {g.z.shape[1]} x {g.z.shape[0]} m, {info['lidar_pct']} % lidar "
+                 f"({', '.join(s['title'] for s in info['sources'])})")
+
     def formula_only(self, pool, name):
-        path = OUT / f"analytic-{name}.json"
+        if not sb.SURFACES[name].has_formula:
+            return
+        path = OUT / f"{sb.SURFACES[name].kind}-{name}.json"
         doc = json.loads(path.read_text())
         tasks = [(name, ("n", key), n["weights"]) for key, n in doc["nodes"].items()]
         for key, rail in doc["rails"].items():
@@ -215,13 +251,15 @@ class Command(BaseCommand):
         def ends(axis, i, j):
             return node[(i, j)], node[(i + 1, j) if axis == 0 else (i, j + 1)]
 
-        # 4. The formula's line at every node and step.
-        ftasks = [(name, ("n", i, j), sb.weights_at(i, j)) for i, j in NODES]
-        for axis, i, j in EDGES:
-            for n in range(1, sb.STEPS):
-                ftasks.append((name, ("r", axis, i, j, n), sb.weights_at(i, j, n / sb.STEPS, axis)))
-        formula = dict(pool.map(_formula, ftasks, chunksize=4))
-        self.say(f"{name}: {len(ftasks)} formula lines")
+        # 4. The formula's line at every node and step (none on real ground).
+        formula = {}
+        if S.has_formula:
+            ftasks = [(name, ("n", i, j), sb.weights_at(i, j)) for i, j in NODES]
+            for axis, i, j in EDGES:
+                for n in range(1, sb.STEPS):
+                    ftasks.append((name, ("r", axis, i, j, n), sb.weights_at(i, j, n / sb.STEPS, axis)))
+            formula = dict(pool.map(_formula, ftasks, chunksize=4))
+            self.say(f"{name}: {len(ftasks)} formula lines")
 
         # Rails (owner, 2026-10-20): the tracing from the lower end up to one
         # switch, the tracing from the upper end after it, the switch where the
@@ -264,7 +302,8 @@ class Command(BaseCommand):
 
         st0 = sb.settings_at(sb.weights_at(0, 0))
         doc = {
-            "surface": {"name": name, "label": S.label, "blurb": S.blurb, "corridor_m": S.corridor,
+            "surface": {"name": name, "kind": S.kind, "formula": S.has_formula,
+                        "label": S.label, "blurb": S.blurb, "corridor_m": S.corridor,
                         "line": S.line().tolist(), "max_slope_pct": round(100 * sb.max_slope(S), 1)},
             "terrain": sb.terrain_json(S),
             "factors": sb.factors_json(st0),
@@ -278,7 +317,7 @@ class Command(BaseCommand):
             "quick": quick,
             "built": time.strftime("%Y-%m-%d"),
         }
-        path = OUT / f"analytic-{name}.json"
+        path = OUT / f"{S.kind}-{name}.json"
         path.write_text(json.dumps(doc, separators=(",", ":")))
         self.say(self.style.SUCCESS(f"{name}: {jumps} jumps; wrote {path.relative_to(settings.BASE_DIR)} "
                                     f"({path.stat().st_size // 1024} kB)"))
