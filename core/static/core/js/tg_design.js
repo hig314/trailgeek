@@ -265,6 +265,8 @@ window.TgDesign = (function () {
   }
 
   // ---- project view --------------------------------------------------------
+  var collapsed = {};          // per project slug: which sections are folded, for this page
+  var projShown = null;        // the project panel now showing (a token), so a stale refresh does nothing
   function showProject(data, fit) {
     cur = null;
     var p = data.project, h = '';
@@ -283,9 +285,12 @@ window.TgDesign = (function () {
     }
     var cols = [['name', 'Alignment'], ['length_m', 'km'], ['build_m', 'New km'], ['climb_m', 'Climb m'], ['grade_p95', 'p95 grade %'],
                 ['steep_pct', '> 18 %'], ['fall_line_pct', 'TSA < 45° %'], ['construct_days', 'Build days'], ['lidar_pct', 'Lidar %']];
-    h += '<div class="tg-small tg-muted">' + data.alignments.length + ' alignments. Click a column to sort; hover a row to find it on the map.</div>';
-    h += '<div class="tg-scroll"><table class="tg-compare" id="proj-table"><thead><tr>' +
-         cols.map(function (c) { return '<th data-k="' + c[0] + '">' + c[1] + '</th>'; }).join('') + '</tr></thead><tbody></tbody></table></div>';
+    h += '<div class="tg-small tg-muted">' + data.alignments.length + ' alignments' + (data.sections.length ? ' in ' + data.sections.length + ' sections, in order along the route; each section\'s alignments are its options, variants under them' : '') +
+         '. Click a column to sort within each section.</div>';
+    h += '<div class="tg-scroll"><table class="tg-compare tg-tree" id="proj-table"><thead><tr>' +
+         cols.map(function (c) { return '<th data-k="' + c[0] + '">' + c[1] + '</th>'; }).join('') + (p.can_edit ? '<th>Section</th>' : '') + '</tr></thead><tbody></tbody></table></div>';
+    if (p.can_edit) h += '<div class="tg-actions"><input id="sec-name" type="text" placeholder="New section name"> <button id="sec-add" class="tg-btn">Add a section</button>' +
+                         ' <span class="tg-small tg-muted">Sections are the parts of the route, in order. An existing trail becomes an option with "Add as an option…" on its panel.</span></div>';
     if (data.tracks && data.tracks.length) {
       h += '<div class="tg-sub">Scouting tracks</div><ul class="tg-list">' + data.tracks.map(function (t) {
         return '<li><a href="#track=' + t.id + '">' + esc(t.name) + '</a>' + (t.taken_at ? ' <span class="tg-muted">' + esc(t.taken_at.slice(0, 10)) + '</span>' : '') +
@@ -298,26 +303,117 @@ window.TgDesign = (function () {
     $('detail').innerHTML = h;
     $('profstats').innerHTML = '';
     app.profile.clear();
-    var sortK = null, sortDir = 1;
+    var sortK = null, sortDir = 1, ncol = cols.length + (p.can_edit ? 1 : 0);
+    var folded = collapsed[p.slug] = collapsed[p.slug] || {};
     function val(a, k) { return k === 'name' ? a.name.toLowerCase() : k === 'length_m' ? a.length_m : (a.headline ? a.headline[k] : null); }
+    function byCol(a, b) {
+      var x = val(a, sortK), y = val(b, sortK);
+      if (x == null) return 1; if (y == null) return -1;
+      return (x > y ? 1 : x < y ? -1 : 0) * sortDir;
+    }
+    var secIds = {}; data.sections.forEach(function (q) { secIds[q.id] = true; });
+    var groups = data.sections.map(function (q) { return { sec: q, rows: [] }; });
+    var unsorted = { sec: null, rows: [] };
+    data.alignments.forEach(function (a) {
+      var g = secIds[a.section_id] ? groups[data.sections.findIndex(function (q) { return q.id === a.section_id; })] : unsorted;
+      g.rows.push(a);
+    });
+    if (unsorted.rows.length || !groups.length) groups.push(unsorted);
+    function secSelect(a) {
+      return '<select class="sec-pick" data-id="' + a.id + '"><option value="">Unsorted</option>' + data.sections.map(function (q) {
+        return '<option value="' + q.id + '"' + (q.id === a.section_id ? ' selected' : '') + '>' + esc(q.name) + '</option>';
+      }).join('') + '</select>';
+    }
+    function rowHtml(a, depth) {
+      var hh = a.headline || {};
+      return '<tr data-id="' + a.id + '"><td style="padding-left:' + (6 + 16 * depth) + 'px">' + (depth ? '<span class="tg-muted">↳ </span>' : '') +
+             '<a href="#align=' + a.id + '">' + esc(a.name) + '</a>' + (a.trail ? ' <span class="tg-badge" title="An existing trail: ' + esc(a.trail) + '">trail</span>' : '') +
+             (a.evaluation_status === 'queued' ? ' <span class="tg-spin"></span>' : '') + '</td><td>' + kmn(a.length_m) + '</td><td>' + kmn(hh.build_m) +
+             '</td><td>' + n(hh.climb_m) + '</td><td>' + n(hh.grade_p95) + '</td><td>' + n(hh.steep_pct) + '</td><td>' + n(hh.fall_line_pct) +
+             '</td><td>' + n(hh.construct_days) + '</td><td>' + n(hh.lidar_pct) + '</td>' + (p.can_edit ? '<td>' + secSelect(a) + '</td>' : '') + '</tr>';
+    }
+    function headHtml(g, i) {
+      var key = g.sec ? g.sec.id : 'none', shut = !!folded[key];
+      var h2 = '<tr class="sec-head" data-sec="' + key + '"><th colspan="' + ncol + '"><span class="sec-toggle">' + (shut ? '▸' : '▾') + ' ' +
+               (g.sec ? (i + 1) + '. ' + esc(g.sec.name) : (data.sections.length ? 'Unsorted' : 'Alignments')) + '</span>' +
+               ' <span class="tg-muted">' + g.rows.length + (g.rows.length === 1 ? ' alignment' : ' alignments') + '</span>';
+      if (g.sec && p.can_edit) {
+        h2 += ' <span class="sec-acts"><button class="tg-link" data-act="up" title="Earlier along the route">↑</button><button class="tg-link" data-act="down" title="Later along the route">↓</button>' +
+              ' <button class="tg-link" data-act="rename">rename</button> <button class="tg-link" data-act="del">delete</button></span>';
+      }
+      if (g.sec && g.sec.notes) h2 += '<div class="tg-small tg-muted">' + esc(g.sec.notes) + '</div>';
+      return h2 + '</th></tr>';
+    }
     function fill() {
-      var rows = data.alignments.slice();
-      if (sortK) rows.sort(function (a, b) {
-        var x = val(a, sortK), y = val(b, sortK);
-        if (x == null) return 1; if (y == null) return -1;
-        return (x > y ? 1 : x < y ? -1 : 0) * sortDir;
+      var out = [];
+      groups.forEach(function (g, i) {
+        out.push(headHtml(g, i));
+        if (folded[g.sec ? g.sec.id : 'none']) return;
+        // Options are the alignments whose parent is not in this section;
+        // each one's variants follow it, indented.
+        var ids = {}, kids = {};
+        g.rows.forEach(function (a) { ids[a.id] = true; });
+        g.rows.forEach(function (a) { var k = ids[a.parent_id] ? a.parent_id : 'root'; (kids[k] = kids[k] || []).push(a); });
+        (function walk(k, depth) {
+          var list = (kids[k] || []).slice();
+          if (sortK) list.sort(byCol);
+          list.forEach(function (a) { out.push(rowHtml(a, depth)); walk(a.id, depth + 1); });
+        })('root', 0);
       });
-      document.querySelector('#proj-table tbody').innerHTML = rows.map(function (a) {
-        var hh = a.headline || {};
-        return '<tr data-id="' + a.id + '"><td><a href="#align=' + a.id + '">' + esc(a.name) + '</a>' +
-               (a.evaluation_status === 'queued' ? ' <span class="tg-spin"></span>' : '') + '</td><td>' + kmn(a.length_m) + '</td><td>' + kmn(hh.build_m) +
-               '</td><td>' + n(hh.climb_m) + '</td><td>' + n(hh.grade_p95) + '</td><td>' + n(hh.steep_pct) + '</td><td>' + n(hh.fall_line_pct) +
-               '</td><td>' + n(hh.construct_days) + '</td><td>' + n(hh.lidar_pct) + '</td></tr>';
-      }).join('');
+      document.querySelector('#proj-table tbody').innerHTML = out.join('');
+      wire();
+    }
+    function reload() {
+      api('GET', '/api/projects/' + encodeURIComponent(p.slug) + '.json').then(function (d) { showProject(d, false); })
+        .catch(function (e) { alert(e.message); });
+    }
+    function wire() {
+      Array.prototype.forEach.call(document.querySelectorAll('#proj-table .sec-toggle'), function (el) {
+        el.addEventListener('click', function () { var k = el.closest('tr').dataset.sec; folded[k] = !folded[k]; fill(); });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('#proj-table .sec-pick'), function (sel) {
+        sel.addEventListener('change', function () {
+          api('POST', '/api/alignments/' + sel.dataset.id + '/section', { section_id: sel.value ? +sel.value : null }).then(reload)
+            .catch(function (e) { alert(e.message); });
+        });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('#proj-table .sec-acts button'), function (b) {
+        b.addEventListener('click', function () {
+          var tr = b.closest('tr'), id = tr.dataset.sec, q = data.sections.find(function (x) { return String(x.id) === id; });
+          var act = b.dataset.act, acts = b.parentNode;
+          if (act === 'up' || act === 'down') {
+            api('POST', '/api/sections/' + id + '/save', { move: act === 'up' ? -1 : 1 }).then(reload).catch(function (e) { alert(e.message); });
+          } else if (act === 'rename') {
+            acts.innerHTML = '<input type="text" class="sec-rename" value="' + esc(q.name) + '"> <button class="tg-link" data-x="ok">save</button> <button class="tg-link" data-x="no">cancel</button>';
+            acts.querySelector('[data-x=no]').addEventListener('click', fill);
+            acts.querySelector('[data-x=ok]').addEventListener('click', function () {
+              api('POST', '/api/sections/' + id + '/save', { name: acts.querySelector('input').value }).then(reload).catch(function (e) { alert(e.message); });
+            });
+          } else if (act === 'del') {
+            acts.innerHTML = 'Delete this section? Its alignments stay, unsorted. <button class="tg-link" data-x="ok">delete</button> <button class="tg-link" data-x="no">keep</button>';
+            acts.querySelector('[data-x=no]').addEventListener('click', fill);
+            acts.querySelector('[data-x=ok]').addEventListener('click', function () {
+              api('POST', '/api/sections/' + id + '/delete', {}).then(reload).catch(function (e) { alert(e.message); });
+            });
+          }
+        });
+      });
     }
     fill();
-    Array.prototype.forEach.call(document.querySelectorAll('#proj-table th'), function (th) {
+    // While an evaluation is queued (a new option, a save), look again in a
+    // few seconds, as long as this panel is still the one showing.
+    var shown = projShown = {};
+    if (data.alignments.some(function (a) { return a.evaluation_status === 'queued'; })) {
+      setTimeout(function () { if (projShown === shown && document.getElementById('proj-table')) reload(); }, 3000);
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('#proj-table thead th[data-k]'), function (th) {
       th.addEventListener('click', function () { var k = th.dataset.k; sortDir = sortK === k ? -sortDir : 1; sortK = k; fill(); });
+    });
+    var sa = $('sec-add');
+    if (sa) sa.addEventListener('click', function () {
+      var nm = $('sec-name').value.trim();
+      if (!nm) { $('sec-name').focus(); return; }
+      api('POST', '/api/projects/' + encodeURIComponent(p.slug) + '/sections/new', { name: nm }).then(reload).catch(function (e) { alert(e.message); });
     });
     var n_ = $('d-new'); if (n_) n_.addEventListener('click', function () { newAlignment(p.id); });
     TgNotes.setProject(p.can_edit ? { slug: p.slug, name: p.name } : null, $('notes-box'), true);
@@ -398,6 +494,53 @@ window.TgDesign = (function () {
           TgRefine.open(f, app);
           if (f.properties.note) setTimeout(function () { alert(f.properties.note); }, 0);
         }).catch(function (e) { b.disabled = false; $('ts-msg').innerHTML = '<span class="tg-error">' + esc(e.message) + '</span>'; });
+      });
+    }).catch(function (e) { alert(e.message); });
+  }
+
+  // ---- an existing trail as a section's option (owner, 2026-10-26) ----------
+  // The same alignment a refine study makes (one existing-trail leg along the
+  // trail), put in a section of an editable project; the project opens.
+  function trailOption(tf) {
+    var tp = tf.properties;
+    api('GET', '/api/projects/').then(function (r) {
+      var mine = r.projects.filter(function (p) { return p.can_edit; });
+      if (!mine.length) { alert('You have no project you can edit.'); return; }
+      var h = '<div class="tg-kind">Existing trail as an option</div><h2>' + esc(tp.name) + '</h2><div class="tg-form">';
+      h += '<p class="tg-small">An alignment that follows this trail as one existing-trail leg, as an option for a section of a project\'s route.</p>';
+      h += '<div class="tg-field"><label>Name</label><input id="to-name" type="text" value="' + esc(tp.name) + '"></div>';
+      h += '<div class="tg-field"><label>Project</label><select id="to-proj">' + mine.map(function (p) {
+        return '<option value="' + p.id + '" data-slug="' + esc(p.slug) + '">' + esc(p.name) + '</option>';
+      }).join('') + '</select></div>';
+      h += '<div class="tg-field"><label>Section</label><select id="to-sec"></select></div>';
+      h += '<div class="tg-actions"><button id="to-go" class="tg-btn tg-primary">Add</button><button id="to-cancel" class="tg-btn">Cancel</button></div>';
+      h += '<div id="to-msg" class="tg-small"></div></div>';
+      $('panel').classList.add('open');
+      $('detail').innerHTML = h; $('profstats').innerHTML = ''; app.profile.clear();
+      var ps = $('to-proj'), ss = $('to-sec');
+      function sections() {
+        var slug = ps.options[ps.selectedIndex].dataset.slug;
+        ss.innerHTML = '<option value="">Unsorted</option>';
+        api('GET', '/api/projects/' + encodeURIComponent(slug) + '.json').then(function (d) {
+          ss.innerHTML = '<option value="">Unsorted</option>' + d.sections.map(function (q, i) {
+            return '<option value="' + q.id + '"' + (i === 0 ? ' selected' : '') + '>' + (i + 1) + '. ' + esc(q.name) + '</option>';
+          }).join('');
+        });
+      }
+      ps.addEventListener('change', sections); sections();
+      $('to-cancel').addEventListener('click', function () { app.select('trail', tp.slug, false); });
+      $('to-go').addEventListener('click', function () {
+        var b = $('to-go'), slug = ps.options[ps.selectedIndex].dataset.slug;
+        var body = { name: $('to-name').value, project_id: +ps.value, section_id: ss.value ? +ss.value : null };
+        b.disabled = true;
+        api('POST', '/api/trails/' + encodeURIComponent(tp.slug) + '/study', body).then(function (f) {
+          // Evaluated, so the section compares it with the other options.
+          return api('POST', '/api/alignments/' + f.properties.id + '/evaluate', {}).then(function () { return f; });
+        }).then(function (f) {
+          app.refreshTiles();
+          app.select('project', slug, false);
+          if (f.properties.note) setTimeout(function () { alert(f.properties.note); }, 0);
+        }).catch(function (e) { b.disabled = false; $('to-msg').innerHTML = '<span class="tg-error">' + esc(e.message) + '</span>'; });
       });
     }).catch(function (e) { alert(e.message); });
   }
@@ -587,6 +730,7 @@ window.TgDesign = (function () {
     showProject: showProject,
     newAlignment: newAlignment,
     trailStudy: trailStudy,
+    trailOption: trailOption,
     editing: function () { return editing; },
     leave: function () { if (window.TgRefine) TgRefine.close(); if (editing) { if (dirty && !confirm('Discard your changes to this alignment?')) return false; stopEdit(); } return true; },
     onStyleReload: function () { if (ed && editing) ed.reattach(); if (window.TgRefine) TgRefine.onStyleReload(); if (window.TgNotes) TgNotes.onStyleReload(); }

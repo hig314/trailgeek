@@ -249,6 +249,15 @@ server and Django reasoning rather than assume it.
   (~10 m) or Terrarium (~60 m data in Alaska) and say so. No backups yet,
   and uploads now exist. Local session: adopt `dem_stack.js` in /lidar/
   and fix the three demshade issues in VENDOR.md.
+- **Project sections** (branch `project-sections`, built and tried in dev
+  2026-10-26, migration 0008: a new table and a nullable column, no existing
+  row changed): `ProjectSection`, `Alignment.section`; the project panel is
+  a tree (section → options → variants); "Add as an option…" on a trail's
+  panel. Step 1 of 3 (PLAN.md §0, 2026-10-26): next the assemble tool, then
+  fine-tuning the joins. **Dev data:** Tutka Tusk has six sections (Lagoon
+  Bypass; Link A/B; Tutka Tusk lower #79; Upper ascent A/B; Tutka Tusk upper
+  #78; Backdoor loop connection), "Between" #81/#82 unsorted. Not yet in
+  production: set them up there by hand, or ask the local session to.
 - **Next up:** the `Route` model (an ordered chain of Trail segments; seed
   it with the Backdoor Trail from PLAN.md §0); check evaluations against
   real lidar once deployed; revive switchback / curvature detection; a

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.gis import admin as gis_admin
 
-from .models import Alignment, DemSource, Leg, Project, ProjectNote, Trail, Track
+from .models import Alignment, DemSource, Leg, Project, ProjectNote, ProjectSection, Trail, Track
 
 
 @admin.register(DemSource)
@@ -38,9 +38,15 @@ class TrackAdmin(gis_admin.GISModelAdmin):
         return f"{obj.length_m / 1000:.2f}"
 
 
+class SectionInline(admin.TabularInline):
+    model = ProjectSection
+    fields = ("order", "name", "notes")
+    extra = 0
+
+
 class AlignmentInline(admin.TabularInline):
     model = Alignment
-    fields = ("name", "priority", "trailhead", "length_m", "evaluation_status")
+    fields = ("name", "section", "priority", "trailhead", "length_m", "evaluation_status")
     readonly_fields = ("length_m", "evaluation_status")
     extra = 0
     show_change_link = True
@@ -54,7 +60,7 @@ class ProjectAdmin(gis_admin.GISModelAdmin):
     search_fields = ("name", "slug", "description")
     prepopulated_fields = {"slug": ("name",)}
     filter_horizontal = ("members",)
-    inlines = [AlignmentInline]
+    inlines = [SectionInline, AlignmentInline]
 
 
 class LegInline(admin.TabularInline):
@@ -68,11 +74,11 @@ class LegInline(admin.TabularInline):
 
 @admin.register(Alignment)
 class AlignmentAdmin(admin.ModelAdmin):
-    list_display = ("name", "project", "priority", "trailhead", "length_m", "evaluation_status", "parent")
+    list_display = ("name", "project", "section", "priority", "trailhead", "length_m", "evaluation_status", "parent")
     list_filter = ("project", "evaluation_status")
     search_fields = ("name", "notes", "source")
     readonly_fields = ("length_m", "runs_uphill", "evaluation_status", "evaluated_at", "evaluation_error")
-    raw_id_fields = ("parent",)
+    raw_id_fields = ("parent", "section")
     inlines = [LegInline]
 
     def save_related(self, request, form, formsets, change):

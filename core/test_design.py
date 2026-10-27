@@ -342,3 +342,78 @@ class RouteTests(TestCase):
     def test_hidden_trails_are_not_routed_for_anonymous(self):
         Trail.objects.filter(pk=self.b.pk).update(visibility=Visibility.GATED)
         self.assertEqual(self.get((10, 0), (302, 250)).status_code, 404)
+
+
+class SectionApiTests(TestCase):
+    """Sections (owner, 2026-10-26): the parts of a project's route, each with
+    its alignment options and their variants."""
+
+    def setUp(self):
+        call_command("init_groups", verbosity=0)
+        self.owner = User.objects.create_user("own", password="pw")
+        self.owner.groups.add(Group.objects.get(name="trail_editors"))
+        self.project = Project.objects.create(slug="p", name="P", owner=self.owner, visibility=Visibility.PUBLIC)
+        self.a = Alignment.objects.create(project=self.project, name="A")
+        Leg.objects.create(alignment=self.a, order=0, kind="new", geom=LineString(utm_line([(0, 0), (0, 100)]), srid=4326))
+        self.a.rebuild_from_legs()
+        self.client.login(username="own", password="pw")
+
+    def post(self, url, body):
+        return self.client.post(url, json.dumps(body), content_type="application/json")
+
+    def new(self, name):
+        r = self.post("/api/projects/p/sections/new", {"name": name})
+        self.assertEqual(r.status_code, 201)
+        return r.json()["id"]
+
+    def test_sections_in_order_and_moved(self):
+        s1, s2, s3 = self.new("Bypass"), self.new("Link"), self.new("Upper")
+        names = lambda: [q["name"] for q in self.client.get("/api/projects/p.json").json()["sections"]]
+        self.assertEqual(names(), ["Bypass", "Link", "Upper"])
+        self.post(f"/api/sections/{s3}/save", {"move": -1})
+        self.assertEqual(names(), ["Bypass", "Upper", "Link"])
+        self.post(f"/api/sections/{s1}/save", {"move": -1})             # already first: no change
+        self.post(f"/api/sections/{s2}/save", {"name": "Link (A or B)"})
+        self.assertEqual(names(), ["Bypass", "Upper", "Link (A or B)"])
+        self.post(f"/api/sections/{s3}/delete", {})
+        self.assertEqual(names(), ["Bypass", "Link (A or B)"])
+        self.assertEqual([q["order"] for q in self.client.get("/api/projects/p.json").json()["sections"]], [0, 1])
+
+    def test_an_option_moves_with_its_variants_and_variants_inherit(self):
+        s1, s2 = self.new("Bypass"), self.new("Link")
+        self.assertEqual(self.post(f"/api/alignments/{self.a.pk}/section", {"section_id": s1}).status_code, 200)
+        v = self.post(f"/api/alignments/{self.a.pk}/duplicate", {}).json()["properties"]
+        self.assertEqual(v["section"]["id"], s1)                        # a new variant sits in its parent's section
+        self.post(f"/api/alignments/{self.a.pk}/section", {"section_id": s2})
+        data = self.client.get("/api/projects/p.json").json()
+        self.assertEqual({x["id"]: x["section_id"] for x in data["alignments"]}, {self.a.pk: s2, v["id"]: s2})
+        self.post(f"/api/alignments/{self.a.pk}/section", {"section_id": None})
+        self.assertIsNone(Alignment.objects.get(pk=v["id"]).section_id)
+        self.post(f"/api/sections/{s1}/delete", {})                      # options stay, unsorted
+        self.assertTrue(Alignment.objects.filter(pk=self.a.pk).exists())
+
+    def test_sections_belong_to_their_project(self):
+        other = Project.objects.create(slug="q", name="Q", owner=self.owner)
+        q = other.sections.create(name="Elsewhere")
+        self.assertEqual(self.post(f"/api/alignments/{self.a.pk}/section", {"section_id": q.pk}).status_code, 404)
+
+    def test_only_editors_change_sections(self):
+        s1 = self.new("Bypass")
+        User.objects.create_user("v", password="pw")
+        self.client.login(username="v", password="pw")                  # sees the public project, cannot edit it
+        self.assertEqual(self.post("/api/projects/p/sections/new", {"name": "X"}).status_code, 403)
+        self.assertEqual(self.post(f"/api/sections/{s1}/save", {"name": "X"}).status_code, 403)
+        self.assertEqual(self.post(f"/api/alignments/{self.a.pk}/section", {"section_id": s1}).status_code, 403)
+        self.client.logout()
+        self.assertEqual(len(self.client.get("/api/projects/p.json").json()["sections"]), 1)   # read by anyone who can see it
+
+    def test_an_existing_trail_as_an_option(self):
+        s1 = self.new("Bypass")
+        t = Trail.objects.create(slug="lagoon", name="Lagoon", visibility=Visibility.PUBLIC,
+                                 geom=MultiLineString(LineString(utm_line([(0, 0), (200, 0)]), srid=4326)))
+        r = self.post("/api/trails/lagoon/study", {"project_id": self.project.pk, "section_id": s1, "name": "Lagoon"})
+        self.assertEqual(r.status_code, 201)
+        p = r.json()["properties"]
+        self.assertEqual((p["section"]["id"], p["trail"]["slug"], p["legs"][0]["kind"]), (s1, "lagoon", "existing"))
+        data = self.client.get("/api/projects/p.json").json()
+        self.assertEqual(next(x for x in data["alignments"] if x["id"] == p["id"])["trail"], "Lagoon")

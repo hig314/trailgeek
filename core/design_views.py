@@ -27,7 +27,7 @@ from . import access, network, tasks, tiles
 from .evaluation import headline
 from .forms import LineImportForm
 from .importers import ImportError_, import_alignments, import_trails
-from .models import Alignment, Leg, Project, Trail, Visibility
+from .models import Alignment, Leg, Project, ProjectSection, Trail, Visibility
 
 MAX_VERTICES = 50000
 MAX_LEGS = 500
@@ -81,6 +81,7 @@ def alignment_json(a, user):
             "project": {"slug": a.project.slug, "name": a.project.name, "id": a.project.pk,
                         "visibility": a.project.visibility},
             "parent": {"id": a.parent_id, "name": a.parent.name} if a.parent_id else None,
+            "section": {"id": a.section_id, "name": a.section.name} if a.section_id else None,
             "trail": {"slug": a.trail.slug, "name": a.trail.name} if a.trail_id else None,
             "length_m": a.length_m, "runs_uphill": a.runs_uphill, "has_elevation": False,
             "legs": [_leg_json(leg) for leg in legs],
@@ -297,9 +298,14 @@ def api_trail_study(request, slug):
         return _bad(str(e), 404)
     except ValueError as e:
         return _bad(str(e))
+    section = None
+    if body.get("section_id"):
+        section = ProjectSection.objects.filter(project=project, pk=body["section_id"]).first()
+        if section is None:
+            return _bad("no such section in this project", 404)
     line, pieces = trail_line(t)
     name = str(body.get("name") or f"{t.name}: refine study").strip()[:200] or f"{t.name}: refine study"
-    a = Alignment(project=project, name=name, trail=t)
+    a = Alignment(project=project, name=name, trail=t, section=section)
     try:
         with transaction.atomic():
             a.save()
@@ -480,7 +486,7 @@ def api_projects(request):
 @require_GET
 def api_project(request, slug):
     p = get_object_or_404(Project.objects.filter(access.visible_projects_q(request.user)).distinct(), slug=slug)
-    als = list(p.alignments.defer("evaluation").order_by("priority", "name"))
+    als = list(p.alignments.defer("evaluation").select_related("trail").order_by("priority", "name"))
     ext = p.alignments.exclude(geom=None).aggregate(e=Extent("geom"))["e"]
     children = p.children.filter(access.visible_projects_q(request.user)).distinct().order_by("name")
     tracks = p.tracks.filter(access.visible_q(request.user)).distinct().order_by("-taken_at", "name")
@@ -493,12 +499,132 @@ def api_project(request, slug):
                     "children": [{"slug": q.slug, "name": q.name} for q in children],
                     "gpx_url": f"/api/projects/{p.slug}.gpx", "zip_url": f"/api/projects/{p.slug}.zip",
                     "geojson_url": f"/api/projects/{p.slug}.geojson"},
+        "sections": [{"id": q.pk, "name": q.name, "order": q.order, "notes": q.notes} for q in p.sections.all()],
         "alignments": [{"id": a.pk, "name": a.name, "priority": a.priority, "parent_id": a.parent_id,
+                        "section_id": a.section_id, "trail": a.trail.name if a.trail_id else None,
                         "length_m": round(a.length_m, 1), "evaluation_status": a.evaluation_status,
                         "legs": a.legs.count(), "headline": a.headline} for a in als],
         "tracks": [{"id": t.pk, "name": t.name, "taken_at": t.taken_at.isoformat() if t.taken_at else None,
                     "length_m": round(t.length_m, 1), "climb_m": round(t.climb_m)} for t in tracks],
     })
+
+
+# ---------------------------------------------------------------------------
+# Sections (owner, 2026-10-26): the parts of a project's route, in order; its
+# alignments are each one's options, variants under them.
+# ---------------------------------------------------------------------------
+
+def _editable_project(user, slug):
+    p = get_object_or_404(Project.objects.filter(access.visible_projects_q(user)).distinct(), slug=slug)
+    if not access.can_edit_project(user, p):
+        raise PermissionDenied("You cannot edit this project.")
+    return p
+
+
+def _editable_section(user, pk):
+    q = get_object_or_404(ProjectSection.objects.select_related("project")
+                          .filter(project__in=Project.objects.filter(access.visible_projects_q(user))), pk=pk)
+    if not access.can_edit_project(user, q.project):
+        raise PermissionDenied("You cannot edit this project.")
+    return q
+
+
+def _renumber(project):
+    for n, q in enumerate(project.sections.all()):
+        if q.order != n:
+            ProjectSection.objects.filter(pk=q.pk).update(order=n)
+
+
+def _section_json(q):
+    return {"id": q.pk, "name": q.name, "order": q.order, "notes": q.notes}
+
+
+@login_required
+@require_POST
+def api_section_create(request, slug):
+    """A new section at the end of the project's route."""
+    p = _editable_project(request.user, slug)
+    body = _body(request)
+    if body is None:
+        return _bad("body is not JSON")
+    name = str(body.get("name") or "").strip()[:200]
+    if not name:
+        return _bad("give the section a name")
+    q = ProjectSection.objects.create(project=p, name=name, order=p.sections.count(),
+                                      notes=str(body.get("notes") or "")[:5000])
+    return JsonResponse(_section_json(q), status=201)
+
+
+@login_required
+@require_POST
+def api_section_save(request, pk):
+    """Rename a section, change its notes, or move it one place along the
+    route (`move`: -1 earlier, +1 later)."""
+    q = _editable_section(request.user, pk)
+    body = _body(request)
+    if body is None:
+        return _bad("body is not JSON")
+    if "name" in body:
+        name = str(body["name"] or "").strip()[:200]
+        if not name:
+            return _bad("a section needs a name")
+        q.name = name
+    if "notes" in body:
+        q.notes = str(body["notes"] or "")[:5000]
+    q.save()
+    move = body.get("move")
+    if move in (-1, 1):
+        with transaction.atomic():
+            _renumber(q.project)
+            secs = list(q.project.sections.all())
+            i = next(n for n, x in enumerate(secs) if x.pk == q.pk)
+            j = i + move
+            if 0 <= j < len(secs):
+                ProjectSection.objects.filter(pk=secs[i].pk).update(order=j)
+                ProjectSection.objects.filter(pk=secs[j].pk).update(order=i)
+        q.refresh_from_db()
+    return JsonResponse(_section_json(q))
+
+
+@login_required
+@require_POST
+def api_section_delete(request, pk):
+    """Delete a section; its alignments stay in the project, unsorted."""
+    q = _editable_section(request.user, pk)
+    project = q.project
+    q.delete()
+    _renumber(project)
+    return JsonResponse({"deleted": pk, "project": project.slug})
+
+
+@login_required
+@require_POST
+def api_alignment_section(request, pk):
+    """Put an alignment in a section (`section_id`, or null for unsorted).
+    Its variants that were in its old section go with it."""
+    a = _visible_alignment(request.user, pk)
+    _editable(request.user, a)
+    body = _body(request)
+    if body is None:
+        return _bad("body is not JSON")
+    sid = body.get("section_id")
+    section = None
+    if sid is not None:
+        section = ProjectSection.objects.filter(project=a.project, pk=sid).first()
+        if section is None:
+            return _bad("no such section in this project", 404)
+    old = a.section_id
+    kids = {}
+    for b in a.project.alignments.only("pk", "parent_id", "section_id"):
+        kids.setdefault(b.parent_id, []).append(b)
+    move, todo = [a.pk], [a.pk]
+    while todo:
+        for b in kids.get(todo.pop(), []):
+            if b.section_id == old and b.pk not in move:
+                move.append(b.pk)
+                todo.append(b.pk)
+    Alignment.objects.filter(pk__in=move).update(section=section)
+    return JsonResponse({"moved": move, "section_id": sid})
 
 
 # ---------------------------------------------------------------------------

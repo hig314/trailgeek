@@ -635,6 +635,7 @@
     }
     if ((p.kind === 'trail' || p.kind === 'track') && CFG.signedIn) links.push('<a href="#" id="factors-go" title="The refine tool\'s factors along this line on the lidar, with your refine settings: a profile with a track per factor, a cost space, and the point traced on the map">Factors along the line…</a>');
     if (p.kind === 'trail' && CFG.canEdit) links.push('<a href="#" id="trail-refine" title="Look for a better line near this trail: a refine study of it, in a project">Refine…</a>');
+    if (p.kind === 'trail' && CFG.canEdit) links.push('<a href="#" id="trail-option" title="Add this trail to a section of a project\'s route, as one of its options">Add as an option…</a>');
     links.push('<a href="#" id="zoomto">Zoom to</a>');
     links.push('<a href="#" id="sideview" title="Look at it (nearly) horizontally, from the side, to see how steady the climb is">Side view</a>');
     h += '<div class="tg-links">' + links.join(' · ') + '</div>';
@@ -650,6 +651,7 @@
       ev.preventDefault(); TgFactors.analyse({ map: map }, p.kind, p.kind === 'trail' ? p.slug : p.id, p.name);
     });
     if ($('trail-refine')) $('trail-refine').addEventListener('click', function (ev) { ev.preventDefault(); if (TgDesign.leave()) TgDesign.trailStudy(f); });
+    if ($('trail-option')) $('trail-option').addEventListener('click', function (ev) { ev.preventDefault(); if (TgDesign.leave()) TgDesign.trailOption(f); });
     $('zoomto').addEventListener('click', function (ev) { ev.preventDefault(); map.fitBounds(bboxOf(f.geometry), { padding: 60, maxZoom: 15 }); });
     $('sideview').addEventListener('click', function (ev) { ev.preventDefault(); sideViewOf(f.geometry); });
     Array.prototype.forEach.call(document.querySelectorAll('input[name=psrc]'), function (r) {
