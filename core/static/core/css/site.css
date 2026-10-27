@@ -176,6 +176,7 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .rf-params label { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin: 3px 0; }
 .rf-params input { width: 84px; font: inherit; }
 .rf-sw { display: inline-block; width: 14px; height: 4px; vertical-align: middle; margin-right: 3px; }
+.rf-notoff { margin: 4px 0 6px 18px; padding: 0; }
 .rf-results { font-size: 12px; }
 .rf-results th { white-space: nowrap; }
 .rf-results th label { white-space: nowrap; cursor: pointer; }

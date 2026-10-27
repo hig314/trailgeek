@@ -610,7 +610,27 @@ class RefineTests(unittest.TestCase):
         self.assertAlmostEqual(fr[-1], 1.0)
         stages = {st.split(":")[0] for _, _, st in calls}
         self.assertTrue({"Scoring your line", "Route-finder", "Search 1 of 3", "Search 3 of 3",
-                         "Polishing the route-finder's line", "Comparing the candidates"} <= stages, stages)
+                         "Polishing the route-finder's line", "Corridor search", "Polishing the corridor search's line",
+                         "Polishing your line", "Comparing the candidates"} <= stages, stages)
+
+    def test_your_line_is_polished_and_the_corridor_search_runs(self):
+        # Owner, 2026-10-26: a good line came back with nothing. Your own line
+        # is now a chain of its own, polished, and so is the corridor search's.
+        r = self.run_refine(iterations=300)
+        keys = {c["key"] for c in r["chains"]}
+        self.assertTrue({"polished", "corridor"} <= keys, keys)
+        polished = next(c for c in r["chains"] if c["key"] == "polished")
+        self.assertLess(polished["total"], r["input"]["total"])
+        self.assertIsNotNone(r["corridor"]["polished"])
+        self.assertTrue(r["corridor"]["caps"])
+
+    def test_what_is_not_offered_says_why(self):
+        r = self.run_refine(iterations=150)
+        offered = {c["label"] for c in r["candidates"]}
+        for n in r["not_offered"]:
+            self.assertNotIn(n["label"], offered)
+            self.assertTrue(n["why"])
+
 
     def test_a_hand_drawn_hairpin_vertex_is_refined_not_refused(self):
         legs = [np.array([[0, 0], [100, 30], [0, 31]], float)]          # turns back within a metre
@@ -624,6 +644,40 @@ class RefineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             refine(self.LEGS, small, s, seed=1)
 
+
+class CorridorTests(unittest.TestCase):
+    """The corridor search (corridor.py): dynamic programming over
+    cross-sections, a seed for the annealer."""
+
+    def problem(self, legs, corridor=25):
+        s = clean_settings({"factors": {"drainage": {"k": 0}}, "params": {"corridor_m": corridor}})
+        return Problem(legs, plane_grid(), s)
+
+    def test_a_line_from_end_to_end_within_the_limit(self):
+        from trailgeek_analysis.refine.corridor import corridor_line
+        prob = self.problem(RefineTests.LEGS)
+        R, info = corridor_line(prob, prob.base_k)
+        np.testing.assert_allclose(R[0], [0, 0], atol=1e-6)
+        np.testing.assert_allclose(R[-1], [200, 60], atol=1e-6)
+        self.assertLessEqual(np.nanmax(prob.dist_grid.sample(*R.T)), 25 + 1e-6)
+        # The input climbs 15 % to a kink, then runs level: the search spreads it.
+        self.assertLess(info["grade_max"], 14.0)
+
+    def test_spreads_a_kinked_climb_and_obeys_a_grade_cap(self):
+        from trailgeek_analysis.refine.corridor import corridor_line
+        prob = self.problem(RefineTests.LEGS)
+        R, info = corridor_line(prob, prob.base_k)
+        # 60 m of climb in 25 m either side of the line: about 9.5 % is the floor.
+        R2, info2 = corridor_line(prob, prob.base_k, cap=info["grade_max"] * 0.9)
+        self.assertIsNotNone(R2)
+        self.assertLessEqual(info2["grade_max"], info["grade_max"] * 0.9 + 1e-6)
+
+    def test_no_chain_when_the_cap_cannot_be_met(self):
+        from trailgeek_analysis.refine.corridor import corridor_line
+        legs = [np.array([[0, 0], [0, 100]], float)]           # 30 % straight up, 25 m either side
+        prob = self.problem(legs)
+        R, info = corridor_line(prob, prob.base_k, cap=5.0)
+        self.assertIsNone(R)
 
 class TwiTests(unittest.TestCase):
     """The light wetness index: a V valley draining south, with a pit."""

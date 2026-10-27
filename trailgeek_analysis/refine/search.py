@@ -22,6 +22,7 @@ import math
 import numpy as np
 
 from . import spline
+from .corridor import corridor_lines
 from .route import route_lines
 from .score import BEND_STEP_M, PER_M, Problem, adaptive_resample, densify, fillet, fit_controls, histograms
 from .settings import FACTOR_META
@@ -57,6 +58,14 @@ ROUTE_UNITS = 1.5                   # the route-finder's share of the progress b
 ROUTE_ROUND_UNITS = 0.2
 ROUTE_ROUND_M = (1.0, 2.0, 4.0, 8.0)  # m: the route as found has its corners rounded to each of these (as far
                                     # as its segments allow) and the cheapest is kept: never the grid's kinks
+# Two more chains (owner, 2026-10-26: a good line came back with nothing, where
+# something very like it was expected), each polished with small moves at a low
+# temperature rather than searched afresh:
+POLISH_SIGMA_M = 1.0                # m: your line as drawn, fitted closely (its corners rounded 1.5 m), first moves
+CORRIDOR_SIGMA_M = 2.0              # m: the corridor search's line (corridor.py), first moves
+POLISH_HEAT = 0.05                  # their starting temperature, as a share of an ordinary chain's
+CORRIDOR_UNITS = 0.3                # the corridor search's share of the progress bar, in chains
+CORRIDOR_ROUND_M = 4.0              # m: its lines' corners rounded this much when the real scoring picks one
 
 
 def _control_of_sample(prob, i):
@@ -136,8 +145,10 @@ def propose(prob, rng, c, t, cur, sigma):
     return c2, t2
 
 
-def anneal(prob, rng, iters, k, t0, progress=None):
-    """One chain from the smooth fit. Returns (best total, c, t)."""
+def anneal(prob, rng, iters, k, t0, progress=None, sigma0=SIGMA0, heat=1.0):
+    """One chain from the problem's start (the smooth fit). `sigma0` and
+    `heat` (a share of the usual starting temperature) make it a polish:
+    small moves, rarely uphill. Returns (best total, c, t)."""
     c = prob.start()
     t = t0
     cur = prob.score(c, t, k)
@@ -146,15 +157,15 @@ def anneal(prob, rng, iters, k, t0, progress=None):
     best = (cur["total"], c.copy(), t)
     worse = []
     for _ in range(30):
-        c2, t2 = propose(prob, rng, c, t, cur, SIGMA0)
+        c2, t2 = propose(prob, rng, c, t, cur, sigma0)
         r = prob.score(c2, t2, k)
         if r is not None and r["total"] > cur["total"]:
             worse.append(r["total"] - cur["total"])
-    T0 = float(np.median(worse)) / math.log(2) if worse else max(cur["total"] * 1e-3, 1e-6)
+    T0 = heat * (float(np.median(worse)) / math.log(2) if worse else max(cur["total"] * 1e-3, 1e-6))
     for i in range(iters):
         frac = i / max(1, iters)
         T = T0 * COOL ** frac
-        sigma = SIGMA0 * (SIGMA_END / SIGMA0) ** frac
+        sigma = sigma0 * (SIGMA_END / sigma0) ** frac
         if i and i % RESPACE_EVERY == 0:
             c3 = prob.respace(c)
             r = prob.score(c3, t, k) if c3 is not None else None
@@ -251,6 +262,23 @@ def _best_tube(score, k):
     return best
 
 
+def _seeded(prob, settings, line, t0, k, radii, sigma_m, knot_m, adaptive):
+    """A Problem on the same stretch and limit as `prob` whose start is a fit
+    to `line` (the route-finder's, the corridor search's, or the person's own
+    line), rounded by the first of `radii` that gives a start within the
+    limit. Returns (problem, radius); if none does, the last radius's
+    problem and None (the route as found is still scored on it)."""
+    p = settings["params"]
+    for r_sk in radii:
+        pr = Problem([line], prob.grid, dict(settings, params=dict(p, sketch_radius_m=r_sk, input_sigma_m=sigma_m,
+                                                                  knot_m=min(float(p["knot_m"]), knot_m))),
+                     prob.twi_grid, like=prob, adaptive=adaptive)
+        pr.existing_xy, pr.grade_ref = prob.existing_xy, prob.grade_ref
+        if pr.score(pr.start(), min(t0, prob.tmax), k) is not None:
+            return pr, r_sk
+    return pr, None
+
+
 def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, existing_xy=None, offer_all=False):
     """Refine a stretch made of legs (each an (m, 2) array in a metric CRS).
     `settings` is a full, cleaned settings dict (settings.clean_settings).
@@ -296,7 +324,8 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
     # chain, ROUTE_UNITS for the route-finder and ROUTE_ROUND_UNITS for
     # rounding its line, and every step reports its stage and its share.
     stage = ["Searching"]
-    units = chains + (ROUTE_UNITS + len(ROUTE_TURN_X) * (1 + ROUTE_ROUND_UNITS) if chains > 0 else 0)
+    units = chains + (ROUTE_UNITS + len(ROUTE_TURN_X) * (1 + ROUTE_ROUND_UNITS) + CORRIDOR_UNITS + 2
+                      if chains > 0 else 0)
 
     def report(done_units, b=None, name=None):
         if b is not None:
@@ -352,16 +381,9 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
         report(at, None, "Polishing " + what)
         info = {"turn_x": tx_, "polished": None, "as_found": None, "vertices": int(len(R))}
         route_info["starts"].append(info)
-        pr = None
-        for r_sk in ROUTE_SKETCH_R_M:
-            pr = Problem([R], prob.grid, dict(settings, params=dict(p, sketch_radius_m=r_sk,
-                                                                    input_sigma_m=ROUTE_SIGMA_M,
-                                                                    knot_m=min(float(p["knot_m"]), ROUTE_KNOT_M))),
-                         prob.twi_grid, like=prob, adaptive=True)
-            pr.existing_xy, pr.grade_ref = prob.existing_xy, prob.grade_ref
-            if pr.score(pr.start(), min(t0, prob.tmax), k) is not None:
-                info["sketch_radius_m"] = r_sk
-                break
+        pr, r_sk = _seeded(prob, settings, R, t0, k, ROUTE_SKETCH_R_M, ROUTE_SIGMA_M, ROUTE_KNOT_M, True)
+        if r_sk is not None:
+            info["sketch_radius_m"] = r_sk
         crng = np.random.default_rng(rng.integers(1, 2 ** 31 - 1))
         cb = lambda i, b, at=at: report(at + i / iters, b)
         try:
@@ -394,18 +416,71 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
             info["as_found_round_m"] = rr
     if routed:
         results.append(("routed", "From the route-finder", None, min(routed, key=lambda r: r["total"])))
+
+    # The corridor search's line and your own line, each polished (owner,
+    # 2026-10-26). Your line's chain starts a close fit away from the line as
+    # drawn, so a line that is already good comes back as itself, tweaked.
+    corridor_info = None
+    if chains > 0:
+        at = ROUTE_UNITS + chains + len(ROUTE_TURN_X) * (1 + ROUTE_ROUND_UNITS)
+        report(at, None, "Corridor search")
+        R = None
+        lines = corridor_lines(prob, k, progress=lambda fr, at=at: report(at + CORRIDOR_UNITS * fr))
+        # Each grade cap's line scored for real, its corners rounded; the
+        # cheapest is the seed.
+        for cap, R_, info in lines:
+            Rf = fillet(R_, CORRIDOR_ROUND_M, BEND_STEP_M, r_min=0.5)
+            Qr, Qf = adaptive_resample(Rf, prob.h), densify(Rf, BEND_STEP_M)
+            found_c = _best_tube(lambda tt, kk: prob.score_line(Qr, min(tt, prob.tmax), kk, Qf=Qf), k)
+            info["scored"] = None if found_c is None else round(found_c[0]["total"], 1)
+            if found_c is not None and (R is None or found_c[0]["total"] < corridor_info["scored"]):
+                R, corridor_info = R_, dict(info)
+        if corridor_info is not None:
+            corridor_info["caps"] = [{"cap": i["cap"], "estimate": i["estimate"], "scored": i["scored"],
+                                      "grade_max": i["grade_max"]} for _, _, i in lines]
+        seeds = [("polished", "Your line, polished", "your line", prob.ref, (0.0,), 0.0, ROUTE_KNOT_M, True,
+                  POLISH_SIGMA_M)]
+        if R is not None:
+            seeds.insert(0, ("corridor", "From the corridor search", "the corridor search's line", R,
+                             ROUTE_SKETCH_R_M, ROUTE_SIGMA_M, float(p["knot_m"]), False, CORRIDOR_SIGMA_M))
+        for n_s, (key, label, what, line, radii, sig, knot, adaptive, sigma0) in enumerate(seeds):
+            at_s = at + CORRIDOR_UNITS + (2 - len(seeds)) + n_s
+            report(at_s, None, "Polishing " + what)
+            pr, r_sk = _seeded(prob, settings, line, t0, k, radii, sig, knot, adaptive)
+            if r_sk is None:
+                continue
+            crng = np.random.default_rng(rng.integers(1, 2 ** 31 - 1))
+            cb = lambda i, b, at_s=at_s: report(at_s + i / iters, b)
+            try:
+                total, c, t = anneal(pr, crng, iters, k, min(t0, prob.tmax), cb, sigma0=sigma0, heat=POLISH_HEAT)
+            except ValueError:
+                continue
+            r = pr.score(c, t, k, detail=True)
+            if r is not None:
+                results.append((key, label, None, r))
+                shown[0] = min(shown[0], r["total"])
+                if key == "corridor":
+                    corridor_info["polished"] = round(r["total"], 1)
     report(units, min([r["total"] for *_, r in results], default=inp["total"]), "Comparing the candidates")
 
-    def acceptable(r):
+    def why_not(r):
+        """Why a candidate is not offered, or None if it is."""
         if r["total"] >= inp["total"] - 1e-9:
-            return False
+            return f"{r['total']:.0f} m, no less than your line's {inp['total']:.0f} m"
         if offer_all:
-            return True
+            return None
         if k.get("grade", 0) > 0 and r["grade"].max() > prob.grade_ref + GRADE_MAX_SLACK:
-            return False
+            return (f"its steepest 10 m is {r['grade'].max():.1f} %, more than {GRADE_MAX_SLACK:g} % over "
+                    f"your line's {prob.grade_ref:.1f} %")
         extra = inp["total"] - inp["contrib"].get("length", 0)
-        return all(r["contrib"][f] - inp["contrib"][f] <= MARGIN * max(extra, unit(f))
-                   for f in r["contrib"])
+        over = [(r["contrib"][f] - inp["contrib"][f] - MARGIN * max(extra, unit(f)), f) for f in r["contrib"]]
+        worst, f = max(over)
+        if worst > 0:
+            more = r["contrib"][f] - inp["contrib"][f]
+            name = FACTOR_META[f]["label"].lower() if f in FACTOR_META else "length"
+            return (f"{r['total']:.0f} m against your line's {inp['total']:.0f} m, but {more:.0f} m more on "
+                    f"{name} (at most {more - worst:.0f} m more is offered)")
+        return None
 
     def unit(f):
         if f == "length":
@@ -413,8 +488,9 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
         return k.get(f, 0) * (PER_M if FACTOR_META[f]["per"] == "metre" else 1)
 
     order = sorted(results, key=lambda x: x[3]["total"])
-    wanted = [("best", "Best overall" + (" (route-finder)" if order[0][0] == "routed" else "")) + order[0][2:]] if order else []
-    for key in ("closer", "steadier", "routed"):
+    FROM = {"routed": " (route-finder)", "corridor": " (corridor search)", "polished": " (your line, polished)"}
+    wanted = [("best", "Best overall" + FROM.get(order[0][0], "")) + order[0][2:]] if order else []
+    for key in ("closer", "steadier", "routed", "corridor", "polished"):
         mine = [x for x in order if x[0] == key]
         if mine:
             wanted.append(mine[0])
@@ -423,11 +499,13 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
         r0 = prob.score(c0, t0, k, detail=True)
         if r0 is not None:
             wanted.append(("smoothed", "Your line, smoothed", c0, r0))
-    picked = []
+    picked, not_offered = [], []
     for key, label, c, r in wanted:
-        if not acceptable(r):
-            continue
         if any(r["Q"].shape == q[3]["Q"].shape and np.hypot(*(r["Q"] - q[3]["Q"]).T).max() < 0.5 for q in picked):
+            continue
+        why = why_not(r)
+        if why:
+            not_offered.append({"key": key, "label": label, "total": round(r["total"], 1), "why": why})
             continue
         picked.append((key, label, c, r))
     cands = []
@@ -443,4 +521,6 @@ def refine(legs_xy, grid, settings, progress=None, seed=None, twi_grid=None, exi
         "histograms": histograms(inp),
         "chains": [{"key": key, "label": label, "total": round(r["total"], 1)} for key, label, c, r in results],
         "route": route_info,                     # the route-finder's chains: each start's polished and as-found totals
+        "corridor": corridor_info,               # the corridor search: stations, points, its own estimate, polished total
+        "not_offered": not_offered,              # candidates found but not offered, and why (owner, 2026-10-26)
     }

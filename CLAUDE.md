@@ -215,6 +215,17 @@ server and Django reasoning rather than assume it.
     other setting to cure the search misses (METHODS_SANDBOX.md).
   - Possible later speed-up: a compiled route search (numba is blocked:
     it needs numpy ≤ 2.1, the container has 2.5.3).
+- **Open PRs, 2026-10-26 (local session, built and tried in dev; the owner
+  reviews in dev):**
+  - **#32** `click-chooser`: a click on overlapping lines lists them (name,
+    kind, length, project) instead of picking one; KBSP's 15 km "Tutka
+    Tusk" (alignment 65) under the Tutka Tusk sections took the click, and
+    Refine ran on all of it ("too long to refine").
+  - `refine-polish-dp`: "Your line, polished" (a chain from the line as
+    drawn, small moves) and the corridor search (`refine/corridor.py`,
+    dynamic programming over cross-sections, under grade caps, then
+    polished), and the panel lists what it found but did not offer, and
+    why. REFINE_TOOL.md §26. The methods sandbox predates it (not rebuilt).
 - **Open:** R2 CORS for trailgeek.org is **done on both hosts**, verified
   from the Mac 2026-09-27 with an Origin header: the `landslidescience-lidar`
   bucket (owner) and the lidar-tiles Worker on `tiles.landslidescience.org`
