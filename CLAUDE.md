@@ -253,8 +253,19 @@ server and Django reasoning rather than assume it.
   2026-10-26, migration 0008: a new table and a nullable column, no existing
   row changed): `ProjectSection`, `Alignment.section`; the project panel is
   a tree (section → options → variants); "Add as an option…" on a trail's
-  panel. Step 1 of 3 (PLAN.md §0, 2026-10-26): next the assemble tool, then
-  fine-tuning the joins. **Dev data:** Tutka Tusk has six sections (Lagoon
+  panel. Step 1 of 3 (PLAN.md §0, 2026-10-26).
+- **Assemble a route** (branch `assemble-route`, stacked on
+  `project-sections` because migration 0009 follows 0008; built and tried
+  in dev 2026-10-26): "Assemble a route…" on the project panel picks one
+  option (or variant) per section, joins them (`core/assemble.py`: end to
+  end; a branch leaving the middle of the section before cuts it there;
+  gaps up to 3 m snapped, longer bridged by new construction; directions by
+  shortest joins, overridable), shows the joins, the line, a live profile
+  and stats, and saves one ordinary alignment with `Alignment.assembly`
+  (choices, directions, cuts, joins). "Change the choices…" re-assembles as
+  a variant. The tree has a "Whole routes" group. Step 2 of 3; next,
+  fine-tuning the joins. Dev: #90 "Tutka Tusk: whole route (Link B, Upper
+  B)", 14.6 km, the bypass cut at 301 m. **Dev data:** Tutka Tusk has six sections (Lagoon
   Bypass; Link A/B; Tutka Tusk lower #79; Upper ascent A/B; Tutka Tusk upper
   #78; Backdoor loop connection), "Between" #81/#82 unsorted. Not yet in
   production: set them up there by hand, or ask the local session to.

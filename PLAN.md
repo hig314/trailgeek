@@ -74,7 +74,8 @@ Decided for presenting a project as one route (owner, 2026-10-26):
   existing-trail leg along it (the refine study's alignment, made with "Add
   as an option…" on the trail's panel). The project panel is a tree:
   section, then options, then variants, with the compare numbers.
-- **Then: assemble.** Pick one option (or variant) per section; the tool
+- **Then: assemble** (built 2026-10-26, `core/assemble.py`; gaps up to 3 m
+  are snapped by moving the joint rather than bridged). Pick one option (or variant) per section; the tool
   joins them into **one continuous Alignment** (so the editor, evaluation,
   profile, exports and Refine all work on it), recording which option it
   took for each section so it can be rebuilt. Joins are guessed

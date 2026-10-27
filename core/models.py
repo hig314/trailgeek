@@ -347,6 +347,10 @@ class Alignment(models.Model):
     )
     evaluation_error = models.TextField(blank=True, editable=False)
     evaluated_at = models.DateTimeField(null=True, blank=True, editable=False)
+    assembly = models.JSONField(
+        null=True, blank=True, editable=False,
+        help_text="For a route assembled from one option per section (core/assemble.py): the choices, "
+                  "which way each piece ran, where it was cut, and how each join was made.")
     refinement = models.JSONField(
         null=True, blank=True, editable=False,
         help_text="For a variant made by the refine tool: its settings, seed, which legs, and the "
