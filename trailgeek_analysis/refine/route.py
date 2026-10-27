@@ -42,6 +42,21 @@ What it leaves out, because a path search cannot add them up step by step:
 the steepest-pitch charge, drainage, and the cut/fill tube. Those are the
 scoring's job once the annealer has the line. A* with the straight-line
 distance to the end as the estimate (every metre costs at least 1).
+
+Corners (2026-10-21): the scoring counts a corner where the downhill side
+changes (score.Problem._corners), not where one turn is sharp, and the
+route-finder used to charge corner rates only for single turns of
+corner_min_turn_deg or more. It built its switchbacks from 25-45 degree
+turns, charged them as bends, and never felt the corner weight (on the
+sandbox's uniform slope, 3-8 switchbacks where one paid). So the state
+carries the downhill side too, (cell, heading, side), as the scoring reads
+it: from the cross slope over SIDE_M either side, undefined in the
+fall-line band and on gentle cross slope, held through them. A change of
+side pays the corner curve at the sketch radius (what a sketched corner is
+rounded to), scaled down where the line turned less than
+corner_min_turn_deg across it (crossing a crest or a gully is not a
+corner); a single turn tighter than that still pays the rest, at corner
+rates.
 """
 import heapq
 import math
@@ -61,6 +76,8 @@ EXTRA_MAX_NODES = 50_000  # route_lines searches its 2nd and later turn weights 
                           # (2026-10-21: on the 6 km Graduation Peak Trail, ~190 s a search, and the routes
                           # at 0.5x and 2x turns were all but the same; on a 200 m slope, under a second)
 FLAT_PCT = 4.0            # %: flatter ground has no fall line (score.FALL_MIN_SLOPE_PCT)
+KEY_Q = 1024             # the search's heap orders estimates to 1/KEY_Q m
+SIDE_M = 5.0              # m: the downhill side is read from the slope this far either side (the scoring's ~10 m)
 
 # Steps to 32 neighbours: the 8 around, the 8 a knight's move away, and the
 # 16 at (3, 1) and (3, 2). Headings then come every 8-18 degrees, so a
@@ -162,6 +179,13 @@ def route_lines(prob, k=None, turn_x=(1.0,), cell=CELL_M, progress=None):
     N = len(nodes)
     nx, ny, nz = X[ok], Y[ok], z[ok]
     ngx, ngy = gx[ok], gy[ok]
+    # The slope the downhill side is read from: over SIDE_M either side, as
+    # the scoring's cross slope is averaged over ~10 m (where that reaches
+    # off the terrain, the bench's).
+    sgx = (gs.sample(nx + SIDE_M, ny) - gs.sample(nx - SIDE_M, ny)) / (2 * SIDE_M)
+    sgy = (gs.sample(nx, ny + SIDE_M) - gs.sample(nx, ny - SIDE_M)) / (2 * SIDE_M)
+    sgx = np.where(np.isfinite(sgx), sgx, ngx)
+    sgy = np.where(np.isfinite(sgy), sgy, ngy)
     del X, Y, z, gx, gy, cand
     col, row = nodes % W, nodes // W
     f = prob.f
@@ -178,6 +202,8 @@ def route_lines(prob, k=None, turn_x=(1.0,), cell=CELL_M, progress=None):
     climbs = not (gs.sample(*P1[:, None])[0] < gs.sample(*P0[:, None])[0])
     nb = np.full((ND, N), -1, np.int32)
     ec = np.full((ND, N), np.inf, np.float32)
+    sd = np.zeros((ND, N), np.int8)       # each step's downhill side: +1 right, -1 left, 0 none (held)
+    thr = prob.thr
     for d, (dc, dr) in enumerate(DIRS):
         say(READ_SHARE * (0.2 + 0.8 * d / ND), "pricing the steps")
         c2, r2 = col + dc, row + dr
@@ -207,6 +233,10 @@ def route_lines(prob, k=None, turn_x=(1.0,), cell=CELL_M, progress=None):
         per = (1 + (base[i] + base[jj]) / 2 + k.get("grade", 0) * f["grade"](grade) + k.get("tsa", 0) * f["tsa"](tsa)
                + k.get("falltread", 0) * f["falltread"](grade) * (tsa < prob.fall_tsa))
         nb[d, i] = np.where(ok_step, jj, -1)
+        Sx, Sy = (sgx[i] + sgx[jj]) / 2, (sgy[i] + sgy[jj]) / 2
+        s_cross, s_along = -Sx * ty + Sy * tx, Sx * tx + Sy * ty
+        s_tsa = np.degrees(np.arctan2(np.abs(s_cross), np.abs(s_along)))
+        sd[d, i] = np.where((np.abs(s_cross) > thr) & (s_tsa >= prob.fall_tsa), np.sign(s_cross), 0)
         ec[d, i] = np.where(ok_step, slope_len * per + k_climb * np.nan_to_num(lost, nan=0.0), np.inf)
 
     def nearest(p):
@@ -217,10 +247,15 @@ def route_lines(prob, k=None, turn_x=(1.0,), cell=CELL_M, progress=None):
     # (owner, 2026-10-19: as Python dicts and lists a 7 km trail in a 100 m
     # corridor took 3 GB, and the 4 GB droplet swapped). Node u's neighbour
     # and step cost in direction d are at u * ND + d.
-    hx = memoryview(np.hypot(nx - gxe, ny - gye))
+    hx = memoryview(np.maximum(np.hypot(nx - gxe, ny - gye), _climb_floor(prob, k, base) * np.abs(nz - nz[s1])))
     nbv = memoryview(np.ascontiguousarray(nb.T).ravel())
     ecv = memoryview(np.ascontiguousarray(ec.T).ravel())
-    del nb, ec
+    sdv = memoryview(np.ascontiguousarray(sd.T).ravel())
+    del nb, ec, sd
+    # Per node, how far the fall-line band leaves to turn: a line whose last
+    # step was in the band has turned at least fall_tsa less its angle off
+    # the fall line since its side was last set (on uniform ground).
+    band = _band_left(sgx, sgy, prob)
     out = []
     route_lines.nodes = N                 # for the caller's log
     for n_, tx_ in enumerate(turn_x):
@@ -229,8 +264,8 @@ def route_lines(prob, k=None, turn_x=(1.0,), cell=CELL_M, progress=None):
             continue
         share = (1 - READ_SHARE) / len(turn_x)
         at = READ_SHARE + n_ * share
-        T = _turn_costs(prob, k, tx_)
-        path = _search(N, s0, s1, hx, nbv, ecv, T,
+        T, fee = _turn_costs(prob, k, tx_)
+        path = _search(N, s0, s1, hx, nbv, ecv, sdv, band, T, fee,
                        lambda fr, at=at, share=share: say(at + share * fr, "searching"))
         if path is None:
             out.append(None)
@@ -241,39 +276,99 @@ def route_lines(prob, k=None, turn_x=(1.0,), cell=CELL_M, progress=None):
     return out
 
 
+def _climb_floor(prob, k, base):
+    """The least a step can cost per metre of height it climbs or descends,
+    so the estimate to the end can be |height to go| times this as well as
+    the distance (2026-10-21: on a climb the distance alone is a fraction of
+    the cost, and the search widened across the whole corridor before
+    reaching the end). A step's cost is at least its slope length times
+    (1 + the grade charge + the least of the charges every step pays), and
+    its slope length at least hypot(L, |dz|) (score.py's reading over
+    sub-steps only adds), so per metre of height at least
+    sqrt(1 + g^2) / g (1 + ...) at its grade g; the minimum over g, less a
+    hair for the grid of grades it is found on."""
+    g = np.concatenate([np.geomspace(1e-3, 1.0, 3000), np.geomspace(1.0, 1e3, 1000)[1:]])
+    floor = 1.0 + max(0.0, float(np.min(base))) if np.size(base) else 1.0
+    per = floor + k.get("grade", 0) * prob.f["grade"](100 * g)
+    return 0.995 * float(np.min(np.sqrt(1 + g * g) / g * per))
+
+
+def _band_left(sgx, sgy, prob):
+    """band[u*ND + din]: degrees a line arriving at node u on heading din has
+    turned, at least, since its downhill side was last set, if that heading
+    is in the fall-line band there (fall_tsa less its angle off the fall
+    line), else 0. A float32 memoryview."""
+    left = np.zeros((len(sgx), ND), np.float32)     # one heading at a time: N x ND float64s are 86 MB each on a 7 km trail
+    sloped = 100 * np.hypot(sgx, sgy) >= FLAT_PCT
+    for d, (dc, dr) in enumerate(DIRS):
+        tx, ty = dc / math.hypot(dc, dr), dr / math.hypot(dc, dr)
+        tsa = np.degrees(np.arctan2(np.abs(-sgx * ty + sgy * tx), np.abs(sgx * tx + sgy * ty)))
+        left[:, d] = np.where((tsa < prob.fall_tsa) & sloped, prob.fall_tsa - tsa, 0.0)
+    return memoryview(left.ravel())
+
+
 def _turn_costs(prob, k, turn_x=1.0):
     """T[din][dout]: the cost of turning from heading din to dout, the corner
-    and bend weights times turn_x."""
+    and bend weights times turn_x; and fee[din][dout]: what a change of the
+    downhill side costs there, before the band's share (see _search).
+
+    A change of side pays the corner curve at the sketch radius, scaled by
+    the turn across it over corner_min_turn_deg (up to 1); a single turn of
+    corner_min_turn_deg or more pays, on top, its share of 180 degrees of
+    what the corner curve charges beyond that at the turn's radius, so a
+    hairpin of two sharp turns at a change of side costs the corner at its
+    tight radius, as the scoring charges it."""
     f = prob.f
     ang = np.array([math.atan2(dr, dc) for dc, dr in DIRS])
     turn = np.abs((ang[None, :] - ang[:, None] + math.pi) % (2 * math.pi) - math.pi)
     r = BEND_WINDOW_M / np.maximum(turn, 1e-9)
-    corner = turn_x * k.get("corner", 0) * f["corner"](r)
+    kc = turn_x * k.get("corner", 0)
+    floor = float(f["corner"](np.array([prob.R_sketch]))[0])
+    corner = kc * np.maximum(0.0, f["corner"](r) - floor)
     bend = turn_x * k.get("bend", 0) * f["bend"](r)
     T = np.where(turn >= prob.min_turn, corner * turn / math.pi, bend * turn / (math.pi / 2))
     T[turn > math.radians(MAX_TURN_DEG)] = np.inf
-    return T.tolist()
+    # The fee as (base, per degree turned) so the band's degrees can be added
+    # in the search: min(1, (turn + band) / min_turn) of kc * floor.
+    return T.tolist(), (kc * floor, np.degrees(turn).tolist(), math.degrees(prob.min_turn))
 
 
-def _search(N, s0, s1, hx, nbv, ecv, T, say):
-    """A* over (node, heading) from node s0 to s1; the nodes of the path, or
-    None. say(fraction) reports how far the frontier has got."""
-    best_a = np.full(N * ND, np.inf)
-    parent_a = np.full(N * ND, -1, np.int32)
+def _search(N, s0, s1, hx, nbv, ecv, sdv, band, T, fee, say):
+    """A* over (node, heading, downhill side) from node s0 to s1; the nodes
+    of the path, or None. say(fraction) reports how far the frontier has
+    got. A state is (u * ND + heading) * 2 + side bit (0 left, 1 right); the
+    start takes either side free (its first side is no change).
+
+    The heap holds one int per entry, the estimate in 1/KEY_Q m above the
+    state's bits (2026-10-21: as (estimate, state) tuples, ~116 bytes an
+    entry, a 7 km trail's search peaked at 2.8 GB; an int is ~40, and
+    compares faster). Entries the search has since bettered by more than
+    1/KEY_Q are skipped on popping (closer ones are expanded again,
+    harmlessly)."""
+    fee0, turn_deg, min_deg = fee
+    best_a = np.full(N * ND * 2, np.inf)
+    parent_a = np.full(N * ND * 2, -1, np.int32)
     best, parent = memoryview(best_a), memoryview(parent_a)
-    heap = []                     # (estimate, state); stale entries are skipped on popping
-    for d in range(ND):
-        st = s0 * ND + d
+    sh = (N * ND * 2).bit_length()
+    mask = (1 << sh) - 1
+    q = float(KEY_Q)
+    heap = []
+    for d in range(2 * ND):
+        st = s0 * 2 * ND + d
         best[st] = 0.0
-        heapq.heappush(heap, (hx[s0], st))
+        heap.append((int(hx[s0] * q) << sh) | st)
+    heapq.heapify(heap)
     done = None
     h0, h_min, pops = max(hx[s0], 1e-9), hx[s0], 0
+    pop, push = heapq.heappop, heapq.heappush
     say(0.0)
     while heap:
-        fsc, st = heapq.heappop(heap)
-        u, din = divmod(st, ND)
+        key = pop(heap)
+        st = key & mask
+        ud, sb = divmod(st, 2)
+        u, din = divmod(ud, ND)
         gc = best[st]
-        if fsc > gc + hx[u] + 1e-9:
+        if (key >> sh) > (gc + hx[u]) * q + 1:
             continue
         pops += 1
         if hx[u] < h_min:
@@ -284,23 +379,33 @@ def _search(N, s0, s1, hx, nbv, ecv, T, say):
             done = st
             break
         Tin = T[din]
+        Din = turn_deg[din]
+        other = -1 if sb else 1           # the side a step must have to change it
+        extra = band[ud]
         base_i = u * ND
         for dout in range(ND):
             v = nbv[base_i + dout]
             if v < 0:
                 continue
             ng = gc + ecv[base_i + dout] + Tin[dout]
-            sv = v * ND + dout
+            s_ = sdv[base_i + dout]
+            if s_ == other:
+                x = (Din[dout] + extra) / min_deg
+                ng += fee0 * (x if x < 1 else 1)
+                nb_ = 1 - sb
+            else:
+                nb_ = sb
+            sv = (v * ND + dout) * 2 + nb_
             if ng < best[sv]:
                 best[sv] = ng
                 parent[sv] = st
-                heapq.heappush(heap, (ng + hx[v], sv))
+                push(heap, (int((ng + hx[v]) * q) << sh) | sv)
     if done is None:
         return None
     path = []
     st = done
     while st >= 0:
-        path.append(st // ND)
+        path.append(st // (2 * ND))
         st = parent[st]
     path.reverse()
     return path
