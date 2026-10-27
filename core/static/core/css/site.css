@@ -186,6 +186,11 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .tg-notes-hint { color: #8a5a00; font-weight: 600; margin: 4px 0; }
 .tg-notes-list li { margin: 2px 0; }
 .tg-note-pop .maplibregl-popup-content { padding: 10px 12px; }
+.tg-choose-pop .maplibregl-popup-content { padding: 8px 10px; }
+.tg-choose { display: flex; flex-direction: column; align-items: flex-start; width: 100%; margin-top: 4px;
+  padding: 4px 6px; border: 1px solid transparent; border-radius: 4px; background: none; font: inherit;
+  color: inherit; text-align: left; cursor: pointer; }
+.tg-choose:hover { border-color: currentColor; }
 .tg-note-text { white-space: pre-wrap; font-size: 13px; margin-bottom: 4px; }
 .tg-note-acts { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 .tg-twi { border-top: 1px solid #ddd; border-bottom: 1px solid #ddd; padding: 6px 0; margin: 6px 0; }

@@ -434,13 +434,44 @@
     if (window.TgNotes && TgNotes.claims(e)) return;        // a note, or placing one
     var fs = map.queryRenderedFeatures(e.point, { layers: CLICKABLE });
     if (!fs.length) return;
-    // Prefer an alignment leg over the trail under it: it is on top.
+    // Alignments first (they are on top), then trails, then tracks.
     fs.sort(function (a, b) { return CLICKABLE.indexOf(b.layer.id) - CLICKABLE.indexOf(a.layer.id); });
-    var f = fs[0];
-    if (f.layer.id === 'trails-line') select('trail', f.properties.slug, false);
-    else if (f.layer.id === 'tracks') select('track', f.properties.id, false);
-    else select('align', f.properties.id, false);
+    // One entry per line: an alignment comes as one feature per leg (and per
+    // tile), a trail as one per tile.
+    var picks = [], seen = {};
+    fs.forEach(function (f) {
+      var kind = f.layer.id === 'trails-line' ? 'trail' : f.layer.id === 'tracks' ? 'track' : 'align';
+      var key = String(kind === 'trail' ? f.properties.slug : f.properties.id);
+      if (seen[kind + ':' + key]) return;
+      seen[kind + ':' + key] = true;
+      picks.push({ kind: kind, key: key, f: f });
+    });
+    if (picks.length === 1) { select(picks[0].kind, picks[0].key, false); return; }
+    // Several lines under the click (owner, 2026-10-26: a 15 km scouting line
+    // under the Tutka Tusk sections took the click, and Refine ran on all of
+    // it): let the viewer pick.
+    chooseLine(e.lngLat, picks);
   });
+  var chooser = null;
+  function chooseLine(ll, picks) {
+    if (chooser) chooser.remove();
+    var KIND = { align: 'Alignment', trail: 'Trail', track: 'Track' };
+    var el = document.createElement('div');
+    el.innerHTML = '<div class="tg-small tg-muted">Lines here:</div>' + picks.map(function (p, i) {
+      var q = p.f.properties, sub = KIND[p.kind] + (p.kind === 'align' && q.project ? ' · ' + q.project : '') +
+        (q.variant ? ' · variant' : '');
+      return '<button class="tg-choose" data-i="' + i + '"><span>' + esc(q.name || '(unnamed)') + '</span>' +
+             '<span class="tg-small tg-muted">' + esc(sub) + '</span></button>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('.tg-choose'), function (b) {
+      var p = picks[+b.dataset.i];
+      b.addEventListener('mouseenter', function () { setGeo('hl', p.f); });
+      b.addEventListener('mouseleave', function () { setGeo('hl', null); });
+      b.addEventListener('click', function () { setGeo('hl', null); chooser.remove(); select(p.kind, p.key, false); });
+    });
+    chooser = new maplibregl.Popup({ maxWidth: '300px', className: 'tg-choose-pop' }).setLngLat(ll).setDOMContent(el).addTo(map);
+    chooser.on('close', function () { setGeo('hl', null); });
+  }
   map.on('mousemove', function (e) {
     if (window.TgDesign && TgDesign.editing()) return;
     if (window.TgNotes && TgNotes.placing()) return;         // keeps its crosshair
