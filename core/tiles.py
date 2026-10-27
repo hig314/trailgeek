@@ -37,8 +37,8 @@ _LAYERS = {
     # alignment, which is what a click selects.
     "legs": {
         "table": "core_leg",
-        "cols": "a.id AS id, t.id AS leg_id, a.name, a.priority, a.project_id, t.kind, t.\"order\" AS leg_order, "
-                "a.parent_id IS NOT NULL AS variant",
+        "cols": "a.id AS id, t.id AS leg_id, a.name, a.priority, a.project_id, p.name AS project, "
+                "a.length_m AS align_length_m, t.kind, t.\"order\" AS leg_order, a.parent_id IS NOT NULL AS variant",
         "order": "a.priority DESC, a.id, t.\"order\"",
     },
 }
