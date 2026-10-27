@@ -165,15 +165,31 @@ flow, templates in `templates/registration/`). It needs to send one email.
   `docker compose logs web | grep -A3 accounts/reset`. Open the link in the
   browser. The quicker way to fix a forgotten dev password is
   `docker compose exec web python manage.py changepassword hig`.
-- **Production:** no SMTP is configured yet (open item). Until it is, the
-  reset form says the message was sent, but it only goes to the web
-  container's log (`docker compose -f docker-compose.yml -f
-  docker-compose.prod.yml logs web` on the droplet). To make it work, set
-  `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`,
-  `EMAIL_USE_TLS` and `DEFAULT_FROM_EMAIL` in the droplet's `.env` (any
-  SMTP relay works; the From domain should match a domain the relay is
-  allowed to send for) and restart the web container. Reset links use the
-  request's host, so `DJANGO_ALLOWED_HOSTS` already covers them.
+- **Production: mail goes out through Brevo (live 2026-10-18)**, the same
+  setup as groundtruthalaska.org (GTA's site/CLAUDE.md has the longer
+  story): Brevo's free tier, 300 messages a day, account owned by
+  hig314@gmail.com, SMTP relay `smtp-relay.brevo.com` on **port 2525**,
+  because DigitalOcean blocks outbound 25, 465 and 587 (checked from the
+  droplet). The settings and the SMTP key (Brevo key name `trailgeek`,
+  separate from GTA's so either can be rotated alone) are the `EMAIL_*`
+  and `DEFAULT_FROM_EMAIL` lines of `/opt/trailgeek/.env` (mode 600). Mail
+  comes from `noreply@trailgeek.org`; `SERVER_EMAIL` follows it, so error
+  mail would come from an address Brevo accepts. A test message was
+  accepted on 2026-10-18.
+  - **DNS (Cloudflare):** `@` TXT `brevo-code:…` (Brevo's per-account
+    code, the same as GTA's), `@` TXT `v=spf1 include:spf.brevo.com ~all`
+    (nothing else sends or receives mail for trailgeek.org; there is no
+    MX), `_dmarc` TXT `v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com`,
+    and CNAMEs `brevo1/brevo2._domainkey` → `b1/b2.trailgeek-org.dkim.brevo.com`,
+    **DNS only (grey cloud)**: a proxied CNAME hides the DKIM key. Brevo
+    verified the domain 2026-10-18. Tighten to `-all` / `p=quarantine`
+    once DMARC reports show a clean few weeks.
+  - **Rotate the key:** generate a new SMTP key in Brevo, replace the
+    `EMAIL_HOST_PASSWORD=` line, run `docker compose -f docker-compose.yml
+    -f docker-compose.prod.yml up -d web worker` (a plain `restart` does
+    not reread `.env`), then delete the old key in Brevo.
+  - Reset links use the request's host, so `DJANGO_ALLOWED_HOSTS` already
+    covers them.
 
 ## Testing without Docker (cloud sessions, CI)
 
