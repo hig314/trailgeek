@@ -13,7 +13,7 @@ server and Django reasoning rather than assume it.
 | [docs/SISTER_PROJECTS.md](docs/SISTER_PROJECTS.md) | What to reuse from landslidescience, GTA, demshade, and the public lidar catalogue |
 | [docs/TRAIL_ANALYSIS.md](docs/TRAIL_ANALYSIS.md) | Spec of the evaluator, profile and router algorithms to port, with their known bugs |
 
-## State of play (2026-10-16): the one dated section; update it, don't work around it
+## State of play (2026-10-24): the one dated section; update it, don't work around it
 
 - **Phase 0 and Phase 1 are merged** (hig314/trailgeek#1, 2026-09-27; the
   owner reports it running). Phase 1 gave `DemSource` (seeded by
@@ -176,16 +176,46 @@ server and Django reasoning rather than assume it.
   panel, then click the map. Only those who can edit the project see them,
   so a public project's notes stay private, and they are not in the
   exports. `tg_notes.js`, `core/notes_views.py`.
-- **Methods page: route sandbox** (branch `methods-sandbox`, built on the
-  Mac 2026-10-19/20, not committed yet): `/methods/sandbox/` shows the
-  refine engine's line on formula surfaces (rounded cone, dome, uniform
-  slope) with every factor weighted, grade and corner weights varied over a
-  6 x 6 grid, lines traced in steps between grid settings (the line slides,
-  or jumps where the route changes), dig-in ticks, and the formula's line
-  beside it. Precomputed by `manage.py build_methods analytic` (about 2.75
-  hours for all three, runs cached in `.methods_cache/`). Next: a real patch
-  (the Graduation Peak gully). docs/METHODS_SANDBOX.md, including what it
-  showed about the engine.
+- **Refine engine and methods sandbox, open stack (2026-10-24, local
+  session; nothing merged or deployed past main 484b87c / PR #24).** Review
+  order and bases:
+  - **#25** `refine-route-starts` → main: route-finder starts at several
+    turn weights; a route chain no longer dropped for a cusp.
+  - **#26** `methods-sandbox` → #25: the methods-page sandbox on formula
+    surfaces (docs/METHODS_SANDBOX.md). Its precomputed lines were scored
+    the old way: **rebuild them (~5 h on the Mac) once #27 and #28 are in**.
+    `.methods_cache/` is untracked; on branches without its ignore entry,
+    add files by name, never `git add -A`.
+  - **#27** `refine-route-corners` → #25: route-finder corners by a change of
+    the downhill side (state = cell, heading, side bit) and a climb-height
+    estimate for A*. Whole-trail search ~175 s → ~290–350 s, peak memory
+    2.81 → 3.12 GB, 8 % of the route moved > 10 m. REFINE_TOOL.md §24.
+  - **#28** `scoring-corner-sides` → #27: scoring reads the downhill side
+    from the ground's slope over ±5 m (`side_grids`) against the line's
+    heading, side minimum 4 m (was 10) measured by the length its samples
+    stand for; `polyline_distance` by 32 m tiles (identical output; the
+    whole-trail Problem build 123 s → 4.9 s). REFINE_TOOL.md §25.
+    Graduation Peak Trail input: 24 → 47 corners; the new ones (pairs near
+    2.1, 4.2, 4.4, 5.0 km, six near 7.0 km) were reviewed by the owner on
+    the map on 2026-10-26: real, "a good detection technique".
+  - All four have green CI; tests: 68 analysis, 146 Django.
+  - **#29** `sandbox-rebuild` → #28: #26 merged in, the sandbox rebuilt
+    on the new scoring (2026-10-26, 2.1 h): within 1 % of the reference or
+    cheaper at 107 of 108 settings.
+  - **Owner's decisions, 2026-10-26:** rebuild now (done, #29); the real
+    patch (the Graduation Peak gully, **#30** `methods-terrain` → #29)
+    varies grade and corners, like the formula surfaces, on two lines
+    corner to corner: `gully-across` (8 %, holds its grade by weaving, no
+    corners) and `gully-up` (23 %, up to 29 corners at grade weight 30),
+    for the contrast. Lidar cached in `.methods_cache/terrain-gully.npz`,
+    not committed. The new corners on the Graduation Peak Trail: judged
+    real. **#25-#30 approved by the owner for merge and deploy, 2026-10-26.**
+  - **Still open for the owner:** whether the sandbox's grade axis moves up
+    (2–50: on both gully lines the corner weight only matters at grade
+    weight 10 and 30); whether to try scoring every setting's line at every
+    other setting to cure the search misses (METHODS_SANDBOX.md).
+  - Possible later speed-up: a compiled route search (numba is blocked:
+    it needs numpy ≤ 2.1, the container has 2.5.3).
 - **Open:** R2 CORS for trailgeek.org is **done on both hosts**, verified
   from the Mac 2026-09-27 with an Origin header: the `landslidescience-lidar`
   bucket (owner) and the lidar-tiles Worker on `tiles.landslidescience.org`

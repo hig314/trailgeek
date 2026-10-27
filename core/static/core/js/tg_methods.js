@@ -414,6 +414,7 @@
   function fmt(v, nd) { return v == null ? '—' : Number(v).toLocaleString(undefined, { maximumFractionDigits: nd || 0, minimumFractionDigits: nd || 0 }); }
 
   function exactName() {
+    if (doc.surface.formula === false) return 'No formula (real ground)';
     if (doc.surface.name === 'plane') return 'Reference zigzag';
     return 'Formula (turns free)';
   }
@@ -452,6 +453,10 @@
       else msg = 'The engine beats the ' + what + ' by ' + fmt(-gap, 1) + ' %' +
         (doc.surface.name === 'plane' ? '.' : ': it turns less, which the formula does not weigh.');
     }
+    if (doc.surface.formula === false && e && input) {
+      msg = 'Real ground has no formula to check the engine against; its line costs ' + fmt(100 * (input - e.total) / input, 0) +
+        ' % less than the straight line.';
+    }
     $('mt-verdict').textContent = msg;
     var tr = '';
     if (!h.node && h.rec.from) {
@@ -462,7 +467,9 @@
     } else if (h.node) tr = 'A grid setting, run thoroughly.';
     $('mt-trace').textContent = tr;
     $('mt-best').textContent = x && x.best_grade_pct != null ? 'Cheapest grade on the steepest ground here, turns aside: ' +
-      fmt(x.best_grade_pct, 1) + ' % (the ground is up to ' + fmt(doc.surface.max_slope_pct, 0) + ' %).' : '';
+      fmt(x.best_grade_pct, 1) + ' % (the ground is up to ' + fmt(doc.surface.max_slope_pct, 0) + ' %).' :
+      doc.surface.formula === false ? 'The cost chart is drawn for ground of ' + fmt(doc.surface.max_slope_pct, 0) +
+        ' %, the steepest tenth of the corridor.' : '';
   }
 
   function factorsTable() {
@@ -600,6 +607,7 @@
       syncSliders();
       drawMap(h); table(h); costChart(h); profileChart(h);
       $('mt-exact-name').textContent = exactName();
+      $('mt-exact-name').parentNode.hidden = doc.surface.formula === false;   // no such line on real ground
     });
   }
 

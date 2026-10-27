@@ -150,6 +150,15 @@ corner weight for any corner, and the engine may beat it by turning less.
 - **Cost:** a thorough run on the plane went from ~85 s to ~145 s (the
   three route-finder chains start from winding routes with many controls);
   the full build of all three surfaces took 4.7 hours on the Mac.
+- **Rebuild of 2026-10-26, on the scoring of #28** (the downhill side from
+  the ground's slope, a 4 m side minimum) and the route-finder of #27: 2.1
+  hours for all three on the Mac (8 workers). The engine is within 1 % of
+  the reference, or cheaper, at 107 of 108 settings: all 72 on the cone and
+  the dome, 35 of 36 on the plane. The plane's six dear-corner shortfalls
+  (2-30 %) are gone: the reference's ladder now pays for its corners. The
+  one left: grade weight 2, corners free, 2 % dearer (the engine's line
+  has 2 corners, the reference zigzag 3). Corners on the engine's lines: cone 2 ->
+  6 in all, dome 0 -> 0, plane 120 -> 109.
 - **Tried and not worth it:** a coordinate-descent polish after the search;
   more controls; smaller moves in tracing steps (worse: tracing needs the big
   moves to reach the other end's route); splicing candidate lines where they
@@ -172,8 +181,60 @@ else off):
 - The panel's MARGIN rule hid a winding answer much longer than the
   person's line (a spiral at 997 against an offered 2272).
 
-## Next
+## The real patch: the Graduation Peak gully (2026-10-26)
 
-A real patch: the Graduation Peak gully near 59.43459, -151.66042, about
-200 m across, from a made-up start and end (no scouting line is published),
-with the factors the owner chooses to vary.
+The owner's choice: grade and corners varied, as on the formula surfaces
+(same grid, same fixed factors). `sandbox.Terrain` and `sandbox.TerrainUp`,
+one patch of ground with a line along each diagonal (owner, 2026-10-26:
+both, for the contrast):
+
+- **Ground:** the Kachemak Bay 2023 lidar at 1 m, 303 x 301 m about
+  59.43459, -151.66042, read the way the refine panel reads it
+  (`core.refine.build_grid`) and cached as `.methods_cache/terrain-gully.npz`
+  by `build_methods` on first use (not committed; the page carries the
+  terrain at 2 m, as for the other surfaces). Both surfaces read it.
+- **Lines:** made up (no scouting line is published), corner to corner,
+  20 m in from the patch's corners along the diagonals, corridor 40 m:
+  - `gully-across`, north-west to south-east, (-136.9, 135.9) to
+    (136.9, -135.9): 31 m of climb in 386 m (8 %), across two incised
+    gullies whose walls are 80-120 %. "Ground up to" 55 %.
+  - `gully-up`, south-west to north-east, (-136.9, -135.9) to
+    (136.9, 135.9): 90 m of climb in 386 m (23 %), along the main gully.
+    "Ground up to" 80 %.
+  - The first gully line (built 2026-10-26, replaced the same day) was the
+    spur between the gullies, (-60, -95) to (125, -40), 46 m in 193 m
+    (24 %): 13 corners at grade weight 30 with corners cheap, 0 at 300.
+- **No formula:** stage 4 is skipped; the page compares with the straight
+  line and says so.
+- **Builds:** across 41 minutes, up 30 minutes, 8 workers each; 20 and 23
+  jumps.
+
+What they show (corners / steepest grade over 10 m / saving on the
+straight line):
+
+| grade weight | across, corner weight 0 → 300 | up, corner weight 0 → 300 |
+|---|---|---|
+| 1-5 | 0 corners at every corner weight; steepest 35 % → 24 % as grade weight rises; 12-30 % saved | 0 corners; steepest 37-41 % throughout; ~24 % saved, 414-425 m |
+| 10 | 2 corners with corners free, else 0; steepest 14-21 % | 6 → 5 → 2 → 0 corners; 502-507 m with corners, 426 m without |
+| 30 | 0 corners; steepest 10 %; 66 % saved, 432 m | 29 → 8 → 8 → 5 → 6 → 1 corners; steepest 15-17 %, 29 % at corner weight 300; 597-843 m |
+
+- **Across holds its grade by weaving, not by corners.** 8 % overall is
+  under every grade the weights ask for, so the line only eases the gully
+  walls: longer by up to 12 %, more bend and cut/fill. The corner weight
+  does nothing on this line: along each row of the grid the lines are alike
+  but for search noise.
+- **Up needs corners to hold a grade, and the corner weight sets how
+  many.** At grade weight 30 the line doubles its length in 29 corners
+  with corners free and gives them up as they get dearer, until at 300 it
+  takes the steep pitches (29 %) rather than turn. At grade weight 1-5 it
+  goes nearly straight up the gully at 37-41 %: the grade weight is too low
+  to pay for a single corner. So on both lines the corner axis only matters
+  in the top two grade rows; a grade axis shifted up (say 2-50) would spend
+  the grid better. The owner's call.
+- **Search misses.** Cost cannot fall as a weight rises. On the across
+  line, where no line has a corner, cost should not change with the
+  corner weight at all; it wanders by up to 0.6 % (search noise), and by
+  3.2 % at grade 30, corner 100 → 167 (825 → 799). On the up line, four
+  falls of under 0.4 %. As on the formula surfaces, the fix to try is to
+  score every setting's line at every other setting and start from the
+  cheapest, before polishing.

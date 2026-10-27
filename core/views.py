@@ -25,13 +25,18 @@ def home(request):
     )
 
 
-# The methods page's analytic sandbox: one precomputed file per surface
-# (manage.py build_methods analytic), in the order the page offers them.
-SANDBOX_SURFACES = [("cone", "Rounded cone"), ("dome", "Dome"), ("plane", "Uniform slope")]
+# The methods page's sandbox: one precomputed file per surface (manage.py
+# build_methods analytic), in the order the page offers them: the formula
+# surfaces, then the real patch along each of its diagonals.
+SANDBOX_SURFACES = [("cone", "Rounded cone", "analytic"), ("dome", "Dome", "analytic"),
+                    ("plane", "Uniform slope", "analytic"),
+                    ("gully-across", "Graduation Peak: across the gullies", "terrain"),
+                    ("gully-up", "Graduation Peak: up the gully", "terrain")]
 
 
 def methods_sandbox(request):
-    files = [{"name": n, "label": label, "url": static(f"core/methods/analytic-{n}.json")} for n, label in SANDBOX_SURFACES]
+    files = [{"name": n, "label": label, "url": static(f"core/methods/{kind}-{n}.json")}
+             for n, label, kind in SANDBOX_SURFACES]
     return render(request, "core/methods_sandbox.html", {"files": files})
 
 

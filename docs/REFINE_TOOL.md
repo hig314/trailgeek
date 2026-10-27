@@ -967,3 +967,37 @@ turns of a spiral). Layouts come from the starts.
   (at 4 m, all 6). Proposed: read the side from the ground's slope against
   the line's heading (as the route-finder now does), not an average along
   the line, which cancels on short legs; and a shorter minimum.
+
+## 25. The downhill side from the ground; distance fields by tiles (2026-10-22)
+
+The owner's decision (2026-10-22) on §24's blind spot.
+
+- **The side is read from the ground's slope.** For counting corners, the
+  downhill side is the ground's slope over `score.SIDE_M` (5 m) either side
+  (`score.side_grids`, two float32 grids built once per grid and shared by
+  `like`, ~108 MB on a 7 km trail) against the line's heading. Before, it
+  was the bench cross slope averaged over ~10 m of line, which cancels on a
+  ladder of short switchbacks. The fall-line band and the gentle-slope rule
+  read the same slope. The route-finder uses the same `SIDE_M`.
+- **A shorter minimum, measured fairly.** A side held for less than
+  `CORNER_RUN_MIN_M`, now 4 m (was 10), is noise; a run is the length its
+  samples stand for, not first-to-last (3 samples at 2 m were 4 m, so legs
+  of ~8 m fell under any minimum near it).
+- **Effect.** Ladders the old rule scored as no corners now count each one
+  (a test: 12 switchbacks, 6 m either side, 4 m radius: 0 before, 12 now, at
+  1 m and 2 m spacing). A line wandering 24 degrees either side of the fall
+  line on lumpy ground still has none (its turns are under
+  `corner_min_turn_deg`). On the Graduation Peak Trail: the input as drawn
+  went from 24 corners to 47. The 27 new ones are tight vertices of the line
+  (radius 0.5-2.8 m, turns 62-157 degrees), mostly in pairs 8-20 m apart and
+  a cluster of six in 100 m on 56-80 % side slope near 7.0 km. The owner
+  reviewed them on the map (2026-10-26, a note at each corner): real, "a
+  good detection technique", not digitising jitter. The engine's
+  candidates gained 1-8 corners and moved under 2 % in total.
+- **Distance fields by tiles.** `polyline_distance` measured every point
+  against every segment; the search limit of a 7 km trail (3 million cells)
+  took 123-135 s of every whole-trail run before the search began. Now a
+  32 m tile of points at a time against only the segments that can be
+  nearest to some point in it (within the nearest segment's distance from
+  the tile's centre plus the tile's diagonal): exact (identical grid), 4.9 s.
+- **Rebuild the sandbox** after this: its lines were scored the old way.

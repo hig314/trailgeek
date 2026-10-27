@@ -63,7 +63,7 @@ import math
 
 import numpy as np
 
-from .score import BEND_WINDOW_M
+from .score import BEND_WINDOW_M, SIDE_M
 
 CELL_M = 2.0              # m between grid cells
 MAX_TURN_DEG = 135.0      # a sharper turn at one cell is not allowed (a hairpin takes two)
@@ -77,7 +77,6 @@ EXTRA_MAX_NODES = 50_000  # route_lines searches its 2nd and later turn weights 
                           # at 0.5x and 2x turns were all but the same; on a 200 m slope, under a second)
 FLAT_PCT = 4.0            # %: flatter ground has no fall line (score.FALL_MIN_SLOPE_PCT)
 KEY_Q = 1024             # the search's heap orders estimates to 1/KEY_Q m
-SIDE_M = 5.0              # m: the downhill side is read from the slope this far either side (the scoring's ~10 m)
 
 # Steps to 32 neighbours: the 8 around, the 8 a knight's move away, and the
 # 16 at (3, 1) and (3, 2). Headings then come every 8-18 degrees, so a

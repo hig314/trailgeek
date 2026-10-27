@@ -384,6 +384,28 @@ class CornerTests(unittest.TestCase):
             self.assertEqual(len(r["corners"]), 1, R)
             self.assertTrue(0.8 * R < r["corners"][0]["radius_m"] < 1.25 * R, (R, r["corners"]))
 
+    def test_a_ladder_of_short_switchbacks_counts_every_corner(self):
+        # (2026-10-22) The side was the cross slope averaged over ~10 m of
+        # line, and a side held under 10 m was noise: a ladder with legs of
+        # ~11 m (8.7-9.1 m of side each) scored as no corners at all.
+        from trailgeek_analysis.refine.score import fillet
+        g = Grid.from_function(lambda X, Y: 0.5 * Y, -60, -60, 60, 160, 1.0)
+        xs = [0.0] + [6.0 * (1 if i % 2 == 0 else -1) for i in range(12)] + [0.0]
+        Z = np.column_stack([xs, np.linspace(0, 96, len(xs))])
+        for spacing in (1.0, 2.0):
+            r = self.score([fillet(Z, 4.0, 0.25, r_min=0.5)], g, spacing_m=spacing)
+            self.assertEqual(len(r["corners"]), 12, spacing)          # before: 0
+
+    def test_a_line_wobbling_up_the_fall_line_has_no_corners(self):
+        # The other side of it: on lumpy ground, a line up the fall line that
+        # wanders 24 degrees either way (just out of the fall-line band, so
+        # its side flickers) turns too little for a corner. (At 34 degrees it
+        # turns 67 at each crossing: corners, in the old scoring too.)
+        g = Grid.from_function(lambda X, Y: 0.4 * Y + 0.8 * np.sin(X / 3.0) * np.cos(Y / 4.0), -60, -60, 60, 200, 1.0)
+        y = np.linspace(0, 150, 301)
+        r = self.score([np.column_stack([4 * np.sin(y / 9.0), y])], g)
+        self.assertEqual(len(r["corners"]), 0)
+
     def test_a_steep_switchback_is_dug_in_and_a_gentle_one_is_not(self):
         # 180 degrees at 8 m: on 35 % ground the turn climbs 2 r S = 5.6 m in
         # pi r = 25 m (22 %), so cutting in pays; on 12 % ground (8 % through

@@ -100,3 +100,29 @@ class TraceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TerrainTests(unittest.TestCase):
+    """The real patch reads its ground from a file and has no formula."""
+
+    def setUp(self):
+        import tempfile, os
+        fd, self.path = tempfile.mkstemp(suffix=".npz")
+        os.close(fd)
+        xs = np.arange(-150.0, 151.0)
+        X, Y = np.meshgrid(xs, xs)
+        np.savez(self.path, z=(0.25 * (X + Y)).astype(np.float32), x0=-150.0, y0=-150.0, res=1.0)
+        self.S = sb.Terrain()
+        self.S.path = self.path
+
+    def tearDown(self):
+        import os
+        os.unlink(self.path)
+
+    def test_grid_line_and_no_formula(self):
+        g = self.S.grid()
+        self.assertEqual((g.w, g.h, g.x0), (301, 301, -150.0))
+        self.assertEqual(self.S.grid(2.0).res, 2.0)
+        self.assertEqual(self.S.line().shape, (2, 2))
+        self.assertIsNone(sb.formula_line(self.S, sb.weights_at(0, 0)))
+        self.assertAlmostEqual(sb.max_slope(self.S), 0.25 * math.sqrt(2), places=2)
