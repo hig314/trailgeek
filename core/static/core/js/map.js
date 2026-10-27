@@ -458,8 +458,9 @@
     var KIND = { align: 'Alignment', trail: 'Trail', track: 'Track' };
     var el = document.createElement('div');
     el.innerHTML = '<div class="tg-small tg-muted">Lines here:</div>' + picks.map(function (p, i) {
-      var q = p.f.properties, sub = KIND[p.kind] + (p.kind === 'align' && q.project ? ' · ' + q.project : '') +
-        (q.variant ? ' · variant' : '');
+      var q = p.f.properties, len = p.kind === 'align' ? q.align_length_m : q.length_m;
+      var sub = KIND[p.kind] + (len ? ' · ' + (len >= 1000 ? (len / 1000).toFixed(1) + ' km' : Math.round(len) + ' m') : '') +
+        (p.kind === 'align' && q.project ? ' · ' + q.project : '') + (q.variant ? ' · variant' : '');
       return '<button class="tg-choose" data-i="' + i + '"><span>' + esc(q.name || '(unnamed)') + '</span>' +
              '<span class="tg-small tg-muted">' + esc(sub) + '</span></button>';
     }).join('');
