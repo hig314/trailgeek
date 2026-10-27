@@ -337,13 +337,16 @@ class Terrain(Surface):
     line is published. There is no formula on real ground, so no reference
     line; the straight line is the comparison."""
     name, label, kind = "gully", "Graduation Peak gully", "terrain"
-    blurb = ("Real ground, from the Kachemak Bay 2023 lidar: the spur between two incised gullies below "
-             "Graduation Peak, climbed 46 m in 193 m (24 %) between a made-up start and end. The gullies' walls "
-             "are 80-120 % and hem the spur in, so how it zigzags is a trade between grade and corners on "
-             "ground that is not uniform. There is no formula here: the straight line is the comparison.")
+    blurb = ("Real ground, from the Kachemak Bay 2023 lidar, below Graduation Peak: corner to corner across the "
+             "patch, from 20 m in from the north-west corner to 20 m in from the south-east one (made up), 31 m "
+             "of climb in 386 m (8 %), across two incised gullies whose walls are 80-120 %. There is no formula "
+             "here: the straight line is the comparison.")
     has_formula = False
     CENTRE_LONLAT = (-151.66042, 59.43459)
-    START, END = (-60.0, -95.0), (125.0, -40.0)
+    # Owner, 2026-10-26: 20 m in along the diagonals from the patch's north-west
+    # and south-east corners (the fetched grid runs x -151..151, y -150..150),
+    # to use the patch. Was (-60, -95) to (125, -40), up the spur.
+    START, END = (-136.9, 135.9), (136.9, -135.9)
     corridor = 40.0
     extent = 150.0                     # m either side of the centre, fetched
     path = None
