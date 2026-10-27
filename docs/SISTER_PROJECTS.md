@@ -56,8 +56,8 @@ landslidescience commit and the SHA-256 of each file's upstream content;
 | `python tools/sync_shared.py status --repo ~/path/to/landslidescience` (or `--github`) | Which shared files changed upstream since the pin |
 | `python tools/sync_shared.py sync --repo …` (or `--github`) | Copy them all at `origin/main` (`--ref` for another), rewrite the provenance headers, update the pin |
 
-Synced 2026-10-17 from landslidescience @ dd09d49 (branch `hash-camera`;
-first synced 2026-09-28 @ 1c63e60):
+Synced 2026-10-17 from landslidescience @ dd09d49 (on its `main`, deployed
+there the same day; first synced 2026-09-28 @ 1c63e60):
 
 | trailgeek | landslidescience |
 |---|---|
