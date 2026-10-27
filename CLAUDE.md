@@ -176,6 +176,16 @@ server and Django reasoning rather than assume it.
   panel, then click the map. Only those who can edit the project see them,
   so a public project's notes stay private, and they are not in the
   exports. `tg_notes.js`, `core/notes_views.py`.
+- **Methods page: route sandbox** (branch `methods-sandbox`, built on the
+  Mac 2026-10-19/20, not committed yet): `/methods/sandbox/` shows the
+  refine engine's line on formula surfaces (rounded cone, dome, uniform
+  slope) with every factor weighted, grade and corner weights varied over a
+  6 x 6 grid, lines traced in steps between grid settings (the line slides,
+  or jumps where the route changes), dig-in ticks, and the formula's line
+  beside it. Precomputed by `manage.py build_methods analytic` (about 2.75
+  hours for all three, runs cached in `.methods_cache/`). Next: a real patch
+  (the Graduation Peak gully). docs/METHODS_SANDBOX.md, including what it
+  showed about the engine.
 - **Open:** R2 CORS for trailgeek.org is **done on both hosts**, verified
   from the Mac 2026-09-27 with an Origin header: the `landslidescience-lidar`
   bucket (owner) and the lidar-tiles Worker on `tiles.landslidescience.org`

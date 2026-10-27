@@ -9,3 +9,6 @@ node_modules/
 
 # Claude Code per-machine settings (deploy permissions live here)
 .claude/settings.local.json
+
+# The methods sandbox runs (manage.py build_methods --recombine)
+.methods_cache/
