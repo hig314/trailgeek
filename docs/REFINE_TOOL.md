@@ -1001,3 +1001,74 @@ The owner's decision (2026-10-22) on §24's blind spot.
   nearest to some point in it (within the nearest segment's distance from
   the tile's centre plus the tile's diagonal): exact (identical grid), 4.9 s.
 - **Rebuild the sandbox** after this: its lines were scored the old way.
+
+## 26. Your line polished; the corridor search; saying what was not offered (owner, 2026-10-26)
+
+The owner had a run that offered nothing: "if the input line is especially
+good [I'd expect] something very similar to the input, rather than giving up
+entirely", and asked whether the search is too random, suggesting many small
+fragments forced to join and refined with small changes. Two causes of
+"nothing", both fixed:
+
+- **No chain started from the line itself.** Every chain started from the
+  smooth fit (sketched corners rounded, knots ~8 m), which on a good line
+  can be worse than the line; a random search then has to climb back before
+  it can beat it.
+- **The offer rule hid what it rejected.** A cheaper line that spent more
+  than `MARGIN` on one factor was dropped without a word.
+
+What was built (`search.py`, `corridor.py`):
+
+1. **"Your line, polished"**: a chain whose start is a close fit to the line
+   as drawn (corners rounded 1.5 m, no smoothing, knots at most 4 m apart,
+   adaptive spacing), annealed with small moves (first 1 m) at a twentieth
+   of the usual starting temperature (`POLISH_SIGMA_M`, `POLISH_HEAT`). A
+   good line comes back as itself, tweaked.
+2. **The corridor search** (`corridor.py`), the owner's fragments idea in its
+   classical form, dynamic programming over cross-sections (road alignment
+   optimisation has used it for decades): cross-sections every 5 m along the
+   smooth fit, points 1 m apart across each out to the search's limit, a
+   link from each point to points on the next section at most 70 degrees
+   off the sections' direction. The cheapest chain of links is found exactly
+   for these costs, in about a second. A link costs its length along the
+   slope times 1 + the weighted curves for side slope, TSA, wet ground and
+   distance from existing tread; grade and fall-line tread are charged at
+   the grade over the two links into a point (10 m, the climb and the
+   descent within them over their length, as `_grade` reads it); a turn at
+   a point costs the bend curve at the radius it implies. The ground is read
+   as its mean over 5 m (on raw 1 m lidar the links' grades were noise the
+   design grade line would cut and fill through).
+   - **The steepest 10 m** is charged again by the scoring, a maximum, which
+     a sum of link costs cannot express. So the search runs uncapped and
+     then with links steeper than 1.0, 0.8, 0.65, 0.5 and 0.4 of the
+     uncapped line's steepest barred, each line is scored for real (corners
+     rounded 4 m), and the cheapest is the seed, polished with small moves
+     (first 2 m) like the line as drawn.
+   - It cannot double back past a section, so it never makes a switchback
+     (the route-finder does), and it cannot see the design grade line, cut
+     and fill, excess climb, drainage runs or corners: the polish and the
+     real scoring do.
+3. **Found but not offered**: the result's `not_offered` lists every
+   candidate the panel left out, with the reason (no cheaper than the line;
+   its steepest 10 m too far over the line's; or the factor it spent too
+   much on, how much, and the limit). The panel shows the list, open when
+   nothing was offered.
+
+**Trial** (2026-10-26, the sandbox's settings, 2 chains of 1500 iterations,
+seed 7; the sandbox's thorough build for reference):
+
+| setting | ordinary chains | route-finder | corridor, polished | your line, polished | input | sandbox |
+|---|---|---|---|---|---|---|
+| gully-across, grade 10, corner 0 | 871 | 769 | **721** | 847 | 1183 | 640 |
+| gully-up, grade 5, corner 50 | 1219 | **1074** | 1124 | 1318 | 1420 | 1063 |
+| gully-up, grade 30, corner 20 | 4250 | **2730** | 4084 | 4986 | 5353 | 2620 |
+| cone, grade 3.3, corner 50 | 587 | **550** | 616 | 756 | 757 | 547 |
+
+The corridor line beat the ordinary chains in all four and everything on
+gully-across; where the answer is switchbacks or a spiral the route-finder
+wins, as expected. Getting there: uncapped, its line on gully-across reached
+37 % where the best known holds 15 % (hence the caps); its links were first
+limited to 50 degrees, which missed the cone's spiral (its own costs rated
+the sandbox's line cheaper than its own); and an off-terrain point's nan
+grade beat every finite cost in `argmin` until it was masked.
+The methods sandbox was built before this and is not rebuilt.

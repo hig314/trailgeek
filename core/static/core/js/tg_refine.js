@@ -24,7 +24,7 @@ window.TgRefine = (function () {
   var meta = null, settings = null, mine = null;
   var legSel = [], baseline = null, result = null, runJob = null, chosen = 0, stale = false;
   var editors = {}, pollTimer = null, baseTimer = null, seq = 0;
-  var CAND = ['#d9480f', '#1864ab', '#2b8a3e', '#7048e8'];
+  var CAND = ['#d9480f', '#1864ab', '#2b8a3e', '#7048e8', '#c2255c', '#0b7285', '#e67700'];
   var SRC = 'refine-cands', LAYERS = ['refine-cands-all', 'refine-cands-chosen'];
 
   function $(id) { return document.getElementById(id); }
@@ -447,7 +447,14 @@ window.TgRefine = (function () {
     var res = result, cs = res.candidates, inp = res.input, h = '';
     h += '<div id="rf-stale" class="tg-small tg-note" style="display:none">Settings changed since this run: run again to see their effect.</div>';
     if (!cs.length) {
-      h += '<div class="tg-status">No candidate beat the input without making some factor notably worse. Try more iterations, a wider search distance, or different weights.</div>';
+      h += '<div class="tg-status">No candidate beat your line without making some factor notably worse. Try more iterations, a wider search distance, or different weights.</div>';
+    }
+    // What was found but not offered, and why (owner, 2026-10-26: "nothing"
+    // hid a line that was cheaper but spent more on one factor).
+    var no = res.not_offered || [];
+    if (no.length) {
+      h += '<details class="tg-small"' + (cs.length ? '' : ' open') + '><summary>Found but not offered (' + no.length + ')</summary><ul class="rf-notoff">' +
+           no.map(function (x) { return '<li><strong>' + esc(x.label) + '</strong>: ' + esc(x.why) + '</li>'; }).join('') + '</ul></details>';
     }
     var factors = meta.factors.filter(function (m) {
       return (settings.factors[m.name].k > 0) || inp.contrib[m.name] || cs.some(function (c) { return c.contrib[m.name]; });
@@ -494,7 +501,7 @@ window.TgRefine = (function () {
     h += row('Height lost and won back', function (d) { return d.stats.height_lost_m; }, function (v) { return v == null ? '–' : n(v, 1) + ' m'; }, true, 'Against the net direction, through the excess climb dead band: on a climb, the descents that must be climbed again');
     h += row('Reversal sites (stub)', function (d) { return d.stats.reversals; }, function (v) { return n(v); }, null);
     h += '</table></div>';
-    h += '<div class="tg-small tg-muted">' + terrainNote(res) + ' Your line is scored as drawn with the same cut/fill tube as the candidates. "Your line, smoothed" is the smooth reading of it every search starts from: the gain from rounding alone.</div>';
+    h += '<div class="tg-small tg-muted">' + terrainNote(res) + ' Your line is scored as drawn with the same cut/fill tube as the candidates. "Your line, smoothed" is the smooth reading of it every search starts from: the gain from rounding alone. "Your line, polished" starts from your line itself, fitted closely, and makes only small changes, so a line that is already good comes back as itself, tweaked. "From the corridor search" starts from the cheapest line through the search distance found exactly over cross-sections 5 m apart (it cannot make switchbacks; the route-finder can).</div>';
     if (cs.length) {
       h += '<div class="tg-sub">Profile <span class="tg-muted">ground thin, design grade line thick, cut and fill shaded; the input dashed</span></div><div id="rf-prof" class="rf-prof"></div>';
       h += '<div class="tg-actions"><button id="rf-save" class="tg-btn tg-primary">Save as variant</button> <button id="rf-panel" class="tg-btn" title="A floating panel over the map: the profile with a track per factor, a cost space, and the point traced on the map">Factors along the line…</button> <a href="#" id="rf-zoom">Zoom to</a></div>';
@@ -558,7 +565,9 @@ window.TgRefine = (function () {
   function addLayers() {
     var map = app.map;
     if (!map.getSource(SRC)) map.addSource(SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    var colors = ['match', ['get', 'i'], 0, CAND[0], 1, CAND[1], 2, CAND[2], CAND[3]];
+    var colors = ['match', ['get', 'i']];
+    CAND.slice(0, -1).forEach(function (c, i) { colors.push(i, c); });
+    colors.push(CAND[CAND.length - 1]);
     if (!map.getLayer(LAYERS[0])) map.addLayer({ id: LAYERS[0], type: 'line', source: SRC,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': colors, 'line-width': 2, 'line-opacity': 0.55, 'line-dasharray': [2, 1.5] } });
