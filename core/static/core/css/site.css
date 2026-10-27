@@ -223,3 +223,5 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .tg-tree .sec-toggle { cursor: pointer; }
 .tg-tree .sec-acts { font-weight: normal; margin-left: 6px; }
 .tg-tree .sec-pick { font-size: 12px; max-width: 140px; }
+.asm-pick select { max-width: 230px; font-size: 12px; }
+.asm-pick th { white-space: nowrap; }

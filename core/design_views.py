@@ -24,6 +24,7 @@ from django.utils.text import slugify
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from . import access, network, tasks, tiles
+from .assemble import AssembleError, assemble
 from .evaluation import headline
 from .forms import LineImportForm
 from .importers import ImportError_, import_alignments, import_trails
@@ -82,6 +83,7 @@ def alignment_json(a, user):
                         "visibility": a.project.visibility},
             "parent": {"id": a.parent_id, "name": a.parent.name} if a.parent_id else None,
             "section": {"id": a.section_id, "name": a.section.name} if a.section_id else None,
+            "assembly": a.assembly,
             "trail": {"slug": a.trail.slug, "name": a.trail.name} if a.trail_id else None,
             "length_m": a.length_m, "runs_uphill": a.runs_uphill, "has_elevation": False,
             "legs": [_leg_json(leg) for leg in legs],
@@ -502,6 +504,7 @@ def api_project(request, slug):
         "sections": [{"id": q.pk, "name": q.name, "order": q.order, "notes": q.notes} for q in p.sections.all()],
         "alignments": [{"id": a.pk, "name": a.name, "priority": a.priority, "parent_id": a.parent_id,
                         "section_id": a.section_id, "trail": a.trail.name if a.trail_id else None,
+                        "assembled": a.assembly is not None,
                         "length_m": round(a.length_m, 1), "evaluation_status": a.evaluation_status,
                         "legs": a.legs.count(), "headline": a.headline} for a in als],
         "tracks": [{"id": t.pk, "name": t.name, "taken_at": t.taken_at.isoformat() if t.taken_at else None,
@@ -625,6 +628,84 @@ def api_alignment_section(request, pk):
                 todo.append(b.pk)
     Alignment.objects.filter(pk__in=move).update(section=section)
     return JsonResponse({"moved": move, "section_id": sid})
+
+
+# ---------------------------------------------------------------------------
+# Assembling one route from one option per section (owner, 2026-10-26)
+# ---------------------------------------------------------------------------
+
+def _choices(project, body):
+    """[(section, alignment)] in section order, and the forced directions,
+    from {"choices": [{"section_id", "alignment_id", "reverse": null|bool}]}."""
+    raw = body.get("choices")
+    if not isinstance(raw, list) or not raw:
+        raise AssembleError("choose an option for at least one section")
+    secs = {q.pk: q for q in project.sections.all()}
+    out = []
+    for c in raw:
+        if not isinstance(c, dict):
+            raise AssembleError("a choice is malformed")
+        q = secs.get(c.get("section_id"))
+        if q is None:
+            raise AssembleError("no such section in this project")
+        a = project.alignments.filter(pk=c.get("alignment_id"), section=q).first()
+        if a is None:
+            raise AssembleError(f"that alignment is not an option for {q.name}")
+        rev = c.get("reverse")
+        out.append((q, a, rev if rev in (True, False) else None))
+    if len({q.pk for q, _, _ in out}) != len(out):
+        raise AssembleError("one option per section")
+    out.sort(key=lambda t: (t[0].order, t[0].pk))
+    return [(q, a) for q, a, _ in out], [r for _, _, r in out]
+
+
+@login_required
+@require_POST
+def api_assemble_preview(request, slug):
+    """The legs and the join report for a set of choices, unsaved: the panel
+    draws them and evaluates them live."""
+    p = _editable_project(request.user, slug)
+    body = _body(request)
+    if body is None:
+        return _bad("body is not JSON")
+    try:
+        choices, rev = _choices(p, body)
+        legs, report = assemble(choices, rev)
+    except AssembleError as e:
+        return _bad(str(e))
+    return JsonResponse({"legs": legs, "report": report})
+
+
+@login_required
+@require_POST
+def api_assemble(request, slug):
+    """Save an assembled route as a new alignment in the project (`name`;
+    `parent_id`: the assembled route this one re-assembles, as a variant)."""
+    p = _editable_project(request.user, slug)
+    body = _body(request)
+    if body is None:
+        return _bad("body is not JSON")
+    try:
+        choices, rev = _choices(p, body)
+        legs, report = assemble(choices, rev)
+    except AssembleError as e:
+        return _bad(str(e))
+    parent = None
+    if body.get("parent_id"):
+        parent = p.alignments.filter(pk=body["parent_id"]).exclude(assembly=None).first()
+        if parent is None:
+            return _bad("no such assembled route in this project", 404)
+    name = str(body.get("name") or "").strip()[:200] or f"{p.name}: whole route"
+    a = Alignment(project=p, name=name, parent=parent,
+                  assembly={"choices": [{"section_id": q.pk, "alignment_id": al.pk, "reverse": r}
+                                        for (q, al), r in zip(choices, rev)], **report})
+    try:
+        with transaction.atomic():
+            a.save()
+            _write_legs(a, clean_legs(request.user, legs))
+    except ValueError as e:
+        return _bad(str(e))
+    return JsonResponse(alignment_json(a, request.user), status=201)
 
 
 # ---------------------------------------------------------------------------

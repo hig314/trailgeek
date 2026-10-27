@@ -131,6 +131,7 @@ window.TgDesign = (function () {
     } else if (p.legs && p.legs.length && window.TG_CONFIG && TG_CONFIG.signedIn) {
       h += '<div class="tg-actions"><button id="d-factors" class="tg-btn" title="The refine tool\'s factors along this alignment on the lidar, with your refine settings">Factors along the line…</button></div>';
     }
+    if (p.assembly) h += assemblyHtml(p);
     h += evalStatusHtml(p);
     if (p.headline) h += statsTable(p.headline);
     h += legsTableHtml(p);
@@ -145,6 +146,12 @@ window.TgDesign = (function () {
     $('detail').innerHTML = h;
     $('profstats').innerHTML = p.evaluation ? '<div class="tg-keys">' + app.profile.legend(true) + '</div>' : '';
     wireView(f);
+    hoverAlignments(document.querySelectorAll('#detail li.asm-from'), function (li) { return li.dataset.id; });
+    var rc = $('d-reassemble');
+    if (rc) rc.addEventListener('click', function () {
+      api('GET', '/api/projects/' + encodeURIComponent(p.project.slug) + '.json').then(function (d) { assembleTool(d, p); })
+        .catch(function (e) { alert(e.message); });
+    });
     TgNotes.setProject(p.can_edit ? { slug: p.project.slug, name: p.project.name } : null, $('notes-box'), false);
     if (p.evaluation) drawProfile(p.evaluation);
     else app.quickProfile(f);
@@ -276,7 +283,8 @@ window.TgDesign = (function () {
       h += '<div class="tg-muted">Part of ' + p.parents.map(function (q) { return '<a href="#project=' + esc(q.slug) + '">' + esc(q.name) + '</a>'; }).join(' › ') + '</div>';
     }
     if (p.description) h += '<p class="tg-desc tg-small">' + esc(p.description) + '</p>';
-    if (p.can_edit) h += '<div class="tg-actions"><button id="d-new" class="tg-btn tg-primary">New alignment</button></div>';
+    if (p.can_edit) h += '<div class="tg-actions"><button id="d-new" class="tg-btn tg-primary">New alignment</button>' +
+                         (data.sections.length ? ' <button id="d-assemble" class="tg-btn" title="One option per section, joined into one continuous alignment">Assemble a route…</button>' : '') + '</div>';
     else h += '<div class="tg-muted tg-small">Read-only view: anyone with this page\'s link can see and download it. Editing needs a sign-in with the trail_editors role and membership of the project.</div>';
     if (p.can_edit) h += '<div id="notes-box"></div>';
     if (p.children && p.children.length) {
@@ -313,11 +321,18 @@ window.TgDesign = (function () {
     }
     var secIds = {}; data.sections.forEach(function (q) { secIds[q.id] = true; });
     var groups = data.sections.map(function (q) { return { sec: q, rows: [] }; });
-    var unsorted = { sec: null, rows: [] };
+    var unsorted = { sec: null, rows: [] }, routes = { sec: null, routes: true, rows: [] };
+    var byId = {}; data.alignments.forEach(function (a) { byId[a.id] = a; });
+    function isRoute(a) {            // assembled, or a variant of one (a fine-tune), and in no section
+      for (var x = a, k = 0; x && k < 50; x = byId[x.parent_id], k++) if (x.assembled) return !a.section_id;
+      return false;
+    }
     data.alignments.forEach(function (a) {
-      var g = secIds[a.section_id] ? groups[data.sections.findIndex(function (q) { return q.id === a.section_id; })] : unsorted;
+      var g = secIds[a.section_id] ? groups[data.sections.findIndex(function (q) { return q.id === a.section_id; })]
+            : isRoute(a) ? routes : unsorted;
       g.rows.push(a);
     });
+    if (routes.rows.length) groups.push(routes);
     if (unsorted.rows.length || !groups.length) groups.push(unsorted);
     function secSelect(a) {
       return '<select class="sec-pick" data-id="' + a.id + '"><option value="">Unsorted</option>' + data.sections.map(function (q) {
@@ -333,9 +348,9 @@ window.TgDesign = (function () {
              '</td><td>' + n(hh.construct_days) + '</td><td>' + n(hh.lidar_pct) + '</td>' + (p.can_edit ? '<td>' + secSelect(a) + '</td>' : '') + '</tr>';
     }
     function headHtml(g, i) {
-      var key = g.sec ? g.sec.id : 'none', shut = !!folded[key];
+      var key = g.sec ? g.sec.id : g.routes ? 'routes' : 'none', shut = !!folded[key];
       var h2 = '<tr class="sec-head" data-sec="' + key + '"><th colspan="' + ncol + '"><span class="sec-toggle">' + (shut ? '▸' : '▾') + ' ' +
-               (g.sec ? (i + 1) + '. ' + esc(g.sec.name) : (data.sections.length ? 'Unsorted' : 'Alignments')) + '</span>' +
+               (g.sec ? (i + 1) + '. ' + esc(g.sec.name) : g.routes ? 'Whole routes (assembled)' : (data.sections.length ? 'Unsorted' : 'Alignments')) + '</span>' +
                ' <span class="tg-muted">' + g.rows.length + (g.rows.length === 1 ? ' alignment' : ' alignments') + '</span>';
       if (g.sec && p.can_edit) {
         h2 += ' <span class="sec-acts"><button class="tg-link" data-act="up" title="Earlier along the route">↑</button><button class="tg-link" data-act="down" title="Later along the route">↓</button>' +
@@ -348,7 +363,7 @@ window.TgDesign = (function () {
       var out = [];
       groups.forEach(function (g, i) {
         out.push(headHtml(g, i));
-        if (folded[g.sec ? g.sec.id : 'none']) return;
+        if (folded[g.sec ? g.sec.id : g.routes ? 'routes' : 'none']) return;
         // Options are the alignments whose parent is not in this section;
         // each one's variants follow it, indented.
         var ids = {}, kids = {};
@@ -368,6 +383,7 @@ window.TgDesign = (function () {
         .catch(function (e) { alert(e.message); });
     }
     function wire() {
+      hoverAlignments(document.querySelectorAll('#proj-table tbody tr[data-id]'), function (tr) { return tr.dataset.id; });
       Array.prototype.forEach.call(document.querySelectorAll('#proj-table .sec-toggle'), function (el) {
         el.addEventListener('click', function () { var k = el.closest('tr').dataset.sec; folded[k] = !folded[k]; fill(); });
       });
@@ -416,6 +432,7 @@ window.TgDesign = (function () {
       api('POST', '/api/projects/' + encodeURIComponent(p.slug) + '/sections/new', { name: nm }).then(reload).catch(function (e) { alert(e.message); });
     });
     var n_ = $('d-new'); if (n_) n_.addEventListener('click', function () { newAlignment(p.id); });
+    var as_ = $('d-assemble'); if (as_) as_.addEventListener('click', function () { assembleTool(data, null); });
     TgNotes.setProject(p.can_edit ? { slug: p.slug, name: p.name } : null, $('notes-box'), true);
     // Fit to the project unless the caller keeps the view: a link with its own
     // map= (the other kinds have always honoured it), or a save / delete that
@@ -496,6 +513,157 @@ window.TgDesign = (function () {
         }).catch(function (e) { b.disabled = false; $('ts-msg').innerHTML = '<span class="tg-error">' + esc(e.message) + '</span>'; });
       });
     }).catch(function (e) { alert(e.message); });
+  }
+
+  // Hovering a row picks its alignment out on the map (owner, 2026-10-27).
+  function hoverAlignments(els, idOf) {
+    if (!app.highlightAlignment) return;
+    Array.prototype.forEach.call(els, function (el) {
+      el.addEventListener('mouseenter', function () { app.highlightAlignment(idOf(el)); });
+      el.addEventListener('mouseleave', function () { app.highlightAlignment(null); });
+    });
+  }
+
+  // ---- assembling one route from one option per section (owner, 2026-10-26) --
+  function joinText(j) {
+    var what = j.kind === 'leaves' ? 'leaves ' + esc(j.after) + ' ' + n(j.cut_prev_m) + ' m along it (the rest of it is dropped)'
+             : j.kind === 'joins' ? 'joins ' + esc(j.before) + ' ' + n(j.cut_next_m) + ' m along it (its start is dropped)'
+             : 'end to end';
+    var gap = j.bridge_m ? ', a ' + n(j.bridge_m, 1) + ' m new-construction leg bridges the gap'
+            : j.snapped_m ? ', joint moved ' + n(j.snapped_m, 1) + ' m to meet' : '';
+    return esc(j.after) + ' → ' + esc(j.before) + ': ' + what + gap;
+  }
+  function assemblyHtml(p) {
+    var A = p.assembly, h = '<div class="tg-sub">Assembled from</div><ol class="tg-list tg-small">';
+    (A.pieces || []).forEach(function (pc) {
+      h += '<li class="asm-from" data-id="' + pc.alignment_id + '">' + esc(pc.section || '') + ': <a href="#align=' + pc.alignment_id + '">' + esc(pc.alignment) + '</a>' +
+           (pc.reversed ? ' (reversed)' : '') + (pc.kept_m && (pc.kept_m[0] > 0.5 || pc.kept_m[1] < pc.length_m - 0.5) ?
+             ' <span class="tg-muted">' + kmn(pc.kept_m[1] - pc.kept_m[0]) + ' of ' + kmn(pc.length_m) + ' km</span>' : '') + '</li>';
+    });
+    h += '</ol>';
+    if ((A.joins || []).length) h += '<ul class="tg-list tg-small tg-muted">' + A.joins.map(function (j) { return '<li>' + joinText(j) + '</li>'; }).join('') + '</ul>';
+    if (p.can_edit) h += '<div class="tg-actions"><button id="d-reassemble" class="tg-btn" title="Choose other options; saved as a variant of this route">Change the choices…</button></div>';
+    return h;
+  }
+  function assembleTool(data, from) {
+    var p = data.project, asmSeq = 0, timer = null, last = null;
+    var prev = {};                  // section id -> {alignment_id, reverse} from the route being changed
+    if (from && from.assembly) from.assembly.choices.forEach(function (c) { prev[c.section_id] = c; });
+    var bySec = {};
+    data.alignments.forEach(function (a) { if (a.section_id) (bySec[a.section_id] = bySec[a.section_id] || []).push(a); });
+    function optionList(sid) {      // each section's options, each followed by its variants
+      var rows = bySec[sid] || [], ids = {}, kids = {}, out = [];
+      rows.forEach(function (a) { ids[a.id] = true; });
+      rows.forEach(function (a) { var k = ids[a.parent_id] ? a.parent_id : 'root'; (kids[k] = kids[k] || []).push(a); });
+      (function walk(k, depth) { (kids[k] || []).forEach(function (a) { out.push({ a: a, depth: depth }); walk(a.id, depth + 1); }); })('root', 0);
+      return out;
+    }
+    var h = '<div class="tg-kind">Assemble a route · ' + esc(p.name) + '</div><h2>' + (from ? 'Change the choices' : 'One option per section') + '</h2>';
+    h += '<div class="tg-small tg-muted">Pick an option (or a variant) for each section, in order along the route. The pieces are joined as a first guess, and each join is reported below: ' +
+         'a branch leaving the middle of the section before cuts it there; a gap up to 3 m is closed by moving the joint, a longer one bridged by new construction. ' +
+         'Each piece runs the way that makes the joins shortest; set its direction to override. Nothing is saved until you save.</div>';
+    h += '<table class="tg-metrics asm-pick">';
+    data.sections.forEach(function (q, i) {
+      var opts = optionList(q.id), was = prev[q.id];
+      if (!opts.length) {
+        h += '<tr><th>' + (i + 1) + '. ' + esc(q.name) + '</th><td class="tg-muted" colspan="2">no options yet</td></tr>';
+        return;
+      }
+      var pick = was ? was.alignment_id : (from ? null : opts[0].a.id);
+      h += '<tr><th>' + (i + 1) + '. ' + esc(q.name) + '</th><td><select class="asm-opt" data-sec="' + q.id + '"><option value="">(skip)</option>' +
+           opts.map(function (o) {
+             return '<option value="' + o.a.id + '"' + (o.a.id === pick ? ' selected' : '') + '>' + (o.depth ? '\u00a0\u00a0'.repeat(o.depth) + '↳ ' : '') +
+                    esc(o.a.name) + ' (' + kmn(o.a.length_m) + ' km)</option>';
+           }).join('') + '</select></td><td><select class="asm-rev" data-sec="' + q.id + '" title="Which way this piece runs">' +
+           ['auto', 'as drawn', 'reversed'].map(function (t, k) {
+             var v = [null, false, true][k], sel = was ? was.reverse === v : k === 0;
+             return '<option value="' + k + '"' + (sel ? ' selected' : '') + '>' + t + '</option>';
+           }).join('') + '</select></td></tr>';
+    });
+    h += '</table>';
+    h += '<div id="asm-joins" class="tg-small"></div><div id="asm-eval" class="tg-small"></div><div id="asm-stats"></div>';
+    h += '<div class="tg-field"><label>Name</label><input id="asm-name" type="text" value="' + esc(from ? from.name + ' (re-assembled)' : p.name + ': whole route') + '"></div>';
+    h += '<div class="tg-actions"><button id="asm-save" class="tg-btn tg-primary" disabled>Save as an alignment</button> <button id="asm-cancel" class="tg-btn">Cancel</button></div>';
+    h += '<div class="tg-small tg-muted">Saved, it is an ordinary alignment: edit it, refine it, export it. It keeps which option it took for each section.' + (from ? ' It is saved as a variant of ' + esc(from.name) + '.' : '') + '</div>';
+    h += '<div class="tg-sub">Profile</div>';
+    $('panel').classList.add('open');
+    $('detail').innerHTML = h; $('profstats').innerHTML = ''; app.profile.clear();
+    function choices() {
+      var out = [];
+      Array.prototype.forEach.call(document.querySelectorAll('.asm-opt'), function (sel) {
+        if (!sel.value) return;
+        var r = document.querySelector('.asm-rev[data-sec="' + sel.dataset.sec + '"]');
+        out.push({ section_id: +sel.dataset.sec, alignment_id: +sel.value, reverse: [null, false, true][+r.value] });
+      });
+      return out;
+    }
+    function preview() {
+      var my = ++asmSeq, ch = choices();
+      $('asm-save').disabled = true;
+      if (!ch.length) { $('asm-joins').innerHTML = '<span class="tg-muted">Choose at least one option.</span>'; app.setSelectedGeometry(null); app.profile.clear(); return; }
+      $('asm-joins').innerHTML = 'Joining… <span class="tg-spin"></span>';
+      api('POST', '/api/projects/' + encodeURIComponent(p.slug) + '/assemble/preview', { choices: ch }).then(function (r) {
+        if (my !== asmSeq) return;
+        last = r;
+        var R = r.report;
+        $('asm-joins').innerHTML = '<div class="tg-sub">Joins</div>' + (R.joins.length ? '<ul class="tg-list">' + R.joins.map(function (j) { return '<li>' + joinText(j) + '</li>'; }).join('') + '</ul>' : '<span class="tg-muted">One piece: no joins.</span>') +
+          '<div class="tg-muted">' + R.pieces.map(function (pc) { return esc(pc.alignment) + (pc.reversed ? ' (reversed)' : ''); }).join(' → ') + ' · ' + kmn(R.length_m) + ' km</div>';
+        var geom = { type: 'MultiLineString', coordinates: r.legs.map(function (L) { return L.coords; }) };
+        app.setSelectedGeometry({ type: 'Feature', properties: {}, geometry: geom });
+        $('asm-save').disabled = false;
+        $('asm-eval').innerHTML = 'Evaluating the route… <span class="tg-spin"></span>';
+        return api('POST', '/api/evaluate/', { legs: r.legs, project_id: p.id, seq: my }).then(function (e) {
+          return e.status === 'done' ? e : pollEval(e.task, function () { return my === asmSeq; });
+        }).then(function (e) {
+          if (my !== asmSeq) return;
+          if (!e.ok) throw new Error(e.error || 'evaluation failed');
+          $('asm-eval').innerHTML = sourcesNote(e.result);
+          $('asm-stats').innerHTML = statsTable(e.result.headline);
+          drawProfile(e.result);
+          $('profstats').innerHTML = '<div class="tg-keys">' + app.profile.legend(true) + '</div>';
+        });
+      }).catch(function (e) {
+        if (my !== asmSeq || e.message === 'superseded') return;
+        $('asm-joins').innerHTML = '<span class="tg-error">' + esc(e.message) + '</span>';
+        $('asm-eval').innerHTML = ''; $('asm-stats').innerHTML = '';
+        app.setSelectedGeometry(null);
+      });
+    }
+    function soon() { clearTimeout(timer); timer = setTimeout(preview, 300); }
+    hoverAlignments(document.querySelectorAll('.asm-pick tr'), function (tr) {
+      var sel = tr.querySelector('.asm-opt');
+      return sel && sel.value ? sel.value : null;
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.asm-opt, .asm-rev'), function (el) { el.addEventListener('change', soon); });
+    Array.prototype.forEach.call(document.querySelectorAll('.asm-opt'), function (el) {
+      el.addEventListener('change', function () { if (app.highlightAlignment) app.highlightAlignment(el.value || null); });
+    });
+    $('asm-cancel').addEventListener('click', function () { asmSeq++; app.setSelectedGeometry(null); if (from) app.select('align', from.id, false); else app.select('project', p.slug, false); });
+    $('asm-save').addEventListener('click', function () {
+      var b = $('asm-save'); b.disabled = true;
+      var body = { choices: choices(), name: $('asm-name').value };
+      if (from) body.parent_id = from.id;
+      api('POST', '/api/projects/' + encodeURIComponent(p.slug) + '/assemble', body).then(function (f) {
+        asmSeq++;
+        app.refreshTiles();
+        app.select('align', f.properties.id, false);
+      }).catch(function (e) { b.disabled = false; $('asm-joins').insertAdjacentHTML('afterbegin', '<div class="tg-error">' + esc(e.message) + '</div>'); });
+    });
+    preview();
+    if (data.project.bbox) app.fitTo(null, data.project.bbox);
+  }
+  function pollEval(task, current) {
+    return new Promise(function (resolve, reject) {
+      var t0 = Date.now();
+      (function tick() {
+        if (!current()) return reject(new Error('superseded'));
+        fetch('/api/evaluate/' + task + '/', { credentials: 'same-origin' }).then(function (r) {
+          if (r.status === 200) return r.json().then(resolve);
+          if (Date.now() - t0 > 120000) return reject(new Error('the evaluation is taking too long; is the worker running?'));
+          setTimeout(tick, 500);
+        }, reject);
+      })();
+    });
   }
 
   // ---- an existing trail as a section's option (owner, 2026-10-26) ----------
@@ -731,6 +899,7 @@ window.TgDesign = (function () {
     newAlignment: newAlignment,
     trailStudy: trailStudy,
     trailOption: trailOption,
+    assembleTool: assembleTool,
     editing: function () { return editing; },
     leave: function () { if (window.TgRefine) TgRefine.close(); if (editing) { if (dirty && !confirm('Discard your changes to this alignment?')) return false; stopEdit(); } return true; },
     onStyleReload: function () { if (ed && editing) ed.reattach(); if (window.TgRefine) TgRefine.onStyleReload(); if (window.TgNotes) TgNotes.onStyleReload(); }

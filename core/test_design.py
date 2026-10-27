@@ -417,3 +417,80 @@ class SectionApiTests(TestCase):
         self.assertEqual((p["section"]["id"], p["trail"]["slug"], p["legs"][0]["kind"]), (s1, "lagoon", "existing"))
         data = self.client.get("/api/projects/p.json").json()
         self.assertEqual(next(x for x in data["alignments"] if x["id"] == p["id"])["trail"], "Lagoon")
+
+
+class AssembleTests(TestCase):
+    """Assembling one route from one option per section (core/assemble.py)."""
+
+    def setUp(self):
+        call_command("init_groups", verbosity=0)
+        self.owner = User.objects.create_user("own", password="pw")
+        self.owner.groups.add(Group.objects.get(name="trail_editors"))
+        self.p = Project.objects.create(slug="p", name="P", owner=self.owner, visibility=Visibility.PUBLIC)
+        self.secs = [self.p.sections.create(name=n, order=i) for i, n in enumerate(("Bypass", "Link", "Upper"))]
+        self.client.login(username="own", password="pw")
+
+    def line(self, section, name, pts, kind="new"):
+        a = Alignment.objects.create(project=self.p, name=name, section=section)
+        Leg.objects.create(alignment=a, order=0, kind=kind, geom=LineString(utm_line(pts), srid=4326))
+        a.rebuild_from_legs()
+        return a
+
+    def post(self, url, body):
+        return self.client.post(url, json.dumps(body), content_type="application/json")
+
+    def preview(self, picks, **rev):
+        body = {"choices": [{"section_id": q.pk, "alignment_id": a.pk, "reverse": rev.get(a.name)} for q, a in picks]}
+        r = self.post("/api/projects/p/assemble/preview", body)
+        self.assertEqual(r.status_code, 200, r.content)
+        return r.json()
+
+    def test_a_branch_leaving_the_middle_cuts_it_there(self):
+        bypass = self.line(self.secs[0], "Bypass", [(0, 0), (1000, 0)])
+        link = self.line(self.secs[1], "Link", [(300, 0), (300, 500)])           # leaves the bypass 300 m along
+        d = self.preview([(self.secs[0], bypass), (self.secs[1], link)])
+        j = d["report"]["joins"][0]
+        self.assertEqual((j["kind"], j["bridge_m"]), ("leaves", 0.0))
+        self.assertAlmostEqual(j["cut_prev_m"], 300, delta=1)
+        self.assertAlmostEqual(d["report"]["length_m"], 800, delta=2)
+
+    def test_pieces_are_turned_round_and_gaps_bridged_or_snapped(self):
+        a = self.line(self.secs[0], "A", [(0, 0), (100, 0)])
+        b = self.line(self.secs[1], "B", [(200, 0), (102, 0)])                    # drawn backwards, 2 m short
+        c = self.line(self.secs[2], "C", [(220, 0), (300, 0)])                    # 20 m beyond
+        d = self.preview([(self.secs[0], a), (self.secs[1], b), (self.secs[2], c)])
+        self.assertEqual([x["reversed"] for x in d["report"]["pieces"]], [False, True, False])
+        j1, j2 = d["report"]["joins"]
+        self.assertEqual((j1["kind"], j1["snapped_m"], j1["bridge_m"]), ("end", 2.0, 0.0))
+        self.assertEqual((j2["kind"], j2["bridge_m"]), ("end", 20.0))
+        self.assertEqual([L["kind"] for L in d["legs"]], ["new", "new", "new", "new"])   # A, B, the bridge, C
+        for L1, L2 in zip(d["legs"], d["legs"][1:]):
+            self.assertEqual(L1["coords"][-1], L2["coords"][0])                    # continuous
+        # Forced the other way, B's far end is the join.
+        d2 = self.preview([(self.secs[0], a), (self.secs[1], b)], B=False)
+        self.assertEqual(d2["report"]["joins"][0]["gap_m"], 100.0)
+
+    def test_saved_as_one_alignment_with_its_choices(self):
+        a = self.line(self.secs[0], "A", [(0, 0), (100, 0)], kind="existing")
+        b = self.line(self.secs[1], "B", [(100, 0), (100, 100)])
+        body = {"name": "Whole", "choices": [{"section_id": self.secs[1].pk, "alignment_id": b.pk},
+                                             {"section_id": self.secs[0].pk, "alignment_id": a.pk}]}
+        r = self.post("/api/projects/p/assemble", body)
+        self.assertEqual(r.status_code, 201, r.content)
+        props = r.json()["properties"]
+        self.assertEqual([L["kind"] for L in props["legs"]], ["existing", "new"])  # in section order
+        self.assertEqual([c["alignment_id"] for c in props["assembly"]["choices"]], [a.pk, b.pk])
+        self.assertIsNone(props["section"])
+        row = next(x for x in self.client.get("/api/projects/p.json").json()["alignments"] if x["id"] == props["id"])
+        self.assertTrue(row["assembled"])
+        again = self.post("/api/projects/p/assemble", dict(body, parent_id=props["id"])).json()["properties"]
+        self.assertEqual(again["parent"]["id"], props["id"])
+
+    def test_choices_are_checked(self):
+        a = self.line(self.secs[0], "A", [(0, 0), (100, 0)])
+        bad = {"choices": [{"section_id": self.secs[1].pk, "alignment_id": a.pk}]}          # not an option there
+        self.assertEqual(self.post("/api/projects/p/assemble/preview", bad).status_code, 400)
+        User.objects.create_user("v", password="pw")
+        self.client.login(username="v", password="pw")
+        ok = {"choices": [{"section_id": self.secs[0].pk, "alignment_id": a.pk}]}
+        self.assertEqual(self.post("/api/projects/p/assemble/preview", ok).status_code, 403)
