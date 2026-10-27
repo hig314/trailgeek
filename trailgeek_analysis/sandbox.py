@@ -336,7 +336,7 @@ class Terrain(Surface):
     terrain is not committed). The start and end are made up: no scouting
     line is published. There is no formula on real ground, so no reference
     line; the straight line is the comparison."""
-    name, label, kind = "gully", "Graduation Peak gully", "terrain"
+    name, label, kind = "gully-across", "Graduation Peak: across the gullies", "terrain"
     blurb = ("Real ground, from the Kachemak Bay 2023 lidar, below Graduation Peak: corner to corner across the "
              "patch, from 20 m in from the north-west corner to 20 m in from the south-east one (made up), 31 m "
              "of climb in 386 m (8 %), across two incised gullies whose walls are 80-120 %. There is no formula "
@@ -345,7 +345,9 @@ class Terrain(Surface):
     CENTRE_LONLAT = (-151.66042, 59.43459)
     # Owner, 2026-10-26: 20 m in along the diagonals from the patch's north-west
     # and south-east corners (the fetched grid runs x -151..151, y -150..150),
-    # to use the patch. Was (-60, -95) to (125, -40), up the spur.
+    # to use the patch. Was (-60, -95) to (125, -40), up the spur. Gentle
+    # overall, so grade alone rarely asks for a corner; TerrainUp is the
+    # steep diagonal on the same ground, for the contrast.
     START, END = (-136.9, 135.9), (136.9, -135.9)
     corridor = 40.0
     extent = 150.0                     # m either side of the centre, fetched
@@ -379,7 +381,20 @@ class Terrain(Surface):
         return float(np.nanpercentile(np.hypot(gx, gy)[dist <= self.corridor], 90))
 
 
-SURFACES = {s.name: s for s in (Cone(), Dome(), Plane(), Terrain())}
+class TerrainUp(Terrain):
+    """The same patch along the other diagonal (owner, 2026-10-26: both, for
+    the contrast): south-west to north-east, up the main gully, steep enough
+    overall that holding a grade needs corners."""
+    name, label = "gully-up", "Graduation Peak: up the gully"
+    blurb = ("Real ground, from the Kachemak Bay 2023 lidar, below Graduation Peak: corner to corner across the "
+             "patch, from 20 m in from the south-west corner to 20 m in from the north-east one (made up), 90 m "
+             "of climb in 386 m (23 %), along the main gully, whose walls are 80-120 %. The same ground as "
+             "\"across the gullies\", on the steep diagonal. There is no formula here: the straight line is "
+             "the comparison.")
+    START, END = (-136.9, -135.9), (136.9, 135.9)
+
+
+SURFACES = {s.name: s for s in (Cone(), Dome(), Plane(), Terrain(), TerrainUp())}
 
 
 def max_slope(surface):

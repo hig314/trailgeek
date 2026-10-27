@@ -5,7 +5,7 @@ the page reads, so moving a slider swaps lines without a round trip.
     manage.py build_methods analytic [--surface dome] [--jobs 8] [--quick]
 
 `analytic`: the surfaces of trailgeek_analysis/sandbox.py, the formula ones
-and the real patch (the Graduation Peak gully, fetched from the lidar into
+and the real patch (the Graduation Peak gully, along each diagonal, fetched from the lidar into
 .methods_cache/ on first use; no formula there, so no stage 4). In four
 stages (the module's docstring has the reasoning):
   1. the grid's settings, run thoroughly (SEEDS, THOROUGH chains/iterations);
@@ -14,7 +14,7 @@ stages (the module's docstring has the reasoning):
   3. each edge of the grid traced in STEPS steps from both ends;
   4. the formula's line at every node and step.
 Writes core/static/core/methods/<kind>-<surface>.json (analytic-cone,
-terrain-gully, ...). --quick: short
+terrain-gully-up, ...). --quick: short
 runs and one seed, to try the pipeline (the file says so, and the page).
 --formula-only: redo stage 4 in an existing file, keeping its engine lines
 (after a change to the formula alone; a change to the scoring needs a full
@@ -43,7 +43,7 @@ NI, NJ = len(sb.VARY[0][1]), len(sb.VARY[1][1])
 NODES = [(i, j) for i in range(NI) for j in range(NJ)]
 # An edge is (axis, i, j): from node (i, j) to the next along axis (0 grade, 1 corners).
 RETRACE_ROUNDS = 3
-sb.Terrain.path = str(CACHE / "terrain-gully.npz")            # set here, so the workers read it too
+sb.Terrain.path = str(CACHE / "terrain-gully.npz")            # set here, so the workers read it too (both diagonals)
 EDGES = [(0, i, j) for i in range(NI - 1) for j in range(NJ)] + [(1, i, j) for i in range(NI) for j in range(NJ - 1)]
 _grids = {}
 

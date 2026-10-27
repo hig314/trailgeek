@@ -27,9 +27,11 @@ def home(request):
 
 # The methods page's sandbox: one precomputed file per surface (manage.py
 # build_methods analytic), in the order the page offers them: the formula
-# surfaces, then the real patch.
+# surfaces, then the real patch along each of its diagonals.
 SANDBOX_SURFACES = [("cone", "Rounded cone", "analytic"), ("dome", "Dome", "analytic"),
-                    ("plane", "Uniform slope", "analytic"), ("gully", "Graduation Peak gully", "terrain")]
+                    ("plane", "Uniform slope", "analytic"),
+                    ("gully-across", "Graduation Peak: across the gullies", "terrain"),
+                    ("gully-up", "Graduation Peak: up the gully", "terrain")]
 
 
 def methods_sandbox(request):
