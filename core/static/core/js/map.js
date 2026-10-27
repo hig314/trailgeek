@@ -415,6 +415,11 @@
     map.addLayer({ id: 'selected-halo', type: 'line', source: 'selected',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': '#ffd400', 'line-width': 9, 'line-opacity': 0.55, 'line-blur': 2 } }, 'trails-casing');
+    // One alignment picked out from the tiles by id (owner, 2026-10-27: hover
+    // an option in the project's list, or in the assemble tool, to see it).
+    map.addLayer({ id: 'legs-hl', type: 'line', source: 'trails', 'source-layer': 'legs', filter: ['==', ['get', 'id'], -1],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#00e5ff', 'line-width': 7, 'line-opacity': 0.8 } });
     map.addSource('hl', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({ id: 'hl', type: 'line', source: 'hl', layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': '#00e5ff', 'line-width': 7, 'line-opacity': 0.8 } });
@@ -528,6 +533,7 @@
   }
   function select(kind, key, fit) {
     if (window.TgDesign && !TgDesign.leave()) return;
+    if (map.getLayer('legs-hl')) map.setFilter('legs-hl', ['==', ['get', 'id'], -1]);   // a hovered row is gone
     selected = { kind: kind, key: String(key) };
     syncHash();
     $('panel').classList.add('open');
@@ -765,7 +771,7 @@
   // than the far-off centre, square-rooted as a compromise between near and
   // far. Recomputed on every moveend. `window.tgLineScale = false` in the
   // console turns it off for comparison.
-  var SCALED_LINES = ['legs-casing', 'legs-line', 'tracks', 'trails-casing', 'trails-line', 'selected-halo', 'hl',
+  var SCALED_LINES = ['legs-casing', 'legs-line', 'tracks', 'trails-casing', 'trails-line', 'selected-halo', 'hl', 'legs-hl',
                       'ed-legs-casing', 'ed-legs-line', 'ed-rubber'];
   var baseWidth = {};         // layer id -> its own line-width, captured before scaling
   var lineScale = 1;
@@ -1103,6 +1109,9 @@
     setSelected: function (kind, key) { selected = { kind: kind, key: String(key) }; syncHash(); },
     setSelectedGeometry: function (geom) { setGeo('selected', geom); },
     highlight: function (f) { setGeo('hl', f); },
+    highlightAlignment: function (id) {
+      if (map.getLayer('legs-hl')) map.setFilter('legs-hl', ['==', ['get', 'id'], id == null ? -1 : +id]);
+    },
     fitTo: function (geom, bbox) { map.fitBounds(bbox || bboxOf(geom), { padding: 60, maxZoom: 16 }); },
     quickProfile: function (f) { if (f.geometry) loadProfile(f, 'terrain'); },
     rescaleLines: function () { rescaleLines(true); },

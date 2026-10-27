@@ -146,6 +146,7 @@ window.TgDesign = (function () {
     $('detail').innerHTML = h;
     $('profstats').innerHTML = p.evaluation ? '<div class="tg-keys">' + app.profile.legend(true) + '</div>' : '';
     wireView(f);
+    hoverAlignments(document.querySelectorAll('#detail li.asm-from'), function (li) { return li.dataset.id; });
     var rc = $('d-reassemble');
     if (rc) rc.addEventListener('click', function () {
       api('GET', '/api/projects/' + encodeURIComponent(p.project.slug) + '.json').then(function (d) { assembleTool(d, p); })
@@ -382,6 +383,7 @@ window.TgDesign = (function () {
         .catch(function (e) { alert(e.message); });
     }
     function wire() {
+      hoverAlignments(document.querySelectorAll('#proj-table tbody tr[data-id]'), function (tr) { return tr.dataset.id; });
       Array.prototype.forEach.call(document.querySelectorAll('#proj-table .sec-toggle'), function (el) {
         el.addEventListener('click', function () { var k = el.closest('tr').dataset.sec; folded[k] = !folded[k]; fill(); });
       });
@@ -513,6 +515,15 @@ window.TgDesign = (function () {
     }).catch(function (e) { alert(e.message); });
   }
 
+  // Hovering a row picks its alignment out on the map (owner, 2026-10-27).
+  function hoverAlignments(els, idOf) {
+    if (!app.highlightAlignment) return;
+    Array.prototype.forEach.call(els, function (el) {
+      el.addEventListener('mouseenter', function () { app.highlightAlignment(idOf(el)); });
+      el.addEventListener('mouseleave', function () { app.highlightAlignment(null); });
+    });
+  }
+
   // ---- assembling one route from one option per section (owner, 2026-10-26) --
   function joinText(j) {
     var what = j.kind === 'leaves' ? 'leaves ' + esc(j.after) + ' ' + n(j.cut_prev_m) + ' m along it (the rest of it is dropped)'
@@ -525,7 +536,7 @@ window.TgDesign = (function () {
   function assemblyHtml(p) {
     var A = p.assembly, h = '<div class="tg-sub">Assembled from</div><ol class="tg-list tg-small">';
     (A.pieces || []).forEach(function (pc) {
-      h += '<li>' + esc(pc.section || '') + ': <a href="#align=' + pc.alignment_id + '">' + esc(pc.alignment) + '</a>' +
+      h += '<li class="asm-from" data-id="' + pc.alignment_id + '">' + esc(pc.section || '') + ': <a href="#align=' + pc.alignment_id + '">' + esc(pc.alignment) + '</a>' +
            (pc.reversed ? ' (reversed)' : '') + (pc.kept_m && (pc.kept_m[0] > 0.5 || pc.kept_m[1] < pc.length_m - 0.5) ?
              ' <span class="tg-muted">' + kmn(pc.kept_m[1] - pc.kept_m[0]) + ' of ' + kmn(pc.length_m) + ' km</span>' : '') + '</li>';
     });
@@ -619,7 +630,14 @@ window.TgDesign = (function () {
       });
     }
     function soon() { clearTimeout(timer); timer = setTimeout(preview, 300); }
+    hoverAlignments(document.querySelectorAll('.asm-pick tr'), function (tr) {
+      var sel = tr.querySelector('.asm-opt');
+      return sel && sel.value ? sel.value : null;
+    });
     Array.prototype.forEach.call(document.querySelectorAll('.asm-opt, .asm-rev'), function (el) { el.addEventListener('change', soon); });
+    Array.prototype.forEach.call(document.querySelectorAll('.asm-opt'), function (el) {
+      el.addEventListener('change', function () { if (app.highlightAlignment) app.highlightAlignment(el.value || null); });
+    });
     $('asm-cancel').addEventListener('click', function () { asmSeq++; app.setSelectedGeometry(null); if (from) app.select('align', from.id, false); else app.select('project', p.slug, false); });
     $('asm-save').addEventListener('click', function () {
       var b = $('asm-save'); b.disabled = true;
