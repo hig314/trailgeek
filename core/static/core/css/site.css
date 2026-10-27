@@ -219,3 +219,7 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 #coord-toast { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
   background: rgba(20,20,20,.88); color: #fff; padding: 6px 12px; border-radius: 4px;
   font-size: 13px; z-index: 5; pointer-events: none; transition: opacity .3s; opacity: 0; }
+.tg-tree .sec-head th { text-align: left; background: rgba(127, 127, 127, 0.08); font-weight: 600; padding-top: 6px; }
+.tg-tree .sec-toggle { cursor: pointer; }
+.tg-tree .sec-acts { font-weight: normal; margin-left: 6px; }
+.tg-tree .sec-pick { font-size: 12px; max-width: 140px; }

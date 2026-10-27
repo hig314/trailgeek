@@ -271,6 +271,26 @@ class Project(OwnedMixin):
         return out
 
 
+class ProjectSection(models.Model):
+    """A part of a project's route, in order along it (owner, 2026-10-26:
+    "section", since "segment" is a built Trail in PLAN.md). The project's
+    alignments assigned to it are its options, each with its variants under
+    it; the assemble tool takes one option per section and joins them into
+    one continuous alignment. An existing trail is an option as an
+    alignment of one existing-trail leg along it."""
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="sections")
+    name = models.CharField(max_length=200)
+    order = models.PositiveIntegerField(default=0)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["project", "order", "pk"]
+
+    def __str__(self):
+        return f"{self.project.name}: {self.name}"
+
+
 class Alignment(models.Model):
     """One candidate route within a Project: a continuous line made of
     ordered Legs. Each leg is either existing trail to follow or a specific
@@ -311,6 +331,9 @@ class Alignment(models.Model):
         help_text="The existing trail this alignment is a study or variant of (refine study of a trail; "
                   "its variants inherit it), so it is listed under that trail.",
     )
+    section = models.ForeignKey(
+        ProjectSection, null=True, blank=True, on_delete=models.SET_NULL, related_name="options",
+        help_text="The part of the project's route this is an option for; a variant takes its parent's.")
     source = models.CharField(max_length=300, blank=True, help_text="Import provenance, if imported.")
     geom = models.LineStringField(srid=4326, null=True, blank=True, editable=False)
     runs_uphill = models.BooleanField(null=True, blank=True, editable=False, help_text="Set by the evaluator.")
@@ -339,6 +362,10 @@ class Alignment(models.Model):
 
     def save(self, *args, **kwargs):
         self.length_m = geo.length_m(self.geom) if self.geom else 0
+        # A new variant sits in its parent's section (duplicate, refine, the
+        # editor's "Save as variant" all make variants).
+        if self.pk is None and self.section_id is None and self.parent_id:
+            self.section_id = Alignment.objects.filter(pk=self.parent_id).values_list("section_id", flat=True).first()
         super().save(*args, **kwargs)
 
     def get_absolute_url(self):

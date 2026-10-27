@@ -65,6 +65,32 @@ Decided for the Tutka Tusk scouting season (2026-10-16):
   as 8 single-leg alignments; stitching the preferred pieces into one
   alignment of legs is an editor job, not an importer guess.
 
+Decided for presenting a project as one route (owner, 2026-10-26):
+- **Sections, options, variants.** A project's route is a list of
+  **sections** in order (`ProjectSection`; "section", since "segment" is a
+  built Trail above). The alignments assigned to a section are its
+  **options**; each option's **variants** (`parent`) sit under it and take
+  its section. An **existing trail is an option** as an alignment of one
+  existing-trail leg along it (the refine study's alignment, made with "Add
+  as an option…" on the trail's panel). The project panel is a tree:
+  section, then options, then variants, with the compare numbers.
+- **Then: assemble.** Pick one option (or variant) per section; the tool
+  joins them into **one continuous Alignment** (so the editor, evaluation,
+  profile, exports and Refine all work on it), recording which option it
+  took for each section so it can be rebuilt. Joins are guessed
+  automatically and reported: a gap is bridged with a short new-construction
+  leg; where the next option leaves the middle of the previous one, the
+  previous is cut there; overlaps are trimmed at their closest approach.
+  The Lagoon Bypass shows why the middle case matters: Link B leaves it
+  ~335 m along and Link A ~891 m along, so the bypass stays one option and
+  is cut where the chosen link leaves it, not split in the data.
+- **Then: fine-tune the joins.** Refine on a window around each join only
+  (ends of each window fixed), with the gentle chains ("Your line,
+  polished", the corridor search), saved as a variant of the assembled line.
+- **Later: a 3-way junction tool.** Where a branch leaves a through trail
+  (the climb off the Lagoon Bypass), refine the junction itself: where on
+  the through line the branch leaves, and the shape of all three arms.
+
 Decided for near-horizontal 3D views (2026-09-28):
 - MapLibre sizes draped lines from the scale at the map centre, and with
   terrain both its clamping and demshade's centre tracker re-derive zoom from
@@ -179,6 +205,9 @@ build && up -d`, and **dev → owner tests → explicit approval → push + depl
 - **`Project`** — a trail design study: name, AOI polygon, chosen
   `DemSource`, collaborators, settings (sample spacing, thresholds, rubric),
   `parent` (projects nest: programme → trail → job).
+- **`ProjectSection`** — a part of a project's route, in order (name,
+  order, notes); `Alignment.section` makes an alignment one of its options.
+  See the 2026-10-26 decisions in §0.
 - **`Route`** (not built) — a named, ordered chain of Trail segments, the
   as-built twin of Alignment-of-Legs; see the 2026-10-16 decisions in §0.
 - **`Alignment`** — one candidate line within a Project: name, priority,
