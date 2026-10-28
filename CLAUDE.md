@@ -13,7 +13,7 @@ server and Django reasoning rather than assume it.
 | [docs/SISTER_PROJECTS.md](docs/SISTER_PROJECTS.md) | What to reuse from landslidescience, GTA, demshade, and the public lidar catalogue |
 | [docs/TRAIL_ANALYSIS.md](docs/TRAIL_ANALYSIS.md) | Spec of the evaluator, profile and router algorithms to port, with their known bugs |
 
-## State of play (2026-10-26): the one dated section; update it, don't work around it
+## State of play (2026-10-27): the one dated section; update it, don't work around it
 
 - **Phase 0 and Phase 1 are merged** (hig314/trailgeek#1, 2026-09-27; the
   owner reports it running). Phase 1 gave `DemSource` (seeded by
@@ -249,12 +249,35 @@ server and Django reasoning rather than assume it.
   (~10 m) or Terrarium (~60 m data in Alaska) and say so. No backups yet,
   and uploads now exist. Local session: adopt `dem_stack.js` in /lidar/
   and fix the three demshade issues in VENDOR.md.
-- **Project sections** (branch `project-sections`, built and tried in dev
+- **Project sections and the assemble tool: #35 and #36 merged and deployed
+  2026-10-27** (main 25ad66c, from the Mac, owner's approval; migrations 0008
+  and 0009 applied in production, additive only). Hovering an option in the
+  project tree, the assemble tool or an assembled route's "Assembled from"
+  list highlights it on the map (`legs-hl`, `tgMap`'s `highlightAlignment`).
+  **Production's Tutka Tusk sections and route** (owner's request,
+  2026-10-27/28, from the Mac's Django shell): the six sections as in dev
+  (Lagoon Bypass, which is the owner's "Tutka Tusk all" section renamed;
+  Link; Tutka Tusk (lower); Upper ascent; Tutka Tusk (upper); Backdoor loop
+  connection), all 14 alignments sorted, each variant with its original;
+  **#91 "Tutka Tusk: whole route (Link B, Upper B, refined)"** assembled from
+  73, 86, 87, 88, 89, 74 (14.2 km, 1224 m climb, 456 crew-days; the bypass
+  cut at 301 m, no bridges). The owner's bypass-only try, #90, was deleted
+  at their request. Production and dev pks now differ from 80 up.
+- **Also deployed 2026-10-27** (main 810abd8, owner's approval; no
+  migrations): **#38**, the project tree down to four stat columns (km,
+  climb, p95 grade, build days; the rest in each row's tooltip) with the
+  section menu beside the name, since the wide table hid it; **#39**,
+  "Only this on the map" in an alignment's panel: that alignment's legs
+  alone, no other alignment, trail or track, following the selection
+  between alignments, kept in the hash as `solo=1`. **#40** (2026-10-28) moved its
+  checkbox up under the panel's buttons; at the foot it was missed. Next for a chosen
+  route (owner): visualise and analyse it.
+- **Project sections** (#35, `project-sections`, built and tried in dev
   2026-10-26, migration 0008: a new table and a nullable column, no existing
   row changed): `ProjectSection`, `Alignment.section`; the project panel is
   a tree (section → options → variants); "Add as an option…" on a trail's
   panel. Step 1 of 3 (PLAN.md §0, 2026-10-26).
-- **Assemble a route** (branch `assemble-route`, stacked on
+- **Assemble a route** (#36, `assemble-route`, stacked on
   `project-sections` because migration 0009 follows 0008; built and tried
   in dev 2026-10-26): "Assemble a route…" on the project panel picks one
   option (or variant) per section, joins them (`core/assemble.py`: end to
@@ -267,8 +290,8 @@ server and Django reasoning rather than assume it.
   fine-tuning the joins. Dev: #90 "Tutka Tusk: whole route (Link B, Upper
   B)", 14.6 km, the bypass cut at 301 m. **Dev data:** Tutka Tusk has six sections (Lagoon
   Bypass; Link A/B; Tutka Tusk lower #79; Upper ascent A/B; Tutka Tusk upper
-  #78; Backdoor loop connection), "Between" #81/#82 unsorted. Not yet in
-  production: set them up there by hand, or ask the local session to.
+  #78; Backdoor loop connection), "Between" #81/#82 unsorted. Production has
+  the same six (set up 2026-10-27, above).
 - **Next up:** the `Route` model (an ordered chain of Trail segments; seed
   it with the Backdoor Trail from PLAN.md §0); check evaluations against
   real lidar once deployed; revive switchback / curvature detection; a
