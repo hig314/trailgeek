@@ -147,7 +147,7 @@ server and Django reasoning rather than assume it.
     browser last had them, localStorage `tg_view_prefs`, per viewer only).
     The Layers panel's survey picker is labelled **DEM**: it is not all lidar.
   - **Hash keys trailgeek owns**, through the shared grammar's extras
-    pass-through: `t3d` `ve` `sh` `op` `trail` `track` `align` `project`.
+    pass-through: `t3d` `ve` `sh` `op` `trail` `track` `align` `project` `solo`.
     landslidescience's own extras are listed in ls_hash.js's header
     (inventory `id ids tab an sc ty c f sa da vol yr n10 lw lv pm pr pw pve
     smp pp ax bx ls gr trk trg`, glaciers `site t`); never claim one of
