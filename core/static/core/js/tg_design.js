@@ -291,12 +291,13 @@ window.TgDesign = (function () {
       h += '<div class="tg-sub">Projects within this one</div><ul class="tg-list">' +
            p.children.map(function (q) { return '<li><a href="#project=' + esc(q.slug) + '">' + esc(q.name) + '</a></li>'; }).join('') + '</ul>';
     }
-    var cols = [['name', 'Alignment'], ['length_m', 'km'], ['build_m', 'New km'], ['climb_m', 'Climb m'], ['grade_p95', 'p95 grade %'],
-                ['steep_pct', '> 18 %'], ['fall_line_pct', 'TSA < 45° %'], ['construct_days', 'Build days'], ['lidar_pct', 'Lidar %']];
+    // Few columns, so the tree fits the panel (owner, 2026-10-27); the rest
+    // are in each row's tooltip and in the alignment's own panel.
+    var cols = [['name', 'Alignment'], ['length_m', 'km'], ['climb_m', 'Climb m'], ['grade_p95', 'p95 grade %'], ['construct_days', 'Build days']];
     h += '<div class="tg-small tg-muted">' + data.alignments.length + ' alignments' + (data.sections.length ? ' in ' + data.sections.length + ' sections, in order along the route; each section\'s alignments are its options, variants under them' : '') +
          '. Click a column to sort within each section.</div>';
     h += '<div class="tg-scroll"><table class="tg-compare tg-tree" id="proj-table"><thead><tr>' +
-         cols.map(function (c) { return '<th data-k="' + c[0] + '">' + c[1] + '</th>'; }).join('') + (p.can_edit ? '<th>Section</th>' : '') + '</tr></thead><tbody></tbody></table></div>';
+         cols.map(function (c, i) { return '<th data-k="' + c[0] + '">' + c[1] + '</th>' + (i === 0 && p.can_edit ? '<th>Section</th>' : ''); }).join('') + '</tr></thead><tbody></tbody></table></div>';
     if (p.can_edit) h += '<div class="tg-actions"><input id="sec-name" type="text" placeholder="New section name"> <button id="sec-add" class="tg-btn">Add a section</button>' +
                          ' <span class="tg-small tg-muted">Sections are the parts of the route, in order. An existing trail becomes an option with "Add as an option…" on its panel.</span></div>';
     if (data.tracks && data.tracks.length) {
@@ -341,11 +342,12 @@ window.TgDesign = (function () {
     }
     function rowHtml(a, depth) {
       var hh = a.headline || {};
-      return '<tr data-id="' + a.id + '"><td style="padding-left:' + (6 + 16 * depth) + 'px">' + (depth ? '<span class="tg-muted">↳ </span>' : '') +
+      var tip = 'New construction ' + kmn(hh.build_m) + ' km · steeper than 18 %: ' + n(hh.steep_pct) + ' % · TSA under 45°: ' + n(hh.fall_line_pct) +
+                ' % · on lidar: ' + n(hh.lidar_pct) + ' %';
+      return '<tr data-id="' + a.id + '" title="' + esc(tip) + '"><td style="padding-left:' + (6 + 16 * depth) + 'px">' + (depth ? '<span class="tg-muted">↳ </span>' : '') +
              '<a href="#align=' + a.id + '">' + esc(a.name) + '</a>' + (a.trail ? ' <span class="tg-badge" title="An existing trail: ' + esc(a.trail) + '">trail</span>' : '') +
-             (a.evaluation_status === 'queued' ? ' <span class="tg-spin"></span>' : '') + '</td><td>' + kmn(a.length_m) + '</td><td>' + kmn(hh.build_m) +
-             '</td><td>' + n(hh.climb_m) + '</td><td>' + n(hh.grade_p95) + '</td><td>' + n(hh.steep_pct) + '</td><td>' + n(hh.fall_line_pct) +
-             '</td><td>' + n(hh.construct_days) + '</td><td>' + n(hh.lidar_pct) + '</td>' + (p.can_edit ? '<td>' + secSelect(a) + '</td>' : '') + '</tr>';
+             (a.evaluation_status === 'queued' ? ' <span class="tg-spin"></span>' : '') + '</td>' + (p.can_edit ? '<td>' + secSelect(a) + '</td>' : '') +
+             '<td>' + kmn(a.length_m) + '</td><td>' + n(hh.climb_m) + '</td><td>' + n(hh.grade_p95) + '</td><td>' + n(hh.construct_days) + '</td></tr>';
     }
     function headHtml(g, i) {
       var key = g.sec ? g.sec.id : g.routes ? 'routes' : 'none', shut = !!folded[key];
