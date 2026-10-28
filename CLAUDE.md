@@ -255,6 +255,14 @@ server and Django reasoning rather than assume it.
   project tree, the assemble tool or an assembled route's "Assembled from"
   list highlights it on the map (`legs-hl`, `tgMap`'s `highlightAlignment`).
   Production's Tutka Tusk has **no sections yet**.
+- **Also deployed 2026-10-27** (main 810abd8, owner's approval; no
+  migrations): **#38**, the project tree down to four stat columns (km,
+  climb, p95 grade, build days; the rest in each row's tooltip) with the
+  section menu beside the name, since the wide table hid it; **#39**,
+  "Only this on the map" in an alignment's panel: that alignment's legs
+  alone, no other alignment, trail or track, following the selection
+  between alignments, kept in the hash as `solo=1`. Next for a chosen
+  route (owner): visualise and analyse it.
 - **Project sections** (#35, `project-sections`, built and tried in dev
   2026-10-26, migration 0008: a new table and a nullable column, no existing
   row changed): `ProjectSection`, `Alignment.section`; the project panel is
