@@ -290,8 +290,8 @@ server and Django reasoning rather than assume it.
   fine-tuning the joins. Dev: #90 "Tutka Tusk: whole route (Link B, Upper
   B)", 14.6 km, the bypass cut at 301 m. **Dev data:** Tutka Tusk has six sections (Lagoon
   Bypass; Link A/B; Tutka Tusk lower #79; Upper ascent A/B; Tutka Tusk upper
-  #78; Backdoor loop connection), "Between" #81/#82 unsorted. Not in
-  production: set them up there by hand, or ask the local session to.
+  #78; Backdoor loop connection), "Between" #81/#82 unsorted. Production has
+  the same six (set up 2026-10-27, above).
 - **Next up:** the `Route` model (an ordered chain of Trail segments; seed
   it with the Backdoor Trail from PLAN.md §0); check evaluations against
   real lidar once deployed; revive switchback / curvature detection; a
