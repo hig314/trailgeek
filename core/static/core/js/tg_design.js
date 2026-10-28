@@ -138,6 +138,8 @@ window.TgDesign = (function () {
     if (p.evaluation) h += sourcesNote(p.evaluation) + bandsHtml(p.evaluation);
     if (p.notes) h += '<p class="tg-desc tg-small">' + esc(p.notes) + '</p>';
     h += compareHtml(p);
+    h += '<label class="tg-solo" title="Hide every other alignment, trail and track; stays on as you move between alignments">' +
+         '<input type="checkbox" id="d-solo"' + (app.solo() ? ' checked' : '') + '> Only this on the map</label>';
     h += '<div class="tg-links"><a href="#" id="zoomto">Zoom to</a> · <a href="#" id="sideview" title="Look at it (nearly) horizontally, from the side, to see how steady the climb is">Side view</a> · ' +
          '<a href="/api/alignments/' + p.id + '.gpx" title="One track per leg, with waypoints where legs join; opens in GaiaGPS and the field map app">GPX</a> · ' +
          '<a href="/api/alignments/' + p.id + '.geojson" download="alignment-' + p.id + '.geojson">GeoJSON</a></div>';
@@ -146,6 +148,7 @@ window.TgDesign = (function () {
     $('detail').innerHTML = h;
     $('profstats').innerHTML = p.evaluation ? '<div class="tg-keys">' + app.profile.legend(true) + '</div>' : '';
     wireView(f);
+    $('d-solo').addEventListener('change', function () { app.solo($('d-solo').checked); });
     hoverAlignments(document.querySelectorAll('#detail li.asm-from'), function (li) { return li.dataset.id; });
     var rc = $('d-reassemble');
     if (rc) rc.addEventListener('click', function () {

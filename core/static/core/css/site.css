@@ -48,6 +48,7 @@ body { font: 15px/1.5 system-ui, -apple-system, sans-serif; color: var(--tg-ink)
 .tg-stats dd { margin: 0; font-variant-numeric: tabular-nums; }
 .tg-list { margin: 0; padding-left: 18px; }
 .tg-links { margin: 8px 0; font-size: 13px; }
+.tg-solo { display: block; margin: 8px 0 0; font-size: 13px; cursor: pointer; }
 .tg-desc { white-space: pre-wrap; }
 .tg-toggle label { margin-right: 10px; font-size: 13px; }
 .tg-profile-box { position: relative; margin-top: 4px; min-height: 40px; }
