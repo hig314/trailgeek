@@ -427,7 +427,21 @@
     map.addLayer({ id: 'cursor', type: 'circle', source: 'cursor',
       paint: { 'circle-radius': 6, 'circle-color': '#ffd400', 'circle-stroke-color': '#1f2a1f', 'circle-stroke-width': 2,
                'circle-pitch-scale': 'viewport' } });
+    applySolo();
   }
+  // "Only this on the map" (owner, 2026-10-27: see a chosen route alone): the
+  // selected alignment's legs, and no other alignment, trail or track. It
+  // follows the selection from one alignment to the next and ends with a
+  // selection of anything else; the hash keeps it as solo=1.
+  var solo = false;
+  function applySolo() {
+    if (!map.getLayer('legs-line')) return;
+    var on = solo && selected && selected.kind === 'align';
+    var f = on ? ['==', ['get', 'id'], +selected.key] : null;
+    ['legs-casing', 'legs-line'].forEach(function (id) { map.setFilter(id, f); });
+    ['trails-casing', 'trails-line', 'tracks'].forEach(function (id) { map.setLayoutProperty(id, 'visibility', on ? 'none' : 'visible'); });
+  }
+  function setSolo(on) { solo = !!on; applySolo(); syncHash(); }
   function refreshTiles() {
     tileVersion = Date.now();
     if (map.getSource('trails')) map.getSource('trails').setTiles([tileUrl()]);
@@ -535,6 +549,8 @@
     if (window.TgDesign && !TgDesign.leave()) return;
     if (map.getLayer('legs-hl')) map.setFilter('legs-hl', ['==', ['get', 'id'], -1]);   // a hovered row is gone
     selected = { kind: kind, key: String(key) };
+    if (kind !== 'align') solo = false;
+    applySolo();
     syncHash();
     $('panel').classList.add('open');
     $('panel').classList.toggle('tg-wide', kind === 'project');
@@ -566,7 +582,8 @@
   }
   function clearSelection() {
     if (window.TgDesign && !TgDesign.leave()) return;
-    selected = null; lastFeature = null;
+    selected = null; lastFeature = null; solo = false;
+    applySolo();
     syncProjectPicker();
     if (window.TgNotes) TgNotes.setProject(null);
     setSelectedData({ type: 'FeatureCollection', features: [] });
@@ -1023,6 +1040,9 @@
         $('t3d').checked = on; ex.disabled = !on;
         if (change || (on && !map.getTerrain())) rebuildTerrain();
       } },
+    { key: 'solo', cold: true,               // before 'selection', which applies it
+      collect: function (o) { if (solo && selected && selected.kind === 'align') o.extras.solo = '1'; },
+      apply: function (s) { if ((s.extras.solo === '1') !== solo) { solo = s.extras.solo === '1'; applySolo(); } } },
     { key: 'selection', cold: true,
       collect: function (o) { if (selected) o.extras[selected.kind] = selected.key; },
       apply: function (s, how) {
@@ -1106,7 +1126,8 @@
   TgDesign.init({
     map: map, profile: profile, esc: esc,
     select: select, clearSelection: clearSelection, refreshTiles: refreshTiles,
-    setSelected: function (kind, key) { selected = { kind: kind, key: String(key) }; syncHash(); },
+    setSelected: function (kind, key) { selected = { kind: kind, key: String(key) }; applySolo(); syncHash(); },
+    solo: function (on) { if (on === undefined) return solo; setSolo(on); },
     setSelectedGeometry: function (geom) { setGeo('selected', geom); },
     highlight: function (f) { setGeo('hl', f); },
     highlightAlignment: function (id) {
