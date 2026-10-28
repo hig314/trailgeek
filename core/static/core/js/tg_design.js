@@ -131,6 +131,9 @@ window.TgDesign = (function () {
     } else if (p.legs && p.legs.length && window.TG_CONFIG && TG_CONFIG.signedIn) {
       h += '<div class="tg-actions"><button id="d-factors" class="tg-btn" title="The refine tool\'s factors along this alignment on the lidar, with your refine settings">Factors along the line…</button></div>';
     }
+    // Near the top, where it is seen (owner, 2026-10-27: at the foot it was missed).
+    h += '<label class="tg-solo" title="Hide every other alignment, trail and track; stays on as you move between alignments">' +
+         '<input type="checkbox" id="d-solo"' + (app.solo() ? ' checked' : '') + '> Only this on the map</label>';
     if (p.assembly) h += assemblyHtml(p);
     h += evalStatusHtml(p);
     if (p.headline) h += statsTable(p.headline);
@@ -138,8 +141,6 @@ window.TgDesign = (function () {
     if (p.evaluation) h += sourcesNote(p.evaluation) + bandsHtml(p.evaluation);
     if (p.notes) h += '<p class="tg-desc tg-small">' + esc(p.notes) + '</p>';
     h += compareHtml(p);
-    h += '<label class="tg-solo" title="Hide every other alignment, trail and track; stays on as you move between alignments">' +
-         '<input type="checkbox" id="d-solo"' + (app.solo() ? ' checked' : '') + '> Only this on the map</label>';
     h += '<div class="tg-links"><a href="#" id="zoomto">Zoom to</a> · <a href="#" id="sideview" title="Look at it (nearly) horizontally, from the side, to see how steady the climb is">Side view</a> · ' +
          '<a href="/api/alignments/' + p.id + '.gpx" title="One track per leg, with waypoints where legs join; opens in GaiaGPS and the field map app">GPX</a> · ' +
          '<a href="/api/alignments/' + p.id + '.geojson" download="alignment-' + p.id + '.geojson">GeoJSON</a></div>';
